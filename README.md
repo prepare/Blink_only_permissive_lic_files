@@ -1,5 +1,5 @@
 # Blink_only_permissive_lic_files
-copy of Google Blink, master branch (2015-02-19)
+copy of Google Blink Engine, master branch (2015-02-19)
 
 This is not complete Blink source code.
 
