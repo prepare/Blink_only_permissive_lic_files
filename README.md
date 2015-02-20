@@ -3,9 +3,11 @@ copy of Google Blink Engine, master branch (2015-02-19)
 
 This is not complete Blink source code.
 
-*** The GNU files have been removed. ***
+*** This contains ONLY PERMISSIVE license files. ***
 
-This contains only permissive license files.
+(the GNU files have been removed)
+
+
 
 
 
