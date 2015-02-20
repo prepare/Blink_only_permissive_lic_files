@@ -1,0 +1,19 @@
+// Copyright 2014 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+[
+    RuntimeEnabled=WebAnimationsAPI,
+    ImplementedAs=AnimationNodeTiming,
+    WillBeGarbageCollected,
+] interface Timing {
+    attribute double delay;
+    attribute double endDelay;
+    attribute DOMString fill;
+    attribute double iterationStart;
+    attribute double iterations;
+    attribute (double or DOMString) duration;
+    attribute double playbackRate;
+    attribute DOMString direction;
+    attribute DOMString easing;
+};
