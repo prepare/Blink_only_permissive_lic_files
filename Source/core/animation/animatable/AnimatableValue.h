@@ -31,13 +31,14 @@
 #ifndef AnimatableValue_h
 #define AnimatableValue_h
 
+#include "core/CoreExport.h"
 #include "core/css/CSSValue.h"
 #include "platform/heap/Handle.h"
 #include "wtf/RefCounted.h"
 
 namespace blink {
 
-class AnimatableValue : public RefCountedWillBeGarbageCollectedFinalized<AnimatableValue> {
+class CORE_EXPORT AnimatableValue : public RefCountedWillBeGarbageCollectedFinalized<AnimatableValue> {
 public:
     virtual ~AnimatableValue() { }
 
@@ -87,7 +88,7 @@ public:
         return value->type() == type();
     }
 
-    virtual void trace(Visitor*) { }
+    DEFINE_INLINE_VIRTUAL_TRACE() { }
 
 protected:
     enum AnimatableType {

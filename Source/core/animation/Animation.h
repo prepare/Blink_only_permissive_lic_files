@@ -31,6 +31,7 @@
 #ifndef Animation_h
 #define Animation_h
 
+#include "core/CoreExport.h"
 #include "core/animation/AnimationEffect.h"
 #include "core/animation/AnimationNode.h"
 #include "core/animation/EffectInput.h"
@@ -40,23 +41,21 @@
 
 namespace blink {
 
+class AnimationTimingProperties;
 class Dictionary;
 class Element;
 class ExceptionState;
 class SampledEffect;
 
-class Animation final : public AnimationNode {
+class CORE_EXPORT Animation final : public AnimationNode {
     DEFINE_WRAPPERTYPEINFO();
 public:
     enum Priority { DefaultPriority, TransitionPriority };
 
     static PassRefPtrWillBeRawPtr<Animation> create(Element*, PassRefPtrWillBeRawPtr<AnimationEffect>, const Timing&, Priority = DefaultPriority, PassOwnPtrWillBeRawPtr<EventDelegate> = nullptr);
     // Web Animations API Bindings constructors.
-    static PassRefPtrWillBeRawPtr<Animation> create(Element*, PassRefPtrWillBeRawPtr<AnimationEffect>, const Dictionary& timingInputDictionary);
-    static PassRefPtrWillBeRawPtr<Animation> create(Element*, PassRefPtrWillBeRawPtr<AnimationEffect>, double duration);
-    static PassRefPtrWillBeRawPtr<Animation> create(Element*, PassRefPtrWillBeRawPtr<AnimationEffect>);
-    static PassRefPtrWillBeRawPtr<Animation> create(Element*, const Vector<Dictionary>& keyframeDictionaryVector, const Dictionary& timingInputDictionary, ExceptionState&);
     static PassRefPtrWillBeRawPtr<Animation> create(Element*, const Vector<Dictionary>& keyframeDictionaryVector, double duration, ExceptionState&);
+    static PassRefPtrWillBeRawPtr<Animation> create(Element*, const Vector<Dictionary>& keyframeDictionaryVector, const AnimationTimingProperties& timingInput, ExceptionState&);
     static PassRefPtrWillBeRawPtr<Animation> create(Element*, const Vector<Dictionary>& keyframeDictionaryVector, ExceptionState&);
 
     virtual ~Animation();
@@ -70,7 +69,6 @@ public:
     Priority priority() const { return m_priority; }
     Element* target() const { return m_target; }
 
-    void notifySampledEffectRemovedFromAnimationStack();
 #if !ENABLE(OILPAN)
     void notifyElementDestroyed();
 #endif
@@ -85,9 +83,12 @@ public:
     void cancelIncompatibleAnimationsOnCompositor();
     void pauseAnimationForTestingOnCompositor(double pauseTime);
 
+    bool canAttachCompositedLayers() const;
+    void attachCompositedLayers();
+
     void setCompositorAnimationIdsForTesting(const Vector<int>& compositorAnimationIds) { m_compositorAnimationIds = compositorAnimationIds; }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
     void downgradeToNormalAnimation() { m_priority = DefaultPriority; }
 

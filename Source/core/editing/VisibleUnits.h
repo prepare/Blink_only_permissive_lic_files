@@ -26,6 +26,7 @@
 #ifndef VisibleUnits_h
 #define VisibleUnits_h
 
+#include "core/CoreExport.h"
 #include "core/editing/EditingBoundary.h"
 #include "platform/text/TextDirection.h"
 
@@ -41,25 +42,25 @@ class VisiblePosition;
 enum EWordSide { RightWordIfOnBoundary = false, LeftWordIfOnBoundary = true };
 
 // words
-VisiblePosition startOfWord(const VisiblePosition &, EWordSide = RightWordIfOnBoundary);
-VisiblePosition endOfWord(const VisiblePosition &, EWordSide = RightWordIfOnBoundary);
+CORE_EXPORT VisiblePosition startOfWord(const VisiblePosition &, EWordSide = RightWordIfOnBoundary);
+CORE_EXPORT VisiblePosition endOfWord(const VisiblePosition &, EWordSide = RightWordIfOnBoundary);
 VisiblePosition previousWordPosition(const VisiblePosition &);
 VisiblePosition nextWordPosition(const VisiblePosition &);
 VisiblePosition rightWordPosition(const VisiblePosition&, bool skipsSpaceWhenMovingRight);
 VisiblePosition leftWordPosition(const VisiblePosition&, bool skipsSpaceWhenMovingRight);
 
 // sentences
-VisiblePosition startOfSentence(const VisiblePosition &);
-VisiblePosition endOfSentence(const VisiblePosition &);
+CORE_EXPORT VisiblePosition startOfSentence(const VisiblePosition &);
+CORE_EXPORT VisiblePosition endOfSentence(const VisiblePosition &);
 VisiblePosition previousSentencePosition(const VisiblePosition &);
 VisiblePosition nextSentencePosition(const VisiblePosition &);
 
 // lines
 VisiblePosition startOfLine(const VisiblePosition &);
 VisiblePosition endOfLine(const VisiblePosition &);
-VisiblePosition previousLinePosition(const VisiblePosition&, LayoutUnit lineDirectionPoint, EditableType = ContentIsEditable);
-VisiblePosition nextLinePosition(const VisiblePosition&, LayoutUnit lineDirectionPoint, EditableType = ContentIsEditable);
-bool inSameLine(const VisiblePosition &, const VisiblePosition &);
+CORE_EXPORT VisiblePosition previousLinePosition(const VisiblePosition&, LayoutUnit lineDirectionPoint, EditableType = ContentIsEditable);
+CORE_EXPORT VisiblePosition nextLinePosition(const VisiblePosition&, LayoutUnit lineDirectionPoint, EditableType = ContentIsEditable);
+CORE_EXPORT bool inSameLine(const VisiblePosition &, const VisiblePosition &);
 bool isStartOfLine(const VisiblePosition &);
 bool isEndOfLine(const VisiblePosition &);
 VisiblePosition logicalStartOfLine(const VisiblePosition &);

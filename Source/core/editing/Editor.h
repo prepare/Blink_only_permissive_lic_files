@@ -26,6 +26,7 @@
 #ifndef Editor_h
 #define Editor_h
 
+#include "core/CoreExport.h"
 #include "core/clipboard/DataTransferAccessPolicy.h"
 #include "core/dom/DocumentMarker.h"
 #include "core/editing/EditAction.h"
@@ -35,7 +36,6 @@
 #include "core/editing/VisibleSelection.h"
 #include "core/editing/WritingDirection.h"
 #include "core/editing/iterators/TextIterator.h"
-#include "core/frame/FrameDestructionObserver.h"
 #include "platform/PasteMode.h"
 #include "platform/heap/Handle.h"
 
@@ -57,7 +57,7 @@ class UndoStack;
 enum EditorCommandSource { CommandFromMenuOrKeyBinding, CommandFromDOM };
 enum EditorParagraphSeparator { EditorParagraphSeparatorIsDiv, EditorParagraphSeparatorIsP };
 
-class Editor final : public NoBaseWillBeGarbageCollectedFinalized<Editor> {
+class CORE_EXPORT Editor final : public NoBaseWillBeGarbageCollectedFinalized<Editor> {
     WTF_MAKE_NONCOPYABLE(Editor);
 public:
     static PassOwnPtrWillBeRawPtr<Editor> create(LocalFrame&);
@@ -120,7 +120,7 @@ public:
     void setShouldStyleWithCSS(bool flag) { m_shouldStyleWithCSS = flag; }
     bool shouldStyleWithCSS() const { return m_shouldStyleWithCSS; }
 
-    class Command {
+    class CORE_EXPORT Command {
         STACK_ALLOCATED();
     public:
         Command();
@@ -234,7 +234,7 @@ public:
     };
     friend class RevealSelectionScope;
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 private:
     RawPtrWillBeMember<LocalFrame> m_frame;
@@ -267,7 +267,7 @@ private:
     bool canSmartReplaceWithPasteboard(Pasteboard*);
     void pasteAsPlainTextWithPasteboard(Pasteboard*);
     void pasteWithPasteboard(Pasteboard*);
-    void writeSelectionToPasteboard(Pasteboard*, Range*, const String& plainText);
+    void writeSelectionToPasteboard();
     bool dispatchCPPEvent(const AtomicString&, DataTransferAccessPolicy, PasteMode = AllMimeTypes);
 
     void revealSelectionAfterEditingOperation(const ScrollAlignment& = ScrollAlignment::alignCenterIfNeeded, RevealExtentOption = DoNotRevealExtent);

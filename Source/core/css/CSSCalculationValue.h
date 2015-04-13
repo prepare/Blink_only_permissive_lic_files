@@ -31,6 +31,7 @@
 #ifndef CSSCalculationValue_h
 #define CSSCalculationValue_h
 
+#include "core/CoreExport.h"
 #include "core/css/CSSPrimitiveValue.h"
 #include "core/css/CSSValue.h"
 #include "core/css/parser/CSSParserValues.h"
@@ -86,7 +87,7 @@ public:
     virtual CSSPrimitiveValue::UnitType primitiveType() const = 0;
     bool isInteger() const { return m_isInteger; }
 
-    virtual void trace(Visitor*) { }
+    DEFINE_INLINE_VIRTUAL_TRACE() { }
 
 protected:
     CSSCalcExpressionNode(CalculationCategory category, bool isInteger)
@@ -100,7 +101,7 @@ protected:
     bool m_isInteger;
 };
 
-class CSSCalcValue : public CSSValue {
+class CORE_EXPORT CSSCalcValue : public CSSValue {
 public:
     static PassRefPtrWillBeRawPtr<CSSCalcValue> create(CSSParserValueList*, ValueRange);
     static PassRefPtrWillBeRawPtr<CSSCalcValue> create(PassRefPtrWillBeRawPtr<CSSCalcExpressionNode>, ValueRange = ValueRangeAll);
@@ -127,7 +128,7 @@ public:
     String customCSSText() const;
     bool equals(const CSSCalcValue&) const;
 
-    void traceAfterDispatch(Visitor*);
+    DECLARE_TRACE_AFTER_DISPATCH();
 
 private:
     CSSCalcValue(PassRefPtrWillBeRawPtr<CSSCalcExpressionNode> expression, ValueRange range)

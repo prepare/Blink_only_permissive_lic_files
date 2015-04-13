@@ -32,6 +32,7 @@
 #define AnimationNode_h
 
 #include "bindings/core/v8/ScriptWrappable.h"
+#include "core/CoreExport.h"
 #include "core/animation/Timing.h"
 #include "platform/heap/Handle.h"
 #include "wtf/OwnPtr.h"
@@ -60,7 +61,7 @@ static inline double nullValue()
     return std::numeric_limits<double>::quiet_NaN();
 }
 
-class AnimationNode : public RefCountedWillBeGarbageCollectedFinalized<AnimationNode>, public ScriptWrappable {
+class CORE_EXPORT AnimationNode : public RefCountedWillBeGarbageCollectedFinalized<AnimationNode>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
     friend class AnimationPlayer; // Calls attach/detach, updateInheritedTime.
 public:
@@ -77,7 +78,7 @@ public:
         virtual ~EventDelegate() { }
         virtual bool requiresIterationEvents(const AnimationNode&) = 0;
         virtual void onEventCondition(const AnimationNode&) = 0;
-        virtual void trace(Visitor*) { }
+        DEFINE_INLINE_VIRTUAL_TRACE() { }
     };
 
     virtual ~AnimationNode() { }
@@ -96,7 +97,7 @@ public:
     double iterationDuration() const;
     double activeDurationInternal() const;
     double startTimeInternal() const { return m_startTime; }
-    double endTimeInternal() const { return startTimeInternal() + specifiedTiming().startDelay + activeDurationInternal() + specifiedTiming().endDelay; }
+    double endTimeInternal() const { return std::max(startTimeInternal(), startTimeInternal() + specifiedTiming().startDelay + activeDurationInternal() + specifiedTiming().endDelay); }
 
     const AnimationPlayer* player() const { return m_player; }
     AnimationPlayer* player() { return m_player; }
@@ -110,7 +111,7 @@ public:
     void setName(const String& name) { m_name = name; }
     const String& name() const { return m_name; }
 
-    virtual void trace(Visitor*);
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     explicit AnimationNode(const Timing&, PassOwnPtrWillBeRawPtr<EventDelegate> = nullptr);

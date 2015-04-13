@@ -32,11 +32,13 @@
 #define AnimationTimeline_h
 
 #include "bindings/core/v8/ScriptWrappable.h"
+#include "core/CoreExport.h"
 #include "core/animation/AnimationEffect.h"
 #include "core/animation/AnimationPlayer.h"
 #include "core/dom/Element.h"
 #include "platform/Timer.h"
 #include "platform/heap/Handle.h"
+#include "public/platform/WebCompositorAnimationTimeline.h"
 #include "wtf/RefCounted.h"
 #include "wtf/RefPtr.h"
 #include "wtf/Vector.h"
@@ -47,7 +49,7 @@ class Document;
 class AnimationNode;
 
 // AnimationTimeline is constructed and owned by Document, and tied to its lifecycle.
-class AnimationTimeline : public RefCountedWillBeGarbageCollectedFinalized<AnimationTimeline>, public ScriptWrappable {
+class CORE_EXPORT AnimationTimeline : public RefCountedWillBeGarbageCollectedFinalized<AnimationTimeline>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
     class PlatformTiming : public NoBaseWillBeGarbageCollectedFinalized<PlatformTiming> {
@@ -58,7 +60,7 @@ public:
         virtual void cancelWake() = 0;
         virtual void serviceOnNextFrame() = 0;
         virtual ~PlatformTiming() { }
-        virtual void trace(Visitor*) { }
+        DEFINE_INLINE_VIRTUAL_TRACE() { }
     };
 
     static PassRefPtrWillBeRawPtr<AnimationTimeline> create(Document*, PassOwnPtrWillBeRawPtr<PlatformTiming> = nullptr);
@@ -97,13 +99,15 @@ public:
     void setPlaybackRate(double);
     double playbackRate() const;
 
+    WebCompositorAnimationTimeline* compositorTimeline() const { return m_compositorTimeline.get(); }
+
     Document* document() { return m_document.get(); }
 #if !ENABLE(OILPAN)
     void detachFromDocument();
 #endif
     void wake();
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 protected:
     AnimationTimeline(Document*, PassOwnPtrWillBeRawPtr<PlatformTiming>);
@@ -125,6 +129,8 @@ private:
     OwnPtrWillBeMember<PlatformTiming> m_timing;
     double m_lastCurrentTimeInternal;
 
+    OwnPtr<WebCompositorAnimationTimeline> m_compositorTimeline;
+
     class AnimationTimelineTiming final : public PlatformTiming {
     public:
         AnimationTimelineTiming(AnimationTimeline* timeline)
@@ -140,7 +146,7 @@ private:
 
         void timerFired(Timer<AnimationTimelineTiming>*) { m_timeline->wake(); }
 
-        virtual void trace(Visitor*) override;
+        DECLARE_VIRTUAL_TRACE();
 
     private:
         RawPtrWillBeMember<AnimationTimeline> m_timeline;

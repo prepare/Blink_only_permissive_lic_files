@@ -5,6 +5,7 @@
 #include "config.h"
 #include "core/css/parser/CSSTokenizer.h"
 
+#include "core/css/parser/CSSParserTokenRange.h"
 #include "core/css/parser/MediaQueryBlockWatcher.h"
 #include <gtest/gtest.h>
 
@@ -28,10 +29,10 @@ void compareTokens(const CSSParserToken& expected, const CSSParserToken& actual)
     case FunctionToken:
     case StringToken:
     case UrlToken:
-        ASSERT_EQ(expected.value(), actual.value());
+        ASSERT_EQ(String(expected.value()), String(actual.value()));
         break;
     case DimensionToken:
-        ASSERT_EQ(expected.value(), actual.value());
+        ASSERT_EQ(String(expected.value()), String(actual.value()));
         ASSERT_EQ(expected.numericValueType(), actual.numericValueType());
         ASSERT_DOUBLE_EQ(expected.numericValue(), actual.numericValue());
         break;
@@ -47,7 +48,7 @@ void compareTokens(const CSSParserToken& expected, const CSSParserToken& actual)
         ASSERT_EQ(expected.unicodeRangeEnd(), actual.unicodeRangeEnd());
         break;
     case HashToken:
-        ASSERT_EQ(expected.value(), actual.value());
+        ASSERT_EQ(String(expected.value()), String(actual.value()));
         ASSERT_EQ(expected.hashTokenType(), actual.hashTokenType());
         break;
     default:
@@ -65,22 +66,38 @@ void testTokens(const String& string, const CSSParserToken& token1, const CSSPar
             expectedTokens.append(token3);
     }
 
-    Vector<CSSParserToken> actualTokens;
-    CSSTokenizer::tokenize(string, actualTokens);
+    CSSParserTokenRange expected(expectedTokens);
 
-    ASSERT_EQ(expectedTokens.size(), actualTokens.size());
-    for (size_t i = 0; i < expectedTokens.size(); ++i)
-        compareTokens(expectedTokens[i], actualTokens[i]);
+    CSSTokenizer::Scope actualScope(string);
+    CSSParserTokenRange actual = actualScope.tokenRange();
+
+    // Just check that serialization doesn't hit any asserts
+    actual.serialize();
+
+    while (!expected.atEnd() || !actual.atEnd())
+        compareTokens(expected.consume(), actual.consume());
 }
 
-static CSSParserToken ident(const String& string) { return CSSParserToken(IdentToken, string); }
-static CSSParserToken atKeyword(const String& string) { return CSSParserToken(AtKeywordToken, string); }
-static CSSParserToken string(const String& string) { return CSSParserToken(StringToken, string); }
-static CSSParserToken function(const String& string) { return CSSParserToken(FunctionToken, string); }
-static CSSParserToken url(const String& string) { return CSSParserToken(UrlToken, string); }
-static CSSParserToken hash(const String& string, HashTokenType type) { return CSSParserToken(type, string); }
+static CSSParserString toParserString(const String& string)
+{
+    CSSParserString result;
+    result.init(string);
+    return result;
+}
+
+static CSSParserToken ident(const String& string) { return CSSParserToken(IdentToken, toParserString(string)); }
+static CSSParserToken atKeyword(const String& string) { return CSSParserToken(AtKeywordToken, toParserString(string)); }
+static CSSParserToken string(const String& string) { return CSSParserToken(StringToken, toParserString(string)); }
+static CSSParserToken function(const String& string) { return CSSParserToken(FunctionToken, toParserString(string)); }
+static CSSParserToken url(const String& string) { return CSSParserToken(UrlToken, toParserString(string)); }
+static CSSParserToken hash(const String& string, HashTokenType type) { return CSSParserToken(type, toParserString(string)); }
 static CSSParserToken delim(char c) { return CSSParserToken(DelimiterToken, c); }
-static CSSParserToken unicodeRange(UChar32 start, UChar32 end) { return CSSParserToken(UnicodeRangeToken, start, end); }
+
+static CSSParserToken unicodeRange(UChar32 start, UChar32 end)
+{
+    // We don't test the string value, which is going to be removed soon.
+    return CSSParserToken(UnicodeRangeToken, toParserString(""), start, end);
+}
 
 static CSSParserToken number(NumericValueType type, double value, NumericSign sign)
 {
@@ -90,7 +107,7 @@ static CSSParserToken number(NumericValueType type, double value, NumericSign si
 static CSSParserToken dimension(NumericValueType type, double value, const String& string)
 {
     CSSParserToken token = number(type, value, NoSign); // sign ignored
-    token.convertToDimensionWithUnit(string);
+    token.convertToDimensionWithUnit(toParserString(string));
     return token;
 }
 
@@ -121,7 +138,6 @@ DEFINE_STATIC_LOCAL_NOASSERT(CSSParserToken, leftBrace, (LeftBraceToken));
 DEFINE_STATIC_LOCAL_NOASSERT(CSSParserToken, rightBrace, (RightBraceToken));
 DEFINE_STATIC_LOCAL_NOASSERT(CSSParserToken, badString, (BadStringToken));
 DEFINE_STATIC_LOCAL_NOASSERT(CSSParserToken, badUrl, (BadUrlToken));
-DEFINE_STATIC_LOCAL_NOASSERT(CSSParserToken, comment, (CommentToken));
 
 String fromUChar32(UChar32 c)
 {
@@ -194,7 +210,6 @@ TEST(CSSTokenizerTest, Escapes)
     TEST_TOKENS("sp\\61\tc\\65\fs", ident("spaces"));
     TEST_TOKENS("hel\\6c  o", ident("hell"), whitespace, ident("o"));
     TEST_TOKENS("test\\\n", ident("test"), delim('\\'), whitespace);
-    TEST_TOKENS("eof\\", ident("eof"), delim('\\'));
     TEST_TOKENS("test\\D799", ident("test" + fromUChar32(0xD799)));
     TEST_TOKENS("\\E000", ident(fromUChar32(0xE000)));
     TEST_TOKENS("te\\s\\t", ident("test"));
@@ -204,6 +219,8 @@ TEST(CSSTokenizerTest, Escapes)
     TEST_TOKENS("\\\f", delim('\\'), whitespace);
     TEST_TOKENS("\\\r\n", delim('\\'), whitespace);
     String replacement = fromUChar32(0xFFFD);
+    TEST_TOKENS(String("null\\\0", 6), ident("null" + replacement));
+    TEST_TOKENS(String("null\\\0\0", 7), ident("null" + replacement + replacement));
     TEST_TOKENS("null\\0", ident("null" + replacement));
     TEST_TOKENS("null\\0000", ident("null" + replacement));
     TEST_TOKENS("large\\110000", ident("large" + replacement));
@@ -214,6 +231,7 @@ TEST(CSSTokenizerTest, Escapes)
     TEST_TOKENS("\\10fFfF", ident(fromUChar32(0x10ffff)));
     TEST_TOKENS("\\10fFfF0", ident(fromUChar32(0x10ffff) + "0"));
     TEST_TOKENS("\\10000000", ident(fromUChar32(0x100000) + "00"));
+    TEST_TOKENS("eof\\", ident("eof" + replacement));
 }
 
 TEST(CSSTokenizerTest, IdentToken)
@@ -234,8 +252,9 @@ TEST(CSSTokenizerTest, IdentToken)
     TEST_TOKENS(fromUChar32(0xA0), ident(fromUChar32(0xA0))); // non-breaking space
     TEST_TOKENS(fromUChar32(0x1234), ident(fromUChar32(0x1234)));
     TEST_TOKENS(fromUChar32(0x12345), ident(fromUChar32(0x12345)));
-    // FIXME: Preprocessing is supposed to replace U+0000 with U+FFFD
-    // TEST_TOKENS("\0", ident(fromUChar32(0xFFFD)));
+    TEST_TOKENS(String("\0", 1), ident(fromUChar32(0xFFFD)));
+    TEST_TOKENS(String("ab\0c", 4), ident("ab" + fromUChar32(0xFFFD) + "c"));
+    TEST_TOKENS(String("ab\0c", 4), ident("ab" + fromUChar32(0xFFFD) + "c"));
 }
 
 TEST(CSSTokenizerTest, FunctionToken)
@@ -309,8 +328,9 @@ TEST(CSSTokenizerTest, StringToken)
     TEST_TOKENS("'bad\rstring", badString, whitespace, ident("string"));
     TEST_TOKENS("'bad\r\nstring", badString, whitespace, ident("string"));
     TEST_TOKENS("'bad\fstring", badString, whitespace, ident("string"));
-    // FIXME: Preprocessing is supposed to replace U+0000 with U+FFFD
-    // TEST_TOKENS("'\0'", string(fromUChar32(0xFFFD)));
+    TEST_TOKENS(String("'\0'", 3), string(fromUChar32(0xFFFD)));
+    TEST_TOKENS(String("'hel\0lo'", 8), string("hel" + fromUChar32(0xFFFD) + "lo"));
+    TEST_TOKENS(String("'h\\65l\0lo'", 10), string("hel" + fromUChar32(0xFFFD) + "lo"));
 }
 
 TEST(CSSTokenizerTest, HashToken)
@@ -406,16 +426,14 @@ TEST(CSSTokenizerTest, UnicodeRangeToken)
 
 TEST(CSSTokenizerTest, CommentToken)
 {
-    TEST_TOKENS("/*comment*/", comment);
-    TEST_TOKENS("/**\\2f**/", comment);
-    TEST_TOKENS("/**y*a*y**/", comment);
-    TEST_TOKENS("/* \n :) \n */", comment);
-    TEST_TOKENS("/*/*/", comment);
-    TEST_TOKENS("/**/*", comment, delim('*'));
-    // FIXME: Should an EOF-terminated comment get a token?
-    // TEST_TOKENS("/******", comment);
+    TEST_TOKENS("/*comment*/a", ident("a"));
+    TEST_TOKENS("/**\\2f**//", delim('/'));
+    TEST_TOKENS("/**y*a*y**/ ", whitespace);
+    TEST_TOKENS(",/* \n :) \n */)", comma, rightParenthesis);
+    TEST_TOKENS(":/*/*/", colon);
+    TEST_TOKENS("/**/*", delim('*'));
+    TEST_TOKENS(";/******", semicolon);
 }
-
 
 typedef struct {
     const char* input;
@@ -455,14 +473,14 @@ TEST(CSSTokenizerBlockTest, Basic)
         {0, 0, 0} // Do not remove the terminator line.
     };
     for (int i = 0; testCases[i].input; ++i) {
-        Vector<CSSParserToken> tokens;
-        CSSTokenizer::tokenize(testCases[i].input, tokens);
+        CSSTokenizer::Scope scope(testCases[i].input);
+        CSSParserTokenRange range = scope.tokenRange();
         MediaQueryBlockWatcher blockWatcher;
 
         unsigned maxLevel = 0;
         unsigned level = 0;
-        for (size_t j = 0; j < tokens.size(); ++j) {
-            blockWatcher.handleToken(tokens[j]);
+        while (!range.atEnd()) {
+            blockWatcher.handleToken(range.consume());
             level = blockWatcher.blockLevel();
             maxLevel = std::max(level, maxLevel);
         }

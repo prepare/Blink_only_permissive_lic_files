@@ -26,13 +26,14 @@
 #ifndef BitStack_h
 #define BitStack_h
 
+#include "core/CoreExport.h"
 #include "wtf/Vector.h"
 
 namespace blink {
 
 class Node;
 
-class BitStack {
+class CORE_EXPORT BitStack {
 public:
     BitStack();
     ~BitStack();
@@ -42,9 +43,6 @@ public:
 
     bool top() const;
     unsigned size() const;
-
-    void pushFullyClippedState(Node*);
-    void setUpFullyClippedStack(Node*);
 
 private:
     unsigned m_size;

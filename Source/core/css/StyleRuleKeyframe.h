@@ -14,7 +14,7 @@ class MutableStylePropertySet;
 class StylePropertySet;
 
 class StyleRuleKeyframe final : public StyleRuleBase {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(StyleRuleKeyframe);
 public:
     static PassRefPtrWillBeRawPtr<StyleRuleKeyframe> create()
     {
@@ -27,8 +27,8 @@ public:
 
     // Used by StyleResolver.
     const Vector<double>& keys() const;
-    // Used by BisonCSSParser when constructing a new StyleRuleKeyframe.
-    void setKeys(PassOwnPtr<Vector<double> >);
+    // Used by the CSS parser when constructing a new StyleRuleKeyframe.
+    void setKeys(PassOwnPtr<Vector<double>>);
 
     const StylePropertySet& properties() const { return *m_properties; }
     MutableStylePropertySet& mutableProperties();
@@ -36,9 +36,9 @@ public:
 
     String cssText() const;
 
-    void traceAfterDispatch(Visitor*);
+    DECLARE_TRACE_AFTER_DISPATCH();
 
-    static PassOwnPtr<Vector<double> > createKeyList(CSSParserValueList*);
+    static PassOwnPtr<Vector<double>> createKeyList(CSSParserValueList*);
 
 private:
     StyleRuleKeyframe();

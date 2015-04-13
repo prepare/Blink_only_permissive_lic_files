@@ -31,6 +31,7 @@
 #ifndef CompositorAnimations_h
 #define CompositorAnimations_h
 
+#include "core/CoreExport.h"
 #include "core/animation/AnimationEffect.h"
 #include "core/animation/Timing.h"
 #include "platform/animation/TimingFunction.h"
@@ -42,7 +43,7 @@ class AnimationPlayer;
 class Element;
 class FloatBox;
 
-class CompositorAnimations {
+class CORE_EXPORT CompositorAnimations {
 public:
     static CompositorAnimations* instance() { return instance(0); }
     static void setInstanceForTesting(CompositorAnimations* newInstance) { instance(newInstance); }
@@ -53,9 +54,12 @@ public:
     virtual void cancelIncompatibleAnimationsOnCompositor(const Element&, const AnimationPlayer&, const AnimationEffect&);
     virtual bool canStartAnimationOnCompositor(const Element&);
     // FIXME: This should return void. We should know ahead of time whether these animations can be started.
-    virtual bool startAnimationOnCompositor(const Element&, int group, double startTime, double timeOffset, const Timing&, const AnimationPlayer*, const AnimationEffect&, Vector<int>& startedAnimationIds, double playerPlaybackRate);
-    virtual void cancelAnimationOnCompositor(const Element&, int id);
-    virtual void pauseAnimationForTestingOnCompositor(const Element&, int id, double pauseTime);
+    virtual bool startAnimationOnCompositor(const Element&, int group, double startTime, double timeOffset, const Timing&, const AnimationPlayer&, const AnimationEffect&, Vector<int>& startedAnimationIds, double playerPlaybackRate);
+    virtual void cancelAnimationOnCompositor(const Element&, const AnimationPlayer&, int id);
+    virtual void pauseAnimationForTestingOnCompositor(const Element&, const AnimationPlayer&, int id, double pauseTime);
+
+    virtual bool canAttachCompositedLayers(const Element&, const AnimationPlayer&);
+    virtual void attachCompositedLayers(const Element&, const AnimationPlayer&);
 
     virtual bool getAnimatedBoundingBox(FloatBox&, const AnimationEffect&, double minValue, double maxValue) const;
 protected:

@@ -26,6 +26,7 @@
 #ifndef CharacterIterator_h
 #define CharacterIterator_h
 
+#include "core/CoreExport.h"
 #include "core/dom/Range.h"
 #include "core/editing/iterators/TextIterator.h"
 #include "core/editing/iterators/TextIteratorFlags.h"
@@ -35,7 +36,7 @@ namespace blink {
 
 // Builds on the text iterator, adding a character position so we can walk one
 // character at a time, or faster, as needed. Useful for searching.
-class CharacterIterator {
+class CORE_EXPORT CharacterIterator {
     STACK_ALLOCATED();
 public:
     explicit CharacterIterator(const Range*, TextIteratorBehaviorFlags = TextIteratorDefaultBehavior);
@@ -47,17 +48,16 @@ public:
     bool atEnd() const { return m_textIterator.atEnd(); }
 
     int length() const { return m_textIterator.length() - m_runOffset; }
-    UChar characterAt(unsigned index) const { return m_textIterator.characterAt(m_runOffset + index); }
+    UChar characterAt(unsigned index) const { return m_textIterator.text().characterAt(m_runOffset + index); }
 
     template<typename BufferType>
-    void appendTextTo(BufferType& output) { m_textIterator.appendTextTo(output, m_runOffset); }
+    void appendTextTo(BufferType& output) { m_textIterator.text().appendTextTo(output, m_runOffset); }
 
     int characterOffset() const { return m_offset; }
     PassRefPtrWillBeRawPtr<Range> createRange() const;
 
     Document* ownerDocument() const;
-    Node* startContainer() const;
-    Node* endContainer() const;
+    Node* currentContainer() const;
     int startOffset() const;
     int endOffset() const;
     Position startPosition() const;

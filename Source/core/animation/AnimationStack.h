@@ -31,6 +31,7 @@
 #ifndef AnimationStack_h
 #define AnimationStack_h
 
+#include "core/CoreExport.h"
 #include "core/animation/Animation.h"
 #include "core/animation/AnimationEffect.h"
 #include "core/animation/AnimationPlayer.h"
@@ -43,7 +44,7 @@ namespace blink {
 
 class InertAnimation;
 
-class AnimationStack {
+class CORE_EXPORT AnimationStack {
     DISALLOW_ALLOCATION();
     WTF_MAKE_NONCOPYABLE(AnimationStack);
 public:
@@ -52,15 +53,14 @@ public:
     void add(PassOwnPtrWillBeRawPtr<SampledEffect> effect) { m_effects.append(effect); }
     bool isEmpty() const { return m_effects.isEmpty(); }
     bool hasActiveAnimationsOnCompositor(CSSPropertyID) const;
-    static WillBeHeapHashMap<CSSPropertyID, RefPtrWillBeMember<Interpolation> > activeInterpolations(AnimationStack*, const WillBeHeapVector<RawPtrWillBeMember<InertAnimation> >* newAnimations, const WillBeHeapHashSet<RawPtrWillBeMember<const AnimationPlayer> >* suppressedAnimationPlayers, Animation::Priority, double timelineCurrentTime);
+    static WillBeHeapHashMap<CSSPropertyID, RefPtrWillBeMember<Interpolation>> activeInterpolations(AnimationStack*, const WillBeHeapVector<RawPtrWillBeMember<InertAnimation>>* newAnimations, const WillBeHeapHashSet<RawPtrWillBeMember<const AnimationPlayer>>* suppressedAnimationPlayers, Animation::Priority, double timelineCurrentTime);
 
     bool getAnimatedBoundingBox(FloatBox&, CSSPropertyID) const;
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 private:
-    void simplifyEffects();
     // Effects sorted by priority. Lower priority at the start of the list.
-    WillBeHeapVector<OwnPtrWillBeMember<SampledEffect> > m_effects;
+    WillBeHeapVector<OwnPtrWillBeMember<SampledEffect>> m_effects;
 
     friend class AnimationAnimationStackTest;
 };

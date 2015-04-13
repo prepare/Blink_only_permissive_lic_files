@@ -5,19 +5,22 @@
 #ifndef EffectInput_h
 #define EffectInput_h
 
+#include "core/CoreExport.h"
 #include "core/animation/AnimationEffect.h"
 #include "wtf/Vector.h"
 
 namespace blink {
 
 class AnimationEffect;
+class AnimationEffectOrDictionarySequence;
 class Dictionary;
 class Element;
 class ExceptionState;
 
-class EffectInput {
+class CORE_EXPORT EffectInput {
 public:
     static PassRefPtrWillBeRawPtr<AnimationEffect> convert(Element*, const Vector<Dictionary>& keyframeDictionaryVector, ExceptionState&);
+    static PassRefPtrWillBeRawPtr<AnimationEffect> convert(Element*, const AnimationEffectOrDictionarySequence&, ExceptionState&);
 };
 
 } // namespace blink

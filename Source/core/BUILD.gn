@@ -164,11 +164,10 @@ source_set("dom") {
   sources = rebase_path(webcore_dom_files, ".", "//")
 
   configs -= core_config_remove
-  configs += core_config_add
-
-  if (is_win) {
-    cflags = [ "/wd4267" ]  # size_t to int truncation.
-  }
+  configs += core_config_add + [
+    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+    "//build/config/compiler:no_size_t_to_int_warning",
+  ]
 
   deps = [
     ":prerequisites",
@@ -223,7 +222,10 @@ source_set("remaining") {
   sources += rebase_path(webcore_rendering_files, ".", "//")
 
   configs -= core_config_remove
-  configs += core_config_add
+  configs += core_config_add + [
+    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+    "//build/config/compiler:no_size_t_to_int_warning",
+  ]
 
   cflags = []
   libs = []
@@ -234,24 +236,23 @@ source_set("remaining") {
 
   if (is_win) {
     cflags += [
-      "/wd4267",
       "/wd4334",
     ]
   } else {  # !is_win
     sources -= [
-      "layout/LayoutThemeChromiumFontProviderWin.cpp",
-      "layout/LayoutThemeChromiumWin.cpp",
-      "layout/LayoutThemeChromiumWin.h",
+      "layout/LayoutThemeFontProviderWin.cpp",
+      "layout/LayoutThemeWin.cpp",
+      "layout/LayoutThemeWin.h",
     ]
   }
   if (!is_linux) {
     sources -= [
-      "layout/LayoutThemeChromiumLinux.cpp",
-      "layout/LayoutThemeChromiumLinux.h",
+      "layout/LayoutThemeLinux.cpp",
+      "layout/LayoutThemeLinux.h",
     ]
     if (!is_android) {
       sources -= [
-        "layout/LayoutThemeChromiumFontProviderLinux.cpp",
+        "layout/LayoutThemeFontProviderLinux.cpp",
       ]
     }
   }
@@ -263,19 +264,17 @@ source_set("remaining") {
     cflags += [ "-Wno-uninitialized" ]
   } else {  # !is_android
     sources -= [
-      "layout/LayoutThemeChromiumAndroid.cpp",
-      "layout/LayoutThemeChromiumAndroid.h",
+      "layout/LayoutThemeAndroid.cpp",
+      "layout/LayoutThemeAndroid.h",
     ]
   }
 
   if (is_mac) {
     sources -= [
-      "layout/LayoutThemeChromiumDefault.cpp",
-      "layout/LayoutThemeChromiumDefault.h",
-      "layout/LayoutThemeChromiumFontProvider.cpp",
-      "layout/LayoutThemeChromiumFontProvider.h",
-      "layout/LayoutThemeChromiumSkia.cpp",
-      "layout/LayoutThemeChromiumSkia.h",
+      "layout/LayoutThemeDefault.cpp",
+      "layout/LayoutThemeDefault.h",
+      "layout/LayoutThemeFontProvider.cpp",
+      "layout/LayoutThemeFontProvider.h",
     ]
     libs += [ "Carbon.framework" ]
     # Some Mac-specific parts of WebKit won't compile without having this
@@ -369,7 +368,6 @@ source_set("core_generated") {
     "$blink_core_output_dir/EventTargetNames.h",
     "$blink_core_output_dir/EventTypeNames.cpp",
     "$blink_core_output_dir/EventTypeNames.h",
-    "$blink_core_output_dir/FetchInitiatorTypeNames.cpp",
     "$blink_core_output_dir/HTMLElementFactory.cpp",
     "$blink_core_output_dir/HTMLElementFactory.h",
     "$blink_core_output_dir/HTMLElementLookupTrie.cpp",
@@ -382,6 +380,7 @@ source_set("core_generated") {
     "$blink_core_output_dir/XLinkNames.cpp",
     "$blink_core_output_dir/XMLNSNames.cpp",
     "$blink_core_output_dir/XMLNames.cpp",
+    "$blink_core_output_dir/fetch/FetchInitiatorTypeNames.cpp",
 
     # Generated from HTMLEntityNames.in
     "$blink_core_output_dir/HTMLEntityTable.cpp",
@@ -411,7 +410,6 @@ source_set("core_generated") {
     "$blink_core_output_dir/InspectorTypeBuilder.cpp",
 
     # Additional .cpp files from the inspector_instrumentation_sources list.
-    "$blink_core_output_dir/InspectorCanvasInstrumentationInl.h",
     "$blink_core_output_dir/InspectorConsoleInstrumentationInl.h",
     "$blink_core_output_dir/InspectorInstrumentationInl.h",
     "$blink_core_output_dir/InspectorOverridesInl.h",
@@ -464,7 +462,11 @@ source_set("core_generated") {
     "//v8",
   ]
 
-  configs += [ ":core_include_dirs" ]
+  configs += [
+    ":core_include_dirs",
+    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+    "//build/config/compiler:no_size_t_to_int_warning",
+  ]
   include_dirs = [
     "$root_gen_dir/blink",
   ]
@@ -479,11 +481,9 @@ source_set("core_generated") {
   if (is_win) {
     cflags += [
       # In generated bindings code: "switch contains default but no case".
-      # Disable c4267 warnings until we fix size_t to int truncations.
       # 4701 and 4702 are disabled because of issues in Bison-generated
       # XPathGrammar.cpp and CSSGrammar.cpp.
       "/wd4065",
-      "/wd4267",
       "/wd4701",
       "/wd4702",
     ]
@@ -813,8 +813,8 @@ make_names("make_core_generated_fetch_initiator_type_names") {
     "fetch/FetchInitiatorTypeNames.in",
   ]
   outputs = [
-    "$blink_core_output_dir/FetchInitiatorTypeNames.cpp",
-    "$blink_core_output_dir/FetchInitiatorTypeNames.h",
+    "$blink_core_output_dir/fetch/FetchInitiatorTypeNames.cpp",
+    "$blink_core_output_dir/fetch/FetchInitiatorTypeNames.h",
   ]
 }
 

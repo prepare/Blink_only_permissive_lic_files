@@ -31,20 +31,21 @@
 #ifndef InertAnimation_h
 #define InertAnimation_h
 
+#include "core/CoreExport.h"
 #include "core/animation/AnimationEffect.h"
 #include "core/animation/AnimationNode.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
 
-class InertAnimation final : public AnimationNode {
+class CORE_EXPORT InertAnimation final : public AnimationNode {
 public:
     static PassRefPtrWillBeRawPtr<InertAnimation> create(PassRefPtrWillBeRawPtr<AnimationEffect>, const Timing&, bool paused, double inheritedTime);
     void sample(OwnPtrWillBeRawPtr<WillBeHeapVector<RefPtrWillBeMember<Interpolation>>>&);
     AnimationEffect* effect() const { return m_effect.get(); }
     bool paused() const { return m_paused; }
 
-    virtual void trace(Visitor*);
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     virtual void updateChildrenAndEffects() const override { }

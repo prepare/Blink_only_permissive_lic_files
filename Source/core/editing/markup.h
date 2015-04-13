@@ -26,6 +26,8 @@
 #ifndef markup_h
 #define markup_h
 
+#include "core/CSSPropertyNames.h"
+#include "core/CoreExport.h"
 #include "core/dom/ParserContentPolicy.h"
 #include "core/editing/HTMLInterchange.h"
 #include "platform/heap/Handle.h"
@@ -41,6 +43,7 @@ class ExceptionState;
 class KURL;
 class Node;
 class Range;
+class StylePropertySet;
 
 enum EChildrenOnly { IncludeNode, ChildrenOnly };
 enum EAbsoluteURLs { DoNotResolveURLs, ResolveAllURLs, ResolveNonLocalURLs };
@@ -59,13 +62,15 @@ bool isPlainTextMarkup(Node*);
 void replaceChildrenWithFragment(ContainerNode*, PassRefPtrWillBeRawPtr<DocumentFragment>, ExceptionState&);
 void replaceChildrenWithText(ContainerNode*, const String&, ExceptionState&);
 
-String createMarkup(const Range*, EAnnotateForInterchange = DoNotAnnotateForInterchange, bool convertBlocksToInlines = false, EAbsoluteURLs = DoNotResolveURLs, Node* constrainingAncestor = nullptr);
-String createMarkup(const Node*, EChildrenOnly = IncludeNode, EAbsoluteURLs = DoNotResolveURLs);
+CORE_EXPORT String createMarkup(const Range*, EAnnotateForInterchange = DoNotAnnotateForInterchange, bool convertBlocksToInlines = false, EAbsoluteURLs = DoNotResolveURLs, Node* constrainingAncestor = nullptr);
+CORE_EXPORT String createMarkup(const Node*, EChildrenOnly = IncludeNode, EAbsoluteURLs = DoNotResolveURLs);
 
 String createStyledMarkupForNavigationTransition(Node*);
 
 String urlToMarkup(const KURL&, const String& title);
 void mergeWithNextTextNode(Text*, ExceptionState&);
+
+bool propertyMissingOrEqualToNone(StylePropertySet*, CSSPropertyID);
 
 }
 

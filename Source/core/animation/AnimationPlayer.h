@@ -34,11 +34,14 @@
 #include "bindings/core/v8/ScriptPromise.h"
 #include "bindings/core/v8/ScriptPromiseProperty.h"
 #include "core/CSSPropertyNames.h"
+#include "core/CoreExport.h"
 #include "core/animation/AnimationNode.h"
 #include "core/dom/ActiveDOMObject.h"
 #include "core/dom/DOMException.h"
 #include "core/events/EventTarget.h"
 #include "platform/heap/Handle.h"
+#include "public/platform/WebCompositorAnimationDelegate.h"
+#include "public/platform/WebCompositorAnimationPlayerClient.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
@@ -46,11 +49,14 @@ namespace blink {
 class AnimationTimeline;
 class Element;
 class ExceptionState;
+class WebCompositorAnimationPlayer;
 
-class AnimationPlayer final
+class CORE_EXPORT AnimationPlayer final
     : public EventTargetWithInlineData
     , public RefCountedWillBeNoBase<AnimationPlayer>
-    , public ActiveDOMObject {
+    , public ActiveDOMObject
+    , public WebCompositorAnimationDelegate
+    , public WebCompositorAnimationPlayerClient {
     DEFINE_WRAPPERTYPEINFO();
     REFCOUNTED_EVENT_TARGET(AnimationPlayer);
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(AnimationPlayer);
@@ -82,6 +88,7 @@ public:
     void setCurrentTime(double newCurrentTime);
 
     double currentTimeInternal() const;
+    double unlimitedCurrentTimeInternal() const;
 
     void setCurrentTimeInternal(double newCurrentTime, TimingUpdateReason = TimingUpdateOnDemand);
     bool paused() const { return m_paused && !m_isPausedForTesting; }
@@ -115,7 +122,7 @@ public:
     AnimationTimeline* timeline() { return m_timeline; }
 
 #if !ENABLE(OILPAN)
-    void timelineDestroyed() { m_timeline = nullptr; }
+    void detachFromTimeline();
 #endif
 
     double calculateStartTime(double currentTime) const;
@@ -139,7 +146,8 @@ public:
     void setOutdated();
     bool outdated() { return m_outdated; }
 
-    bool canStartAnimationOnCompositor();
+    bool canStartAnimationOnCompositor() const;
+    bool isCandidateForAnimationOnCompositor() const;
     bool maybeStartAnimationOnCompositor();
     void cancelAnimationOnCompositor();
     void restartAnimationOnCompositor();
@@ -148,6 +156,8 @@ public:
     void setCompositorPending(bool sourceChanged = false);
     void notifyCompositorStartTime(double timelineTime);
     void notifyStartTime(double timelineTime);
+    // WebCompositorAnimationPlayerClient implementation.
+    WebCompositorAnimationPlayer* compositorPlayer() const override { return m_compositorPlayer.get(); }
 
     bool affects(const Element&, CSSPropertyID) const;
 
@@ -162,15 +172,9 @@ public:
         return player1->sequenceNumber() < player2->sequenceNumber();
     }
 
-#if !ENABLE(OILPAN)
-    // Checks if the AnimationStack is the last reference holder to the Player.
-    // This won't be needed when AnimationPlayer is moved to Oilpan.
-    bool canFree() const;
-#endif
-
     virtual bool addEventListener(const AtomicString& eventType, PassRefPtr<EventListener>, bool useCapture = false) override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     AnimationPlayer(ExecutionContext*, AnimationTimeline&, AnimationNode*);
@@ -188,6 +192,16 @@ private:
     void beginUpdatingState();
     void endUpdatingState();
 
+    void createCompositorPlayer();
+    void destroyCompositorPlayer();
+    void attachCompositorTimeline();
+    void detachCompositorTimeline();
+    void attachCompositedLayers();
+    void detachCompositedLayers();
+    // WebCompositorAnimationDelegate implementation.
+    void notifyAnimationStarted(double monotonicTime, int group) override;
+    void notifyAnimationFinished(double monotonicTime, int group) override { }
+
     AnimationPlayState m_playState;
     double m_playbackRate;
     double m_startTime;
@@ -195,7 +209,7 @@ private:
 
     unsigned m_sequenceNumber;
 
-    typedef ScriptPromiseProperty<RawPtrWillBeMember<AnimationPlayer>, RawPtrWillBeMember<AnimationPlayer>, RefPtrWillBeMember<DOMException> > AnimationPlayerPromise;
+    typedef ScriptPromiseProperty<RawPtrWillBeMember<AnimationPlayer>, RawPtrWillBeMember<AnimationPlayer>, RefPtrWillBeMember<DOMException>> AnimationPlayerPromise;
     PersistentWillBeMember<AnimationPlayerPromise> m_finishedPromise;
     PersistentWillBeMember<AnimationPlayerPromise> m_readyPromise;
 
@@ -263,9 +277,10 @@ private:
     bool m_compositorPending;
     int m_compositorGroup;
 
+    OwnPtr<WebCompositorAnimationPlayer> m_compositorPlayer;
+
     bool m_currentTimePending;
     bool m_stateIsBeingUpdated;
-
 };
 
 } // namespace blink

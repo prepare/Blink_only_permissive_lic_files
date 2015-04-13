@@ -31,10 +31,10 @@
 #include "config.h"
 #include "core/animation/AnimationPlayer.h"
 
-#include "core/animation/ActiveAnimations.h"
 #include "core/animation/Animation.h"
 #include "core/animation/AnimationClock.h"
 #include "core/animation/AnimationTimeline.h"
+#include "core/animation/ElementAnimations.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/QualifiedName.h"
@@ -214,18 +214,6 @@ TEST_F(AnimationAnimationPlayerTest, SetCurrentTimeMax)
     EXPECT_EQ(std::numeric_limits<double>::max(), player->currentTimeInternal());
 }
 
-TEST_F(AnimationAnimationPlayerTest, SetCurrentTimeUnrestrictedDouble)
-{
-    simulateFrame(10);
-    player->setCurrentTime(nullValue());
-    EXPECT_EQ(10, player->currentTimeInternal());
-    player->setCurrentTime(std::numeric_limits<double>::infinity());
-    EXPECT_EQ(10, player->currentTimeInternal());
-    player->setCurrentTime(-std::numeric_limits<double>::infinity());
-    EXPECT_EQ(10, player->currentTimeInternal());
-}
-
-
 TEST_F(AnimationAnimationPlayerTest, SetCurrentTimeSetsStartTime)
 {
     EXPECT_EQ(0, player->startTime());
@@ -367,6 +355,8 @@ TEST_F(AnimationAnimationPlayerTest, PlayRewindsToStart)
     EXPECT_EQ(AnimationPlayer::Running, player->playStateInternal());
     player->play();
     EXPECT_EQ(0, player->currentTimeInternal());
+    EXPECT_EQ(AnimationPlayer::Pending, player->playStateInternal());
+    simulateFrame(10);
     EXPECT_EQ(AnimationPlayer::Running, player->playStateInternal());
 }
 
@@ -800,11 +790,11 @@ TEST_F(AnimationAnimationPlayerTest, AttachedAnimationPlayers)
     RefPtrWillBeRawPtr<AnimationPlayer> player = timeline->play(animation.get());
     simulateFrame(0);
     timeline->serviceAnimations(TimingUpdateForAnimationFrame);
-    EXPECT_EQ(1U, element->activeAnimations()->players().find(player.get())->value);
+    EXPECT_EQ(1U, element->elementAnimations()->players().find(player.get())->value);
 
     player.release();
     Heap::collectAllGarbage();
-    EXPECT_TRUE(element->activeAnimations()->players().isEmpty());
+    EXPECT_TRUE(element->elementAnimations()->players().isEmpty());
 }
 
 TEST_F(AnimationAnimationPlayerTest, HasLowerPriority)

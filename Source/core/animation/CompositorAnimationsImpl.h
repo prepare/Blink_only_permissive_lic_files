@@ -28,6 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "core/CoreExport.h"
 #include "core/animation/AnimationEffect.h"
 #include "core/animation/KeyframeEffectModel.h"
 #include "core/animation/Timing.h"
@@ -38,7 +39,7 @@ namespace blink {
 
 class WebCompositorAnimationCurve;
 
-class CompositorAnimationsImpl {
+class CORE_EXPORT CompositorAnimationsImpl {
 private:
     struct CompositorTiming {
         void assertValid() const
@@ -61,7 +62,7 @@ private:
 
     static bool convertTimingForCompositor(const Timing&, double timeOffset, CompositorTiming& out, double playerPlaybackRate);
 
-    static void getAnimationOnCompositor(const Timing&, int group, double startTime, double timeOffset, const KeyframeEffectModelBase&, Vector<OwnPtr<WebCompositorAnimation> >& animations, double playerPlaybackRate);
+    static void getAnimationOnCompositor(const Timing&, int group, double startTime, double timeOffset, const KeyframeEffectModelBase&, Vector<OwnPtr<WebCompositorAnimation>>& animations, double playerPlaybackRate);
 
     static void addKeyframesToCurve(WebCompositorAnimationCurve&, const AnimatableValuePropertySpecificKeyframeVector&, const Timing&);
 

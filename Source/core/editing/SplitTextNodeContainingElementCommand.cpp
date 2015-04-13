@@ -51,7 +51,7 @@ void SplitTextNodeContainingElementCommand::doApply()
     if (!parent || !parent->parentElement() || !parent->parentElement()->hasEditableStyle())
         return;
 
-    LayoutObject* parentRenderer = parent->renderer();
+    LayoutObject* parentRenderer = parent->layoutObject();
     if (!parentRenderer || !parentRenderer->isInline()) {
         wrapContentsInDummySpan(parent);
         Node* firstChild = parent->firstChild();
@@ -63,7 +63,7 @@ void SplitTextNodeContainingElementCommand::doApply()
     splitElement(parent, m_text.get());
 }
 
-void SplitTextNodeContainingElementCommand::trace(Visitor* visitor)
+DEFINE_TRACE(SplitTextNodeContainingElementCommand)
 {
     visitor->trace(m_text);
     CompositeEditCommand::trace(visitor);

@@ -302,8 +302,8 @@ void InputMethodController::setComposition(const String& text, const Vector<Comp
                 underline.startOffset += baseOffset;
                 underline.endOffset += baseOffset;
             }
-            if (baseNode->renderer())
-                baseNode->renderer()->setShouldDoFullPaintInvalidation();
+            if (baseNode->layoutObject())
+                baseNode->layoutObject()->setShouldDoFullPaintInvalidation();
 
             unsigned start = std::min(baseOffset + selectionStart, extentOffset);
             unsigned end = std::min(std::max(start, baseOffset + selectionEnd), extentOffset);
@@ -340,8 +340,8 @@ void InputMethodController::setCompositionFromExistingText(const Vector<Composit
             m_customCompositionUnderlines[i].startOffset += m_compositionStart;
             m_customCompositionUnderlines[i].endOffset += m_compositionStart;
         }
-        if (baseNode->renderer())
-            baseNode->renderer()->setShouldDoFullPaintInvalidation();
+        if (baseNode->layoutObject())
+            baseNode->layoutObject()->setShouldDoFullPaintInvalidation();
         return;
     }
 
@@ -425,7 +425,7 @@ void InputMethodController::extendSelectionAndDelete(int before, int after)
     TypingCommand::deleteSelection(*frame().document());
 }
 
-void InputMethodController::trace(Visitor* visitor)
+DEFINE_TRACE(InputMethodController)
 {
     visitor->trace(m_frame);
     visitor->trace(m_compositionNode);

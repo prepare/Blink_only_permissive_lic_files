@@ -31,6 +31,7 @@
 #ifndef CSSSelectorWatch_h
 #define CSSSelectorWatch_h
 
+#include "core/CoreExport.h"
 #include "core/css/StyleRule.h"
 #include "core/dom/DocumentSupplementable.h"
 #include "platform/Timer.h"
@@ -38,12 +39,11 @@
 #include "wtf/HashSet.h"
 #include "wtf/RefPtr.h"
 #include "wtf/Vector.h"
-#include "wtf/WeakPtr.h"
 #include "wtf/text/WTFString.h"
 
 namespace blink {
 
-class CSSSelectorWatch final : public NoBaseWillBeGarbageCollectedFinalized<CSSSelectorWatch>, public DocumentSupplement {
+class CORE_EXPORT CSSSelectorWatch final : public NoBaseWillBeGarbageCollectedFinalized<CSSSelectorWatch>, public DocumentSupplement {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(CSSSelectorWatch);
 public:
     virtual ~CSSSelectorWatch() { }
@@ -51,11 +51,11 @@ public:
     static CSSSelectorWatch& from(Document&);
 
     void watchCSSSelectors(const Vector<String>& selectors);
-    const WillBeHeapVector<RefPtrWillBeMember<StyleRule> >& watchedCallbackSelectors() const { return m_watchedCallbackSelectors; }
+    const WillBeHeapVector<RefPtrWillBeMember<StyleRule>>& watchedCallbackSelectors() const { return m_watchedCallbackSelectors; }
 
     void updateSelectorMatches(const Vector<String>& removedSelectors, const Vector<String>& addedSelectors);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit CSSSelectorWatch(Document&);
@@ -64,10 +64,10 @@ private:
 
     RawPtrWillBeMember<Document> m_document;
 
-    WillBeHeapVector<RefPtrWillBeMember<StyleRule> > m_watchedCallbackSelectors;
+    WillBeHeapVector<RefPtrWillBeMember<StyleRule>> m_watchedCallbackSelectors;
 
     // Maps a CSS selector string with a -webkit-callback property to the number
-    // of matching LayoutStyle objects in this document.
+    // of matching ComputedStyle objects in this document.
     HashCountedSet<String> m_matchingCallbackSelectors;
     // Selectors are relative to m_matchingCallbackSelectors's contents at
     // the previous call to selectorMatchChanged.

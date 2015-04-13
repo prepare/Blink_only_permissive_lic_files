@@ -156,8 +156,12 @@ void MutationObserver::disconnect()
     m_records.clear();
     InspectorInstrumentation::didClearAllMutationRecords(m_callback->executionContext(), this);
     MutationObserverRegistrationSet registrations(m_registrations);
-    for (auto& registration : registrations)
-        registration->unregister();
+    for (auto& registration : registrations) {
+        // The registration may be already unregistered while iteration.
+        // Only call unregister if it is still in the original set.
+        if (m_registrations.contains(registration))
+            registration->unregister();
+    }
     ASSERT(m_registrations.isEmpty());
 }
 
@@ -207,9 +211,9 @@ void MutationObserver::setHasTransientRegistration()
     activateObserver(this);
 }
 
-WillBeHeapHashSet<RawPtrWillBeMember<Node> > MutationObserver::getObservedNodes() const
+WillBeHeapHashSet<RawPtrWillBeMember<Node>> MutationObserver::getObservedNodes() const
 {
-    WillBeHeapHashSet<RawPtrWillBeMember<Node> > observedNodes;
+    WillBeHeapHashSet<RawPtrWillBeMember<Node>> observedNodes;
     for (const auto& registration : m_registrations)
         registration->addRegistrationNodesToSet(observedNodes);
     return observedNodes;
@@ -276,7 +280,7 @@ void MutationObserver::deliverMutations()
     }
 }
 
-void MutationObserver::trace(Visitor* visitor)
+DEFINE_TRACE(MutationObserver)
 {
 #if ENABLE(OILPAN)
     visitor->trace(m_callback);
