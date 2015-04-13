@@ -23,11 +23,12 @@
             "className": "WebInspector.ElementsPanel.DOMNodeRevealer"
         },
         {
-            "type": "ui-setting",
-            "section": "Elements",
+            "type": "setting",
+            "category": "Elements",
             "title": "Color format:",
             "settingName": "colorFormat",
-            "settingType": "select",
+            "settingType": "enum",
+            "defaultValue": "original",
             "options": [
                 ["As authored", "original"],
                 ["HEX: #DAC0DE", "hex", true],
@@ -36,39 +37,36 @@
             ]
         },
         {
-            "type": "ui-setting",
-            "section": "Elements",
-            "title": "Show user agent styles",
-            "settingName": "showUserAgentStyles",
-            "settingType": "checkbox"
-        },
-        {
-            "type": "ui-setting",
-            "section": "Elements",
+            "type": "setting",
+            "category": "Elements",
             "title": "Show user agent shadow DOM",
             "settingName": "showUAShadowDOM",
-            "settingType": "checkbox"
+            "settingType": "boolean",
+            "defaultValue": false
         },
         {
-            "type": "ui-setting",
-            "section": "Elements",
+            "type": "setting",
+            "category": "Elements",
             "title": "Word wrap",
             "settingName": "domWordWrap",
-            "settingType": "checkbox"
+            "settingType": "boolean",
+            "defaultValue": true
         },
         {
-            "type": "ui-setting",
-            "section": "Elements",
+            "type": "setting",
+            "category": "Elements",
             "title": "Show rulers",
             "settingName": "showMetricsRulers",
-            "settingType": "checkbox"
+            "settingType": "boolean",
+            "defaultValue": false
         },
         {
-            "type": "ui-setting",
-            "section": "Elements",
+            "type": "setting",
+            "category": "Elements",
             "title": "Highlight DOM updates",
             "settingName": "highlightDOMUpdates",
-            "settingType": "checkbox"
+            "settingType": "boolean",
+            "defaultValue": true
         }
     ],
     "dependencies": [
@@ -77,12 +75,14 @@
     ],
     "scripts": [
         "BezierUI.js",
+        "AnimationControlPane.js",
         "AnimationTimeline.js",
         "StylesPopoverHelper.js",
         "BezierEditor.js",
         "Spectrum.js",
         "ElementsBreadcrumbs.js",
         "ElementsSidebarPane.js",
+        "ElementsSidebarView.js",
         "ElementsTreeElement.js",
         "ElementsTreeOutline.js",
         "EventListenersSidebarPane.js",
@@ -91,14 +91,15 @@
         "PropertiesSidebarPane.js",
         "StylesSectionModel.js",
         "StylesSidebarPane.js",
+        "ComputedStyleSidebarPane.js",
         "ElementsPanel.js",
-        "AnimationsSidebarPane.js",
-        "AccessibilitySidebarPane.js"
+        "AnimationsSidebarPane.js"
     ],
     "stylesheets": [
         "animationTimeline.css",
         "bezierEditor.css",
         "breadcrumbs.css",
+        "computedStyleSidebarPane.css",
         "elementsPanel.css",
         "elementsTreeOutline.css",
         "spectrum.css"

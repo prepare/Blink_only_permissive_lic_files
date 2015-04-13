@@ -55,7 +55,9 @@ WebInspector.UserMetrics._ActionCodes = {
     FileSavedInWorkspace: 9,
     DeviceModeEnabled: 10,
     AnimationsPlaybackRateChanged: 11,
-    RevisionApplied: 12
+    RevisionApplied: 12,
+    FileSystemDirectoryContentReceived: 13,
+    StyleRuleEdited: 14
 }
 
 WebInspector.UserMetrics._PanelCodes = {
@@ -66,7 +68,8 @@ WebInspector.UserMetrics._PanelCodes = {
     timeline: 5,
     profiles: 6,
     audits: 7,
-    console: 8
+    console: 8,
+    layers: 9
 }
 
 WebInspector.UserMetrics.UserAction = "UserAction";
@@ -86,9 +89,14 @@ WebInspector.UserMetrics.UserActionNames = {
 };
 
 WebInspector.UserMetrics.prototype = {
+    /**
+     * @param {string} panelName
+     */
     panelShown: function(panelName)
     {
-        InspectorFrontendHost.recordPanelShown(WebInspector.UserMetrics._PanelCodes[panelName] || 0);
+        var code = WebInspector.UserMetrics._PanelCodes[panelName] || 0;
+        var size = Object.keys(WebInspector.UserMetrics._PanelCodes).length + 1;
+        InspectorFrontendHost.recordEnumeratedHistogram("DevTools.PanelShown", code, size);
     }
 }
 
@@ -103,7 +111,8 @@ WebInspector.UserMetrics._Recorder = function(actionCode)
 WebInspector.UserMetrics._Recorder.prototype = {
     record: function()
     {
-        InspectorFrontendHost.recordActionTaken(this._actionCode);
+        var size = Object.keys(WebInspector.UserMetrics._ActionCodes).length + 1;
+        InspectorFrontendHost.recordEnumeratedHistogram("DevTools.ActionTaken", this._actionCode, size);
     }
 }
 

@@ -752,7 +752,7 @@ WebInspector.setToolbarColors = function(document, backgroundColor, color)
         WebInspector._themeStyleElement = createElement("style");
         document.head.appendChild(WebInspector._themeStyleElement);
     }
-    var colorWithAlpha = WebInspector.Color.parse(color).setAlpha(0.8).asString(WebInspector.Color.Format.RGBA);
+    var colorWithAlpha = WebInspector.Color.parse(color).setAlpha(0.9).asString(WebInspector.Color.Format.RGBA);
     var prefix = WebInspector.isMac() ? "body:not(.undocked)" : "body";
     WebInspector._themeStyleElement.textContent =
         String.sprintf(
@@ -803,19 +803,6 @@ WebInspector.highlightSearchResult = function(element, offset, length, domChange
 WebInspector.highlightSearchResults = function(element, resultRanges, changes)
 {
     return WebInspector.highlightRangesWithStyleClass(element, resultRanges, WebInspector.highlightedSearchResultClassName, changes);
-}
-
-/**
- * @param {!Element} element
- * @param {string} styleClass
- */
-WebInspector.removeSearchResultsHighlight = function(element, styleClass)
-{
-    var highlightBits = element.querySelectorAll("." + styleClass);
-    for (var i = 0; i < highlightBits.length; ++i) {
-        var span = highlightBits[i];
-        span.parentElement.replaceChild(createTextNode(span.textContent), span);
-    }
 }
 
 /**
@@ -1188,52 +1175,6 @@ WebInspector.LongClickController.prototype = {
 }
 
 /**
- * @param {string} url
- * @param {string=} linkText
- * @param {string=} classes
- * @return {!Element}
- */
-WebInspector.createExternalAnchor = function(url, linkText, classes)
-{
-    var anchor = createElementWithClass("a", "link");
-    var href = sanitizeHref(url);
-
-    if (href)
-        anchor.href = href;
-    anchor.title = url;
-
-    if (!linkText)
-        linkText = url;
-
-    anchor.className = classes;
-    anchor.textContent = linkText;
-    anchor.setAttribute("target", "_blank");
-
-    /**
-     * @param {!Event} event
-     */
-    function clickHandler(event)
-    {
-        event.consume(true);
-        InspectorFrontendHost.openInNewTab(anchor.href);
-    }
-
-    anchor.addEventListener("click", clickHandler, false);
-
-    return anchor;
-}
-
-/**
- * @param {string} article
- * @param {string} title
- * @return {!Element}
- */
-WebInspector.createDocumentationAnchor = function(article, title)
-{
-    return WebInspector.createExternalAnchor("https://developer.chrome.com/devtools/docs/" + article, title);
-}
-
-/**
  * @param {!Window} window
  */
 WebInspector.initializeUIUtils = function(window)
@@ -1256,31 +1197,15 @@ WebInspector.beautifyFunctionName = function(name)
 /**
  * @param {string} localName
  * @param {string} typeExtension
- * @param {function(new:T)} extendedType
- * @param {!Object.<string, function(...*)>} protoTemplate
- * @param {string=} styleSheet
+ * @param {!Object} prototype
+ * @return {function()}
  * @suppressGlobalPropertiesCheck
  * @template T
  */
-function registerCustomElement(localName, typeExtension, extendedType, protoTemplate, styleSheet)
+function registerCustomElement(localName, typeExtension, prototype)
 {
-    var proto = Object.create(extendedType.prototype);
-    for (var p in protoTemplate)
-        proto[p] = protoTemplate[p];
-
-    if (!protoTemplate["createdCallback"]) {
-        /**
-         * @this {Element}
-         */
-        proto.createdCallback = function() {
-            var root = this.createShadowRoot();
-            root.appendChild(createElement("content"));
-            if (styleSheet)
-                root.appendChild(WebInspector.View.createStyleElement(styleSheet));
-        };
-    }
-    document.registerElement(typeExtension, {
-        prototype: proto,
+    return document.registerElement(typeExtension, {
+        prototype: Object.create(prototype),
         extends: localName
     });
 }
@@ -1335,7 +1260,7 @@ function createCheckboxLabel(title, checked)
 }
 
 ;(function() {
-    registerCustomElement("button", "text-button", HTMLButtonElement, {
+    registerCustomElement("button", "text-button", {
         /**
          * @this {Element}
          */
@@ -1345,10 +1270,12 @@ function createCheckboxLabel(title, checked)
             var root = this.createShadowRoot();
             root.appendChild(WebInspector.View.createStyleElement("ui/textButton.css"));
             root.createChild("content");
-        }
-    }, "ui/textButton.css");
+        },
 
-    registerCustomElement("label", "dt-radio", HTMLLabelElement, {
+        __proto__: HTMLButtonElement.prototype
+    });
+
+    registerCustomElement("label", "dt-radio", {
         /**
          * @this {Element}
          */
@@ -1362,7 +1289,9 @@ function createCheckboxLabel(title, checked)
             root.createChild("content").select = ".dt-radio-button";
             root.createChild("content");
             this.addEventListener("click", radioClickHandler, false);
-        }
+        },
+
+        __proto__: HTMLLabelElement.prototype
     });
 
     /**
@@ -1378,7 +1307,7 @@ function createCheckboxLabel(title, checked)
         this.radioElement.dispatchEvent(new Event("change"));
     }
 
-    registerCustomElement("label", "dt-checkbox", HTMLLabelElement, {
+    registerCustomElement("label", "dt-checkbox", {
         /**
          * @this {Element}
          */
@@ -1390,7 +1319,56 @@ function createCheckboxLabel(title, checked)
             this.checkboxElement.type = "checkbox";
             root.createChild("content").select = ".dt-checkbox-button";
             root.createChild("content");
-        }
+        },
+
+        __proto__: HTMLLabelElement.prototype
+    });
+
+    registerCustomElement("label", "dt-icon-label", {
+        /**
+         * @this {Element}
+         */
+        createdCallback: function()
+        {
+            var root = this.createShadowRoot();
+            root.appendChild(WebInspector.View.createStyleElement("ui/smallIcon.css"));
+            this._iconElement = root.createChild("div");
+            root.createChild("content");
+        },
+
+        /**
+         * @param {string} type
+         * @this {Element}
+         */
+        set type(type)
+        {
+            this._iconElement.className = type;
+        },
+
+        __proto__: HTMLLabelElement.prototype
+    });
+
+    registerCustomElement("div", "dt-close-button", {
+        /**
+         * @this {Element}
+         */
+        createdCallback: function()
+        {
+            var root = this.createShadowRoot();
+            root.appendChild(WebInspector.View.createStyleElement("ui/closeButton.css"));
+            this._buttonElement = root.createChild("div", "close-button");
+        },
+
+        /**
+         * @param {boolean} gray
+         * @this {Element}
+         */
+        set gray(gray)
+        {
+            this._buttonElement.className = gray ? "close-button-gray" : "close-button";
+        },
+
+        __proto__: HTMLDivElement.prototype
     });
 })();
 

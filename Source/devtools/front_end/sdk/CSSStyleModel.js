@@ -70,11 +70,12 @@ WebInspector.CSSStyleModel.parseRuleMatchArrayPayload = function(cssModel, match
 }
 
 WebInspector.CSSStyleModel.Events = {
+    MediaQueryResultChanged: "MediaQueryResultChanged",
     ModelWasEnabled: "ModelWasEnabled",
+    PseudoStateForced: "PseudoStateForced",
     StyleSheetAdded: "StyleSheetAdded",
     StyleSheetChanged: "StyleSheetChanged",
-    StyleSheetRemoved: "StyleSheetRemoved",
-    MediaQueryResultChanged: "MediaQueryResultChanged",
+    StyleSheetRemoved: "StyleSheetRemoved"
 }
 
 WebInspector.CSSStyleModel.MediaTypes = ["all", "braille", "embossed", "handheld", "print", "projection", "screen", "speech", "tty", "tv"];
@@ -84,11 +85,11 @@ WebInspector.CSSStyleModel.prototype = {
     {
         this._agent.disable();
         this._isEnabled = false;
-        this._resetStyleSheets();
     },
 
     resumeModel: function()
     {
+        this._resetStyleSheets();
         this._agent.enable(this._wasEnabled.bind(this));
     },
 
@@ -277,6 +278,7 @@ WebInspector.CSSStyleModel.prototype = {
         }
 
         this._agent.forcePseudoState(node.id, pseudoClasses);
+        this.dispatchEventToListeners(WebInspector.CSSStyleModel.Events.PseudoStateForced, { node: node, pseudoClass: pseudoClass, enable: enable });
         return true;
     },
 
@@ -311,6 +313,7 @@ WebInspector.CSSStyleModel.prototype = {
 
         if (!rule.styleSheetId)
             throw "No rule stylesheet id";
+        WebInspector.userMetrics.StyleRuleEdited.record();
         this._pendingCommandsMajorState.push(true);
         this._agent.setRuleSelector(rule.styleSheetId, rule.selectorRange, newSelector, callback.bind(this, nodeId, successCallback, failureCallback, newSelector));
     },
@@ -342,6 +345,7 @@ WebInspector.CSSStyleModel.prototype = {
         }
 
         console.assert(!!media.parentStyleSheetId);
+        WebInspector.userMetrics.StyleRuleEdited.record();
         this._pendingCommandsMajorState.push(true);
         this._agent.setMediaText(media.parentStyleSheetId, media.range, newMediaText, callback.bind(this, successCallback, failureCallback));
     },
@@ -1106,17 +1110,6 @@ WebInspector.CSSRule.prototype = {
         return styleSheetHeader.columnNumberInSource(selector.range.startLine, selector.range.startColumn);
     },
 
-    /**
-     * @param {number} index
-     * @return {!WebInspector.CSSLocation}
-     */
-    rawSelectorLocation: function(index)
-    {
-        var lineNumber = this.lineNumberInSource(index);
-        var columnNumber = this.columnNumberInSource(index);
-        return new WebInspector.CSSLocation(this._cssModel.target(), this.styleSheetId || null, this.resourceURL(), lineNumber, columnNumber);
-    },
-
     get isUserAgent()
     {
         return this.origin === "user-agent";
@@ -1283,6 +1276,9 @@ WebInspector.CSSProperty.prototype = {
 
         if (!this.ownerStyle.styleSheetId)
             throw "No owner style id";
+
+        if (majorChange)
+            WebInspector.userMetrics.StyleRuleEdited.record();
 
         if (overwrite && propertyText === this.propertyText) {
             if (majorChange)

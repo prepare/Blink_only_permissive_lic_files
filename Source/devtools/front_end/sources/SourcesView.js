@@ -91,7 +91,7 @@ WebInspector.SourcesView.Events = {
  */
 WebInspector.SourcesView.uiSourceCodeHighlighterType = function(uiSourceCode)
 {
-    var networkContentType = WebInspector.networkProject.uiSourceCodeContentType(uiSourceCode);
+    var networkContentType = WebInspector.NetworkProject.uiSourceCodeContentType(uiSourceCode);
     if (networkContentType)
         return networkContentType.canonicalMimeType();
 
@@ -810,20 +810,18 @@ WebInspector.SourcesView.SwitchFileActionDelegate._nextFile = function(currentUI
 WebInspector.SourcesView.SwitchFileActionDelegate.prototype = {
     /**
      * @override
-     * @return {boolean}
+     * @param {!WebInspector.Context} context
+     * @param {string} actionId
      */
-    handleAction: function()
+    handleAction: function(context, actionId)
     {
         var sourcesView = WebInspector.context.flavor(WebInspector.SourcesView);
-        if (!sourcesView)
-            return false;
         var currentUISourceCode = sourcesView.currentUISourceCode();
         if (!currentUISourceCode)
-            return true;
+            return;
         var nextUISourceCode = WebInspector.SourcesView.SwitchFileActionDelegate._nextFile(currentUISourceCode);
         if (!nextUISourceCode)
-            return true;
+            return;
         sourcesView.showSourceLocation(nextUISourceCode);
-        return true;
     }
 }

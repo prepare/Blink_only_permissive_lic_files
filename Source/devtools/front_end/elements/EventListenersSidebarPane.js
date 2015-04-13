@@ -34,10 +34,12 @@
 WebInspector.EventListenersSidebarPane = function()
 {
     WebInspector.ElementsSidebarPane.call(this, WebInspector.UIString("Event Listeners"));
+    this.registerRequiredCSS("components/objectValue.css");
     this.bodyElement.classList.add("events-pane");
 
-    this.treeElement = this.bodyElement.createChild("ol", "event-listener-tree outline-disclosure monospace");
-    this.treeOutline = new TreeOutline(this.treeElement, true);
+    this._treeOutline = new TreeOutline(true);
+    this._treeOutline.element.classList.add("event-listener-tree", "outline-disclosure", "monospace");
+    this.bodyElement.appendChild(this._treeOutline.element);
 
     var refreshButton = this.titleElement.createChild("button", "pane-title-button refresh");
     refreshButton.addEventListener("click", this.update.bind(this), false);
@@ -53,7 +55,8 @@ WebInspector.EventListenersSidebarPane = function()
     option.value = "selected";
     option.label = WebInspector.UIString("Selected Node Only");
 
-    var filter = WebInspector.settings.eventListenersFilter.get();
+    this._eventListenersFilterSetting = WebInspector.settings.createSetting("eventListenersFilter", "all");
+    var filter = this._eventListenersFilterSetting.get();
     if (filter === "all")
         this.settingsSelectElement[0].selected = true;
     else if (filter === "selected")
@@ -83,7 +86,7 @@ WebInspector.EventListenersSidebarPane.prototype = {
 
         var body = this.bodyElement;
         body.removeChildren();
-        this.treeOutline.removeChildren();
+        this._treeOutline.removeChildren();
 
         var node = this.node();
         if (!node) {
@@ -108,7 +111,7 @@ WebInspector.EventListenersSidebarPane.prototype = {
 
         var body = this.bodyElement;
         var node = this.node();
-        var selectedNodeOnly = "selected" === WebInspector.settings.eventListenersFilter.get();
+        var selectedNodeOnly = "selected" === this._eventListenersFilterSetting.get();
         var treeItemMap = new Map();
         eventListeners.stableSort(compareListeners);
 
@@ -136,14 +139,14 @@ WebInspector.EventListenersSidebarPane.prototype = {
             if (!treeItem) {
                 treeItem = new WebInspector.EventListenersTreeElement(type, node.id, this._linkifier);
                 treeItemMap.set(type, treeItem);
-                this.treeOutline.appendChild(treeItem);
+                this._treeOutline.appendChild(treeItem);
             }
             treeItem.addListener(eventListener);
         }
         if (treeItemMap.size === 0)
             body.createChild("div", "info").textContent = WebInspector.UIString("No Event Listeners");
         else
-            body.appendChild(this.treeElement);
+            body.appendChild(this._treeOutline.element);
 
         finishCallback();
     },
@@ -151,7 +154,7 @@ WebInspector.EventListenersSidebarPane.prototype = {
     _changeSetting: function()
     {
         var selectedOption = this.settingsSelectElement[this.settingsSelectElement.selectedIndex];
-        WebInspector.settings.eventListenersFilter.set(selectedOption.value);
+        this._eventListenersFilterSetting.set(selectedOption.value);
         this.update();
     },
 
@@ -167,7 +170,7 @@ WebInspector.EventListenersTreeElement = function(title, nodeId, linkifier)
     this._nodeId = nodeId;
     this._linkifier = linkifier;
 
-    TreeElement.call(this, title, null, true);
+    TreeElement.call(this, title);
     this.toggleOnClick = true;
     this.selectable = false;
 }
@@ -178,10 +181,8 @@ WebInspector.EventListenersTreeElement.prototype = {
      */
     addListener: function(eventListener)
     {
-        var bar = new WebInspector.EventListenerBar(eventListener, this._nodeId, this._linkifier);
-        var treeElement = new TreeElement("");
+        var treeElement = new WebInspector.EventListenerBar(eventListener, this._nodeId, this._linkifier);
         this.appendChild(treeElement);
-        treeElement.title = bar.element;
     },
 
     __proto__: TreeElement.prototype
@@ -189,29 +190,25 @@ WebInspector.EventListenersTreeElement.prototype = {
 
 /**
  * @constructor
- * @extends {WebInspector.ObjectPropertiesSection}
+ * @extends {TreeElement}
  * @param {!WebInspector.DOMModel.EventListener} eventListener
  * @param {!DOMAgent.NodeId} nodeId
  * @param {!WebInspector.Linkifier} linkifier
  */
 WebInspector.EventListenerBar = function(eventListener, nodeId, linkifier)
 {
-    var target = eventListener.target();
-    WebInspector.ObjectPropertiesSection.call(this, target.runtimeModel.createRemoteObjectFromPrimitiveValue(""));
+    TreeElement.call(this, "", true);
 
+    var target = eventListener.target();
     this._runtimeModel = target.runtimeModel;
     this._eventListener = eventListener;
     this._nodeId = nodeId;
-    this._setNodeTitle();
-    this._setFunctionSubtitle(linkifier);
+    this._setNodeTitle(linkifier);
     this.editable = false;
-    this.element.classList.add("event-bar");
-    this.headerElement.classList.add("source-code");
-    this.propertiesElement.classList.add("event-properties");
 }
 
 WebInspector.EventListenerBar.prototype = {
-    update: function()
+    onpopulate: function()
     {
         /**
          * @param {?WebInspector.RemoteObject} nodeObject
@@ -231,40 +228,37 @@ WebInspector.EventListenerBar.prototype = {
                 properties.push(new WebInspector.RemoteObjectProperty("handler", remoteObject));
             }
 
-            this.updateProperties(properties);
+            WebInspector.ObjectPropertyTreeElement.populateWithProperties(this, properties, [], true, null);
         }
         this._eventListener.node().resolveToObject(WebInspector.EventListenersSidebarPane._objectGroupName, updateWithNodeObject.bind(this));
-    },
-
-    _setNodeTitle: function()
-    {
-        var node = this._eventListener.node();
-        if (!node)
-            return;
-
-        if (node.nodeType() === Node.DOCUMENT_NODE) {
-            this.titleElement.textContent = "document";
-            return;
-        }
-
-        if (node.id === this._nodeId) {
-            this.titleElement.textContent = WebInspector.DOMPresentationUtils.simpleSelector(node);
-            return;
-        }
-
-        this.titleElement.removeChildren();
-        this.titleElement.appendChild(WebInspector.DOMPresentationUtils.linkifyNodeReference(node));
     },
 
     /**
      * @param {!WebInspector.Linkifier} linkifier
      */
-    _setFunctionSubtitle: function(linkifier)
+    _setNodeTitle: function(linkifier)
     {
-        this.subtitleElement.removeChildren();
-        var link = linkifier.linkifyRawLocation(this._eventListener.location(), this._eventListener.sourceName());
-        this.subtitleElement.appendChild(link);
+        var node = this._eventListener.node();
+        if (!node)
+            return;
+
+        this.listItemElement.removeChildren();
+        var title = this.listItemElement.createChild("span");
+        var subtitle = this.listItemElement.createChild("span", "event-listener-tree-subtitle");
+        subtitle.appendChild(linkifier.linkifyRawLocation(this._eventListener.location(), this._eventListener.sourceName()));
+
+        if (node.nodeType() === Node.DOCUMENT_NODE) {
+            title.textContent = "document";
+            return;
+        }
+
+        if (node.id === this._nodeId) {
+            title.textContent = WebInspector.DOMPresentationUtils.simpleSelector(node);
+            return;
+        }
+
+        title.appendChild(WebInspector.DOMPresentationUtils.linkifyNodeReference(node));
     },
 
-    __proto__: WebInspector.ObjectPropertiesSection.prototype
+    __proto__: TreeElement.prototype
 }

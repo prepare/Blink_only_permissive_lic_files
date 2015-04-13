@@ -4,11 +4,10 @@
 
 /**
  * @constructor
- * @extends {WebInspector.App}
+ * @implements {WebInspector.App}
  */
 WebInspector.AdvancedApp = function()
 {
-    WebInspector.App.call(this);
     if (WebInspector.overridesSupport.responsiveDesignAvailable()) {
         this._toggleEmulationButton = new WebInspector.StatusBarButton(WebInspector.UIString("Toggle device mode."), "emulation-status-bar-item");
         this._toggleEmulationButton.setToggled(WebInspector.overridesSupport.emulationEnabled());
@@ -208,54 +207,40 @@ WebInspector.AdvancedApp.prototype = {
         var bounds = /** @type {{x: number, y: number, width: number, height: number}} */ (event.data);
         console.timeStamp("AdvancedApp.setInspectedPageBounds");
         InspectorFrontendHost.setInspectedPageBounds(bounds);
-    },
+    }
+};
 
-    __proto__: WebInspector.App.prototype
+/** @type {!WebInspector.AdvancedApp} */
+WebInspector.AdvancedApp._appInstance;
+
+/**
+ * @return {!WebInspector.AdvancedApp}
+ */
+WebInspector.AdvancedApp._instance = function()
+{
+    if (!WebInspector.AdvancedApp._appInstance)
+        WebInspector.AdvancedApp._appInstance = new WebInspector.AdvancedApp();
+    return WebInspector.AdvancedApp._appInstance;
 };
 
 /**
  * @constructor
- * @implements {WebInspector.StatusBarItem.Provider}
+ * @implements {WebInspector.AppProvider}
  */
-WebInspector.AdvancedApp.DeviceCounter = function()
+WebInspector.AdvancedAppProvider = function()
 {
-    if (!Runtime.experiments.isEnabled("devicesPanel") || !(WebInspector.app instanceof WebInspector.AdvancedApp)) {
-        this._counter = null;
-        return;
-    }
+};
 
-    this._counter = new WebInspector.StatusBarCounter(["device-icon-small"]);
-    this._counter.addEventListener("click", showDevices);
-
-    function showDevices()
-    {
-        WebInspector.inspectorView.showViewInDrawer("devices", true);
-    }
-
-    InspectorFrontendHost.setDeviceCountUpdatesEnabled(true);
-    InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.DeviceCountUpdated, this._onDeviceCountUpdated, this);
-}
-
-WebInspector.AdvancedApp.DeviceCounter.prototype = {
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _onDeviceCountUpdated: function(event)
-    {
-        var count = /** @type {number} */ (event.data);
-        this._counter.setCounter("device-icon-small", count, WebInspector.UIString(count > 1 ? "%d devices found" : "%d device found", count));
-        WebInspector.inspectorView.toolbarItemResized();
-    },
-
+WebInspector.AdvancedAppProvider.prototype = {
     /**
      * @override
-     * @return {?WebInspector.StatusBarItem}
+     * @return {!WebInspector.App}
      */
-    item: function()
+    createApp: function()
     {
-        return this._counter;
+        return WebInspector.AdvancedApp._instance();
     }
-}
+};
 
 /**
  * @constructor
@@ -272,9 +257,7 @@ WebInspector.AdvancedApp.EmulationButtonProvider.prototype = {
      */
     item: function()
     {
-        if (!(WebInspector.app instanceof WebInspector.AdvancedApp))
-            return null;
-        return WebInspector.app._toggleEmulationButton || null;
+        return WebInspector.AdvancedApp._instance()._toggleEmulationButton;
     }
 }
 
@@ -289,15 +272,12 @@ WebInspector.AdvancedApp.ToggleDeviceModeActionDelegate = function()
 WebInspector.AdvancedApp.ToggleDeviceModeActionDelegate.prototype = {
     /**
      * @override
-     * @return {boolean}
+     * @param {!WebInspector.Context} context
+     * @param {string} actionId
      */
-    handleAction: function()
+    handleAction: function(context, actionId)
     {
-        if (!WebInspector.overridesSupport.responsiveDesignAvailable())
-            return false;
-        if (!(WebInspector.app instanceof WebInspector.AdvancedApp))
-            return false;
-        WebInspector.app._toggleEmulationEnabled();
-        return true;
+        if (WebInspector.overridesSupport.responsiveDesignAvailable())
+            WebInspector.AdvancedApp._instance()._toggleEmulationEnabled();
     }
 }

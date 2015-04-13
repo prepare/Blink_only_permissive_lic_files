@@ -33,8 +33,8 @@
 WebInspector.InspectElementModeController = function()
 {
     this._toggleSearchButton = new WebInspector.StatusBarButton(WebInspector.UIString("Select an element in the page to inspect it."), "node-search-status-bar-item");
-    this._shortcut = WebInspector.InspectElementModeController.createShortcut();
     InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.EnterInspectElementMode, this._toggleSearch, this);
+    WebInspector.targetManager.addModelListener(WebInspector.DOMModel, WebInspector.DOMModel.Events.ModelSuspended, this._onModelSuspended, this);
     WebInspector.targetManager.observeTargets(this);
 }
 
@@ -56,7 +56,7 @@ WebInspector.InspectElementModeController.prototype = {
         // When DevTools are opening in the inspect element mode, the first target comes in
         // much later than the InspectorFrontendAPI.enterInspectElementMode event.
         if (this.enabled())
-            target.domModel.setInspectModeEnabled(true, WebInspector.settings.showUAShadowDOM.get());
+            target.domModel.setInspectModeEnabled(true, WebInspector.moduleSetting("showUAShadowDOM").get());
     },
 
     /**
@@ -88,7 +88,12 @@ WebInspector.InspectElementModeController.prototype = {
 
         var targets = WebInspector.targetManager.targets();
         for (var i = 0; i < targets.length; ++i)
-            targets[i].domModel.setInspectModeEnabled(enabled, WebInspector.settings.showUAShadowDOM.get());
+            targets[i].domModel.setInspectModeEnabled(enabled, WebInspector.moduleSetting("showUAShadowDOM").get());
+    },
+
+    _onModelSuspended: function()
+    {
+        this._toggleSearchButton.setToggled(false);
     }
 }
 
@@ -103,14 +108,14 @@ WebInspector.InspectElementModeController.ToggleSearchActionDelegate = function(
 WebInspector.InspectElementModeController.ToggleSearchActionDelegate.prototype = {
     /**
      * @override
-     * @return {boolean}
+     * @param {!WebInspector.Context} context
+     * @param {string} actionId
      */
-    handleAction: function()
+    handleAction: function(context, actionId)
     {
         if (!WebInspector.inspectElementModeController)
-            return false;
+            return;
         WebInspector.inspectElementModeController._toggleSearch();
-        return true;
     }
 }
 

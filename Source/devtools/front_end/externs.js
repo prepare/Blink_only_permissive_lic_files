@@ -39,6 +39,9 @@ Object.observe = function(object, callback) {}
 /** @type {boolean} */
 Event.prototype.isMetaOrCtrlForTest;
 
+/** @type {string} */
+Event.prototype.code;
+
 /**
  * @type {number}
  */
@@ -526,193 +529,12 @@ CodeMirror.doc;
 /** @type {boolean} */
 window.dispatchStandaloneTestRunnerMessages;
 
-// FIXME: Remove once ES6 is supported natively by JS compiler.
-
-/** @typedef {string} */
-var symbol;
-
+// FIXME: This should be removed once transpilation is not required for closure compiler ES6
 /**
- * @param {string} description
- * @return {symbol}
+ * @param {number} count
+ * @return {string}
  */
-function Symbol(description) {}
-
-/**
- * @interface
- * @extends $jscomp.Iterable.<T>
- * @template T
- */
-var Iterator = function() { }
-
-Iterator.prototype = {
-    /**
-     * @return {{done: boolean, value: (T|undefined)}}
-     */
-    next: function() { },
-
-    // FIXME: This should be removed once transpilation is not required for closure compiler ES6
-    $$iterator: function() { }
-}
-
-// FIXME: $jscomp.Iterable hack below should be removed once transpilation is not required for closure compiler ES6
-/**
- * @constructor
- * @implements $jscomp.Iterable.<!Array.<K|V>>
- * @param {!Array.<!Array.<K|V>>|!Iterator.<!Array.<K|V>>=} iterable
- * @template K, V
- */
-var Map = function(iterable) { }
-
-Map.prototype = {
-    /**
-     * @param {K} key
-     * @param {V} value
-     */
-    set: function(key, value) { },
-
-    /**
-     * @param {K} key
-     * @return {boolean}
-     */
-    delete: function(key) { },
-
-    /**
-     * @return {!Iterator.<K>}
-     */
-    keys: function() { },
-
-    /**
-     * @return {!Iterator.<V>}
-     */
-    values: function() { },
-
-    /**
-     * @return {!Array.<!Array.<K|V>>}
-     */
-    entries: function() { },
-
-    /**
-     * @param {K} key
-     * @return {V}
-     */
-    get: function(key) { },
-
-    /**
-     * @param {K} key
-     * @return {boolean}
-     */
-    has: function(key) { },
-
-    clear: function() { },
-
-    /**
-     * @return {number}
-     */
-    get size() { },
-
-    // FIXME: This should be removed once transpilation is not required for closure compiler ES6
-    $$iterator: function() { }
-}
-
-// FIXME: $jscomp.Iterable hack below should be removed once transpilation is not required for closure compiler ES6
-/**
- * @constructor
- * @implements $jscomp.Iterable.<V>
- * @param {!Array.<V>|!Iterator.<V>|string=} iterable
- * @template V
- */
-var Set = function(iterable) { }
-
-Set.prototype = {
-    /**
-     * @param {V} value
-     */
-    add: function(value) { },
-
-    /**
-     * @param {V} value
-     * @return {boolean}
-     */
-    delete: function(value) { },
-
-    /**
-     * @return {!Iterator.<V>}
-     */
-    values: function() { },
-
-    /**
-     * @param {V} value
-     * @return {boolean}
-     */
-    has: function(value) { },
-
-    clear: function() { },
-
-    /**
-     * @return {number}
-     */
-    get size() { },
-
-    // FIXME: This should be removed once transpilation is not required for closure compiler ES6
-    $$iterator: function() { }
-}
-
-/**
- * @constructor
- * @template K, V
- */
-var WeakMap = function() { }
-
-WeakMap.prototype = {
-    /**
-     * @param {K} key
-     * @param {V} value
-     */
-    set: function(key, value) { },
-
-    /**
-     * @param {K} key
-     * @return {boolean}
-     */
-    delete: function(key) { },
-
-    /**
-     * @param {K} key
-     * @return {V}
-     */
-    get: function(key) { },
-
-    /**
-     * @param {K} key
-     * @return {boolean}
-     */
-    has: function(key) { },
-}
-
-/**
- * @constructor
- * @template V
- */
-var WeakSet = function() { }
-
-WeakSet.prototype = {
-    /**
-     * @param {V} value
-     */
-    add: function(value) { },
-
-    /**
-     * @param {V} value
-     * @return {boolean}
-     */
-    delete: function(value) { },
-
-    /**
-     * @param {V} value
-     * @return {boolean}
-     */
-    has: function(value) { },
-}
+String.prototype.repeat = function(count) {}
 
 /**
  * @param {*} obj

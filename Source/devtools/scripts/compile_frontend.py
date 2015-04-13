@@ -74,11 +74,10 @@ scripts_path = path.dirname(path.abspath(__file__))
 devtools_path = path.dirname(scripts_path)
 inspector_path = path.join(path.dirname(devtools_path), 'core', 'inspector')
 devtools_frontend_path = path.join(devtools_path, 'front_end')
+patched_es6_externs_file = to_platform_path(path.join(devtools_frontend_path, 'es6.js'))
 global_externs_file = to_platform_path(path.join(devtools_frontend_path, 'externs.js'))
 protocol_externs_file = path.join(devtools_frontend_path, 'protocol_externs.js')
-webgl_rendering_context_idl_path = path.join(path.dirname(devtools_path), 'core', 'html', 'canvas', 'WebGLRenderingContextBase.idl')
 injected_script_source_name = path.join(inspector_path, 'InjectedScriptSource.js')
-canvas_injected_script_source_name = path.join(inspector_path, 'InjectedScriptCanvasModuleSource.js')
 injected_script_externs_idl_names = [
     path.join(inspector_path, 'InjectedScriptHost.idl'),
     path.join(inspector_path, 'JavaScriptCallFrame.idl'),
@@ -262,6 +261,17 @@ for module_name in descriptors.application:
         list.append(module_name)
 
 
+def check_conditional_dependencies():
+    for name in modules_by_name:
+        for dep_name in modules_by_name[name].get('dependencies', []):
+            dependency = modules_by_name[dep_name]
+            if dependency.get('experiment') or dependency.get('condition'):
+                log_error('Module "%s" may not depend on the conditional module "%s"' % (name, dep_name))
+                errors_found = True
+
+check_conditional_dependencies()
+
+
 def verify_worker_modules():
     for name in modules_by_name:
         for dependency in modules_by_name[name].get('dependencies', []):
@@ -340,6 +350,7 @@ try:
     checked_modules = modules_to_check()
     for name in checked_modules:
         closure_args = common_closure_args
+        closure_args += ' --externs ' + to_platform_path(patched_es6_externs_file)
         closure_args += ' --externs ' + to_platform_path(global_externs_file)
         closure_args += ' --externs ' + platform_protocol_externs_file
         runtime_module = module_arg(runtime_module_name) + ':1 --js ' + runtime_js_path
@@ -371,12 +382,10 @@ def unclosure_injected_script(sourceFileName, outFileName):
     write_file(outFileName, source)
 
 injectedScriptSourceTmpFile = to_platform_path(path.join(inspector_path, 'InjectedScriptSourceTmp.js'))
-injectedScriptCanvasModuleSourceTmpFile = path.join(inspector_path, 'InjectedScriptCanvasModuleSourceTmp.js')
 
 unclosure_injected_script(injected_script_source_name, injectedScriptSourceTmpFile)
-unclosure_injected_script(canvas_injected_script_source_name, injectedScriptCanvasModuleSourceTmpFile)
 
-print 'Compiling InjectedScriptSource.js and InjectedScriptCanvasModuleSource.js...'
+print 'Compiling InjectedScriptSource.js...'
 injected_script_externs_file = tempfile.NamedTemporaryFile(mode='wt', delete=False)
 try:
     generate_injected_script_externs.generate_injected_script_externs(injected_script_externs_idl_names, injected_script_externs_file)
@@ -390,20 +399,13 @@ command += '    --externs ' + to_platform_path_exact(injected_script_externs_fil
 command += '    --externs ' + to_platform_path(protocol_externs_file)
 command += '    --module ' + jsmodule_name_prefix + 'injected_script' + ':1'
 command += '        --js ' + to_platform_path(injectedScriptSourceTmpFile)
-command += '    --module ' + jsmodule_name_prefix + 'injected_canvas_script' + ':1:' + jsmodule_name_prefix + 'injected_script'
-command += '        --js ' + to_platform_path(injectedScriptCanvasModuleSourceTmpFile)
 
 injectedScriptCompileProc = run_in_shell(command)
 
 print 'Verifying JSDoc comments...'
-additional_jsdoc_check_files = [injectedScriptSourceTmpFile, injectedScriptCanvasModuleSourceTmpFile]
+additional_jsdoc_check_files = [injectedScriptSourceTmpFile]
 errors_found |= verify_jsdoc(additional_jsdoc_check_files)
 jsdocValidatorProc, jsdocValidatorFileList = verify_jsdoc_extra(additional_jsdoc_check_files)
-
-print 'Checking generated code in InjectedScriptCanvasModuleSource.js...'
-webgl_check_script_path = path.join(scripts_path, "check_injected_webgl_calls_info.py")
-check_injected_webgl_calls_command = '%s %s %s' % (webgl_check_script_path, webgl_rendering_context_idl_path, canvas_injected_script_source_name)
-canvasModuleCompileProc = run_in_shell(check_injected_webgl_calls_command)
 
 print 'Validating InjectedScriptSource.js...'
 injectedscript_check_script_path = path.join(scripts_path, "check_injected_script_source.py")
@@ -477,12 +479,8 @@ if error_count:
     errors_found = True
 
 (injectedScriptCompileOut, _) = injectedScriptCompileProc.communicate()
-print 'InjectedScriptSource.js and InjectedScriptCanvasModuleSource.js compilation output:%s' % os.linesep, injectedScriptCompileOut
+print 'InjectedScriptSource.js compilation output:%s' % os.linesep, injectedScriptCompileOut
 errors_found |= hasErrors(injectedScriptCompileOut)
-
-(canvasModuleCompileOut, _) = canvasModuleCompileProc.communicate()
-print 'InjectedScriptCanvasModuleSource.js generated code check output:%s' % os.linesep, canvasModuleCompileOut
-errors_found |= hasErrors(canvasModuleCompileOut)
 
 (validateInjectedScriptOut, _) = validateInjectedScriptProc.communicate()
 print 'Validate InjectedScriptSource.js output:%s' % os.linesep, (validateInjectedScriptOut if validateInjectedScriptOut else '<empty>')
@@ -492,7 +490,6 @@ if errors_found:
     print 'ERRORS DETECTED'
 
 os.remove(injectedScriptSourceTmpFile)
-os.remove(injectedScriptCanvasModuleSourceTmpFile)
 os.remove(compiler_args_file.name)
 os.remove(injected_script_externs_file.name)
 os.remove(protocol_externs_file)

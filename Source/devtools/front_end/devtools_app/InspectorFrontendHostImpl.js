@@ -92,6 +92,18 @@ WebInspector.InspectorFrontendHostImpl.prototype = {
 
     /**
      * @override
+     * @param {string} url
+     * @param {string} headers
+     * @param {number} streamId
+     * @param {function(!InspectorFrontendHostAPI.LoadNetworkResourceResult)} callback
+     */
+    loadNetworkResource: function(url, headers, streamId, callback)
+    {
+        DevToolsAPI.sendMessageToEmbedder("loadNetworkResource", [url, headers, streamId], /** @type {function(?Object)} */ (callback));
+    },
+
+    /**
+     * @override
      * @param {string} origin
      * @param {string} script
      */
@@ -159,20 +171,13 @@ WebInspector.InspectorFrontendHostImpl.prototype = {
 
     /**
      * @override
+     * @param {string} actionName
      * @param {number} actionCode
+     * @param {number} bucketSize
      */
-    recordActionTaken: function(actionCode)
+    recordEnumeratedHistogram: function(actionName, actionCode, bucketSize)
     {
-        DevToolsAPI.sendMessageToEmbedder("recordActionUMA", ["DevTools.ActionTaken", actionCode], null);
-    },
-
-    /**
-     * @override
-     * @param {number} panelCode
-     */
-    recordPanelShown: function(panelCode)
-    {
-        DevToolsAPI.sendMessageToEmbedder("recordActionUMA", ["DevTools.PanelShown", panelCode], null);
+        DevToolsAPI.sendMessageToEmbedder("recordEnumeratedHistogram", [actionName, actionCode, bucketSize], null);
     },
 
     /**
@@ -303,25 +308,6 @@ WebInspector.InspectorFrontendHostImpl.prototype = {
 
     /**
      * @override
-     * @param {string} browserId
-     * @param {string} url
-     */
-    openUrlOnRemoteDeviceAndInspect: function(browserId, url)
-    {
-        DevToolsAPI.sendMessageToEmbedder("openUrlOnRemoteDeviceAndInspect", [browserId, url], null);
-    },
-
-    /**
-     * @override
-     * @param {boolean} enabled
-     */
-    setDeviceCountUpdatesEnabled: function(enabled)
-    {
-        DevToolsAPI.sendMessageToEmbedder("setDeviceCountUpdatesEnabled", [enabled], null);
-    },
-
-    /**
-     * @override
      * @param {boolean} enabled
      */
     setDevicesUpdatesEnabled: function(enabled)
@@ -349,6 +335,8 @@ WebInspector.InspectorFrontendHostImpl.prototype = {
     {
         return DevToolsHost.isHostedMode();
     },
+
+    // Backward-compatible methods below this line --------------------------------------------
 
     /**
      * Support for legacy front-ends (<M41).
@@ -450,5 +438,23 @@ WebInspector.InspectorFrontendHostImpl.prototype = {
      */
     close: function(url)
     {
+    },
+
+    /**
+     * Support for legacy front-ends (<M44).
+     * @param {number} actionCode
+     */
+    recordActionTaken: function(actionCode)
+    {
+        this.recordEnumeratedHistogram("DevTools.ActionTaken", actionCode, 100);
+    },
+
+    /**
+     * Support for legacy front-ends (<M44).
+     * @param {number} panelCode
+     */
+    recordPanelShown: function(panelCode)
+    {
+        this.recordEnumeratedHistogram("DevTools.PanelShown", panelCode, 20);
     }
 }

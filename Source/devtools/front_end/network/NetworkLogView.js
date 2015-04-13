@@ -33,17 +33,26 @@
  * @implements {WebInspector.Searchable}
  * @implements {WebInspector.TargetManager.Observer}
  * @extends {WebInspector.VBox}
+ * @param {!WebInspector.NetworkOverview} overview
  * @param {!WebInspector.FilterBar} filterBar
  * @param {!Element} progressBarContainer
+ * @param {!WebInspector.Setting} networkLogLargeRowsSetting
  */
-WebInspector.NetworkLogView = function(filterBar, progressBarContainer)
+WebInspector.NetworkLogView = function(overview, filterBar, progressBarContainer, networkLogLargeRowsSetting)
 {
     WebInspector.VBox.call(this);
     this.registerRequiredCSS("network/networkLogView.css");
     this.registerRequiredCSS("ui/filter.css");
 
+    this._networkHideDataURLSetting = WebInspector.settings.createSetting("networkHideDataURL", false);
+    this._networkResourceTypeFiltersSetting = WebInspector.settings.createSetting("networkResourceTypeFilters", {});
+    this._networkShowPrimaryLoadWaterfallSetting = WebInspector.settings.createSetting("networkShowPrimaryLoadWaterfall", false);
+
     this._filterBar = filterBar;
+    /** @type {!WebInspector.NetworkOverview} */
+    this._overview = overview;
     this._progressBarContainer = progressBarContainer;
+    this._networkLogLargeRowsSetting = networkLogLargeRowsSetting;
 
     var defaultColumnsVisibility = WebInspector.NetworkLogView._defaultColumnsVisibility;
     this._columnsVisibilitySetting = WebInspector.settings.createSetting("networkLogColumnsVisibility", defaultColumnsVisibility);
@@ -61,16 +70,25 @@ WebInspector.NetworkLogView = function(filterBar, progressBarContainer)
     this._mainRequestLoadTime = -1;
     /** @type {number} */
     this._mainRequestDOMContentLoadedTime = -1;
+    /** @type {number} */
+    this._selectedFrameTime = -1;
+    /** @type {boolean} */
+    this._showSelectedFrame = false;
     this._matchedRequestCount = 0;
     this._highlightedSubstringChanges = [];
 
     /** @type {!Array.<!WebInspector.NetworkLogView.Filter>} */
     this._filters = [];
+    /** @type {?WebInspector.NetworkLogView.Filter} */
+    this._timeFilter = null;
 
     this._currentMatchedRequestNode = null;
     this._currentMatchedRequestIndex = -1;
 
-    this._linkifier = new WebInspector.Linkifier();
+    /** @type {!WebInspector.Linkifier} */
+    this._popupLinkifier = new WebInspector.Linkifier();
+    /** @type {!WebInspector.Linkifier} */
+    this.linkifier = new WebInspector.Linkifier();
 
     this._gridMode = true;
     this._recording = false;
@@ -83,9 +101,10 @@ WebInspector.NetworkLogView = function(filterBar, progressBarContainer)
     this._resetSuggestionBuilder();
     this._initializeView();
 
-    WebInspector.settings.networkColorCodeResourceTypes.addChangeListener(this._invalidateAllItems, this);
-    WebInspector.settings.networkLogLargeRows.addChangeListener(this._updateRowsSize, this);
-    WebInspector.settings.networkLogHideColumns.addChangeListener(this._updateColumns, this);
+    this._overview.addEventListener(WebInspector.NetworkOverview.Events.WindowChanged, this._onWindowChanged, this);
+
+    WebInspector.moduleSetting("networkColorCodeResourceTypes").addChangeListener(this._invalidateAllItems, this);
+    this._networkLogLargeRowsSetting.addChangeListener(this._updateRowsSize, this);
 
     WebInspector.targetManager.observeTargets(this);
     WebInspector.targetManager.addModelListener(WebInspector.NetworkManager, WebInspector.NetworkManager.EventTypes.RequestStarted, this._onRequestStarted, this);
@@ -103,7 +122,7 @@ WebInspector.NetworkLogView._isMatchingSearchQuerySymbol = Symbol("isMatchingSea
 WebInspector.NetworkLogView.HTTPSchemas = {"http": true, "https": true, "ws": true, "wss": true};
 WebInspector.NetworkLogView._responseHeaderColumns = ["Cache-Control", "Connection", "Content-Encoding", "Content-Length", "ETag", "Keep-Alive", "Last-Modified", "Server", "Vary"];
 WebInspector.NetworkLogView._defaultColumnsVisibility = {
-    method: true, status: true, protocol: false, scheme: false, domain: false, remoteAddress: false, type: true, initiator: true, cookies: false, setCookies: false, size: true, time: true, connectionId: false,
+    method: false, status: true, protocol: false, scheme: false, domain: false, remoteAddress: false, type: true, initiator: true, cookies: false, setCookies: false, size: true, time: true, connectionId: false,
     "Cache-Control": false, "Connection": false, "Content-Encoding": false, "Content-Length": false, "ETag": false, "Keep-Alive": false, "Last-Modified": false, "Server": false, "Vary": false
 };
 WebInspector.NetworkLogView._defaultRefreshDelay = 200;
@@ -166,6 +185,24 @@ WebInspector.NetworkLogView._columnTitles = {
 
 WebInspector.NetworkLogView.prototype = {
     /**
+     * @param {boolean} showSelectedFrame
+     */
+    setShowSelectedFrame: function(showSelectedFrame)
+    {
+        this._showSelectedFrame = showSelectedFrame;
+        this._updateEventDividers();
+    },
+
+    /**
+     * @param {number} frameTime
+     */
+    setSelectedFrameTime: function(frameTime)
+    {
+        this._selectedFrameTime = frameTime;
+        this._updateEventDividers();
+    },
+
+    /**
      * @param {boolean} recording
      */
     setRecording: function(recording)
@@ -198,6 +235,24 @@ WebInspector.NetworkLogView.prototype = {
     {
     },
 
+    /**
+     * @param {!WebInspector.Event} event
+     */
+    _onWindowChanged: function(event)
+    {
+        var start = /** @type {number} */ (event.data.start);
+        var end = /** @type {number} */ (event.data.end);
+        if (!start && !end) {
+            this._timeFilter = null;
+            this._timeCalculator.setWindow(null);
+        } else {
+            this._timeFilter = WebInspector.NetworkLogView._requestTimeFilter.bind(null, start, end);
+            this._timeCalculator.setWindow(new WebInspector.NetworkTimeBoundary(start, end));
+        }
+        this._updateDividersIfNeeded();
+        this._filterRequests();
+    },
+
     clearSelection: function()
     {
         if (this._dataGrid.selectedNode)
@@ -217,11 +272,11 @@ WebInspector.NetworkLogView.prototype = {
                 continue;
             types.push({name: resourceType.name(), label: resourceType.categoryTitle()});
         }
-        this._resourceTypeFilterUI = new WebInspector.NamedBitSetFilterUI(types, WebInspector.settings.networkResourceTypeFilters);
+        this._resourceTypeFilterUI = new WebInspector.NamedBitSetFilterUI(types, this._networkResourceTypeFiltersSetting);
         this._resourceTypeFilterUI.addEventListener(WebInspector.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
         this._filterBar.addFilter(this._resourceTypeFilterUI);
 
-        var dataURLSetting = WebInspector.settings.networkHideDataURL;
+        var dataURLSetting = this._networkHideDataURLSetting;
         this._dataURLFilterUI = new WebInspector.CheckboxFilterUI("hide-data-url", WebInspector.UIString("Hide data URLs"), true, dataURLSetting);
         this._dataURLFilterUI.addEventListener(WebInspector.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
         this._filterBar.addFilter(this._dataURLFilterUI);
@@ -282,6 +337,8 @@ WebInspector.NetworkLogView.prototype = {
         this._timelineGrid = new WebInspector.TimelineGrid();
         this._timelineGrid.element.classList.add("network-timeline-grid");
         this._dataGrid.element.appendChild(this._timelineGrid.element);
+        this._selectedFrameDivider = createElementWithClass("div", "network-event-divider network-orange-divider invisible");
+        this._timelineGrid.addEventDivider(this._selectedFrameDivider);
         this._loadDivider = createElementWithClass("div", "network-event-divider network-red-divider invisible");
         this._timelineGrid.addEventDivider(this._loadDivider);
         this._domContentLoadedDivider = createElementWithClass("div", "network-event-divider network-blue-divider invisible");
@@ -296,8 +353,7 @@ WebInspector.NetworkLogView.prototype = {
             titleDOMFragment: this._makeHeaderFragment(WebInspector.UIString("Name"), WebInspector.UIString("Path")),
             title: WebInspector.NetworkLogView._columnTitles["name"],
             sortable: true,
-            weight: 20,
-            disclosure: true
+            weight: 20
         });
 
         columns.push({
@@ -428,6 +484,7 @@ WebInspector.NetworkLogView.prototype = {
         this._dataGrid.element.classList.add("network-log-grid");
         this._dataGrid.element.addEventListener("contextmenu", this._contextMenu.bind(this), true);
         this._dataGrid.element.addEventListener("mousedown", this._dataGridMouseDown.bind(this), true);
+        this._dataGrid.element.addEventListener("mousemove", this._mouseMove.bind(this), true);
         this._dataGrid.show(this.element);
 
         // Event listeners need to be added _after_ we attach to the document, so that owner document is properly update.
@@ -445,6 +502,25 @@ WebInspector.NetworkLogView.prototype = {
     {
         if ((!this._dataGrid.selectedNode && event.button) || event.target.enclosingNodeOrSelfWithNodeName("a"))
             event.consume();
+    },
+
+    /**
+     * @param {!Event} event
+     */
+    _mouseMove: function(event)
+    {
+        var target = /** @type {!Node} */ (event.target);
+        var cell = target.enclosingNodeOrSelfWithNodeName("td");
+        if (!cell)
+            return;
+        if (this._dataGrid.columnIdentifierFromNode(cell) !== "timeline")
+            return;
+        var container = this._selectedFrameDivider.enclosingNodeOrSelfWithClass("resources-event-dividers");
+        var percentOffset = 100.0 * (event.x - container.totalOffsetLeft()) / container.clientWidth;
+        var time = this._calculator.percentageToTime(percentOffset);
+        this.dispatchEventToListeners(WebInspector.NetworkLogView.EventTypes.TimeHovered, time);
+        this._selectedFrameTime = time;
+        this._updateEventDividers();
     },
 
     /**
@@ -595,7 +671,7 @@ WebInspector.NetworkLogView.prototype = {
                 return;
             this._summaryBarElement._isDisplayingWarning = true;
             this._summaryBarElement.removeChildren();
-            this._summaryBarElement.createChild("div", "warning-icon-small");
+            this._summaryBarElement.createChild("label", "", "dt-icon-label").type = "warning-icon";
             var text = WebInspector.UIString("No requests captured. Reload the page to see detailed information on the network activity.");
             this._summaryBarElement.createTextChild(text);
             this._summaryBarElement.title = text;
@@ -698,6 +774,18 @@ WebInspector.NetworkLogView.prototype = {
             // event lines really wouldn't make much sense here, so don't render them.
             return;
         }
+
+        this._updateEventDividers();
+    },
+
+    _updateEventDividers: function()
+    {
+        var calculator = this.calculator();
+
+        var selectedFrameTime = this._showSelectedFrame ? this._selectedFrameTime : -1;
+        var selectedFrameTimePercent = calculator.computePercentageFromEventTime(selectedFrameTime);
+        this._selectedFrameDivider.classList.toggle("invisible", selectedFrameTime === -1 || selectedFrameTimePercent < 0);
+        this._selectedFrameDivider.style.left = selectedFrameTimePercent + "%";
 
         var loadTimePercent = calculator.computePercentageFromEventTime(this._mainRequestLoadTime);
         this._loadDivider.classList.toggle("invisible", this._mainRequestLoadTime === -1 || loadTimePercent < 0);
@@ -861,27 +949,20 @@ WebInspector.NetworkLogView.prototype = {
         this._updateSummaryBar();
     },
 
-    expandTimeline: function()
-    {
-        this._shouldSetWaterfallWindow = false;
-        this._timeCalculator.setWindow(null);
-        this._updateDividersIfNeeded();
-        this._invalidateAllItems();
-    },
-
     reset: function()
     {
         this.dispatchEventToListeners(WebInspector.NetworkLogView.EventTypes.RequestSelected, null);
 
         /** @type {boolean} */
-        this._shouldSetWaterfallWindow = Runtime.experiments.isEnabled("showPrimaryLoadWaterfallInNetworkTimeline") && WebInspector.settings.networkShowPrimaryLoadWaterfall.get();
+        this._shouldSetWaterfallWindow = Runtime.experiments.isEnabled("showPrimaryLoadWaterfallInNetworkTimeline") && this._networkShowPrimaryLoadWaterfallSetting.get();
 
         this._clearSearchMatchedList();
         if (this._popoverHelper)
             this._popoverHelper.hidePopover();
 
-        if (this._calculator)
-            this._calculator.reset();
+        this._overview.reset();
+        this._timeFilter = null;
+        this._calculator.reset();
 
         this._timeCalculator.setWindow(null);
 
@@ -893,14 +974,15 @@ WebInspector.NetworkLogView.prototype = {
         this._staleRequestIds = {};
         this._resetSuggestionBuilder();
 
+        this._selectedFrameTime = -1;
+        this._mainRequestLoadTime = -1;
+        this._mainRequestDOMContentLoadedTime = -1;
+
         if (this._dataGrid) {
             this._dataGrid.rootNode().removeChildren();
             this._updateDividersIfNeeded();
             this._updateSummaryBar();
         }
-
-        this._mainRequestLoadTime = -1;
-        this._mainRequestDOMContentLoadedTime = -1;
     },
 
     /**
@@ -974,6 +1056,7 @@ WebInspector.NetworkLogView.prototype = {
         }
 
         this._staleRequestIds[request.requestId] = true;
+        this._overview.updateRequest(request);
         this._scheduleRefresh();
     },
 
@@ -1049,7 +1132,7 @@ WebInspector.NetworkLogView.prototype = {
 
     _updateRowsSize: function()
     {
-        var largeRows = !!WebInspector.settings.networkLogLargeRows.get();
+        var largeRows = !!this._networkLogLargeRowsSetting.get();
         this._rowHeight = largeRows ? 41 : 21;
         this._dataGrid.element.classList.toggle("small", !largeRows);
         this._timelineGrid.element.classList.toggle("small", !largeRows);
@@ -1086,7 +1169,7 @@ WebInspector.NetworkLogView.prototype = {
         if (anchor.classList.contains("network-script-initiated")) {
             var request = /** @type {!WebInspector.NetworkRequest} */ (anchor.request);
             var initiator = /** @type {!NetworkAgent.Initiator} */ (request.initiator());
-            content = WebInspector.DOMPresentationUtils.buildStackTracePreviewContents(request.target(), this._linkifier, initiator.stackTrace, initiator.asyncStackTrace);
+            content = WebInspector.DOMPresentationUtils.buildStackTracePreviewContents(request.target(), this._popupLinkifier, initiator.stackTrace, initiator.asyncStackTrace);
             popover.setCanShrink(true);
         } else {
             content = WebInspector.RequestTimingView.createTimingTable(anchor.parentElement.request, this._timeCalculator.minimumBoundary());
@@ -1097,7 +1180,7 @@ WebInspector.NetworkLogView.prototype = {
 
     _onHidePopover: function()
     {
-        this._linkifier.reset();
+        this._popupLinkifier.reset();
     },
 
     _updateColumns: function()
@@ -1108,7 +1191,7 @@ WebInspector.NetworkLogView.prototype = {
         var visibleColumns = {"name": true};
         if (gridMode)
             visibleColumns["timeline"] = true;
-        if (gridMode && !WebInspector.settings.networkLogHideColumns.get()) {
+        if (gridMode) {
             var columnsVisibility = this._columnsVisibilitySetting.get();
             for (var columnIdentifier in columnsVisibility)
                 visibleColumns[columnIdentifier] = columnsVisibility[columnIdentifier];
@@ -1210,8 +1293,7 @@ WebInspector.NetworkLogView.prototype = {
     {
         var requests = this._nodesByRequestId.valuesArray().map(function(node) { return node.request(); });
         var httpRequests = requests.filter(WebInspector.NetworkLogView.HTTPRequestsFilter);
-        httpRequests = httpRequests.filter(WebInspector.NetworkLogView.FinishedRequestsFilter);
-        return httpRequests.filter(WebInspector.NetworkLogView.NonDevToolsRequestsFilter);
+        return httpRequests.filter(WebInspector.NetworkLogView.FinishedRequestsFilter);
     },
 
     _copyAll: function()
@@ -1220,14 +1302,6 @@ WebInspector.NetworkLogView.prototype = {
             log: (new WebInspector.HARLog(this._harRequests())).build()
         };
         InspectorFrontendHost.copyText(JSON.stringify(harArchive, null, 2));
-    },
-
-    /**
-     * @param {!WebInspector.NetworkRequest} request
-     */
-    _copyLocation: function(request)
-    {
-        InspectorFrontendHost.copyText(request.url);
     },
 
     /**
@@ -1319,7 +1393,7 @@ WebInspector.NetworkLogView.prototype = {
         var re = this._searchRegExp;
         if (!re)
             return false;
-        return re.test(request.name()) || (WebInspector.settings.networkLogLargeRows.get() && re.test(request.path()));
+        return re.test(request.name()) || (this._networkLogLargeRowsSetting.get() && re.test(request.path()));
     },
 
     _clearSearchMatchedList: function()
@@ -1455,6 +1529,8 @@ WebInspector.NetworkLogView.prototype = {
     _applyFilter: function(node)
     {
         var request = node.request();
+        if (this._timeFilter && !this._timeFilter(request))
+            return false;
         var resourceType = request.resourceType();
         if (resourceType === WebInspector.resourceTypes.TextTrack)
             resourceType = WebInspector.resourceTypes.Other;
@@ -1947,22 +2023,29 @@ WebInspector.NetworkLogView.HTTPRequestsFilter = function(request)
  * @param {!WebInspector.NetworkRequest} request
  * @return {boolean}
  */
-WebInspector.NetworkLogView.NonDevToolsRequestsFilter = function(request)
-{
-    return !WebInspector.NetworkManager.hasDevToolsRequestHeader(request);
-}
-
-/**
- * @param {!WebInspector.NetworkRequest} request
- * @return {boolean}
- */
 WebInspector.NetworkLogView.FinishedRequestsFilter = function(request)
 {
     return request.finished;
 }
 
+/**
+ * @param {number} windowStart
+ * @param {number} windowEnd
+ * @param {!WebInspector.NetworkRequest} request
+ * @return {boolean}
+ */
+WebInspector.NetworkLogView._requestTimeFilter = function(windowStart, windowEnd, request)
+{
+    if (request.issueTime() > windowEnd)
+        return false;
+    if (request.endTime !== -1 && request.endTime < windowStart)
+        return false;
+    return true;
+}
+
 WebInspector.NetworkLogView.EventTypes = {
     RequestSelected: "RequestSelected",
     SearchCountUpdated: "SearchCountUpdated",
-    SearchIndexUpdated: "SearchIndexUpdated"
+    SearchIndexUpdated: "SearchIndexUpdated",
+    TimeHovered: "TimeHovered"
 };

@@ -8,14 +8,18 @@
  * @constructor
  * @extends {Protocol.Agents}
  * @param {string} name
+ * @param {string} type
  * @param {!InspectorBackendClass.Connection} connection
+ * @param {?WebInspector.Target} parentTarget
  * @param {function(?WebInspector.Target)=} callback
  */
-WebInspector.Target = function(name, connection, callback)
+WebInspector.Target = function(name, type, connection, parentTarget, callback)
 {
     Protocol.Agents.call(this, connection.agentsMap());
     this._name = name;
+    this._type = type;
     this._connection = connection;
+    this._parentTarget = parentTarget;
     connection.addEventListener(InspectorBackendClass.Connection.Events.Disconnected, this._onDisconnect, this);
     this._id = WebInspector.Target._nextId++;
 
@@ -24,19 +28,23 @@ WebInspector.Target = function(name, connection, callback)
 
     /** @type {!Object.<string, boolean>} */
     this._capabilities = {};
-    this.pageAgent().canScreencast(this._initializeCapability.bind(this, WebInspector.Target.Capabilities.CanScreencast, null));
-    this.pageAgent().canEmulate(this._initializeCapability.bind(this, WebInspector.Target.Capabilities.CanEmulate, null));
-    this.workerAgent().canInspectWorkers(this._initializeCapability.bind(this, WebInspector.Target.Capabilities.CanInspectWorkers, this._loadedWithCapabilities.bind(this, callback)));
+    this.pageAgent().canScreencast(this._initializeCapability.bind(this, WebInspector.Target.Capabilities.CanScreencast, this._loadedWithCapabilities.bind(this, callback)));
 }
 
 /**
  * @enum {string}
  */
 WebInspector.Target.Capabilities = {
-    CanScreencast: "CanScreencast",
-    HasTouchInputs: "HasTouchInputs",
-    CanInspectWorkers: "CanInspectWorkers",
-    CanEmulate: "CanEmulate"
+    CanScreencast: "CanScreencast"
+}
+
+/**
+ * @enum {string}
+ */
+WebInspector.Target.Type = {
+    DedicatedWorker: "DedicatedWorker",
+    Page: "Page",
+    ServiceWorker: "ServiceWorker"
 }
 
 WebInspector.Target._nextId = 1;
@@ -71,6 +79,15 @@ WebInspector.Target.prototype = {
     name: function()
     {
         return this._name;
+    },
+
+    /**
+     * @param {string} label
+     * @return {string}
+     */
+    decorateLabel: function(label)
+    {
+        return this.isWorker() ? "\u2699 " + label : label;
     },
 
     /**
@@ -121,31 +138,26 @@ WebInspector.Target.prototype = {
         this.domModel = new WebInspector.DOMModel(this);
         /** @type {!WebInspector.CSSStyleModel} */
         this.cssModel = new WebInspector.CSSStyleModel(this);
-        /** @type {!WebInspector.WorkerManager} */
-        this.workerManager = new WebInspector.WorkerManager(this, this.hasCapability(WebInspector.Target.Capabilities.CanInspectWorkers));
-        /** @type {!WebInspector.DatabaseModel} */
-        this.databaseModel = new WebInspector.DatabaseModel(this);
-        /** @type {!WebInspector.DOMStorageModel} */
-        this.domStorageModel = new WebInspector.DOMStorageModel(this);
+        /** @type {?WebInspector.WorkerManager} */
+        this.workerManager = !this.isDedicatedWorker() ? new WebInspector.WorkerManager(this) : null;
         /** @type {!WebInspector.CPUProfilerModel} */
         this.cpuProfilerModel = new WebInspector.CPUProfilerModel(this);
         /** @type {!WebInspector.HeapProfilerModel} */
         this.heapProfilerModel = new WebInspector.HeapProfilerModel(this);
-        /** @type {!WebInspector.IndexedDBModel} */
-        this.indexedDBModel = new WebInspector.IndexedDBModel(this);
         /** @type {!WebInspector.LayerTreeModel} */
         this.layerTreeModel = new WebInspector.LayerTreeModel(this);
         /** @type {!WebInspector.AnimationModel} */
         this.animationModel = new WebInspector.AnimationModel(this);
-        /** @type {!WebInspector.AccessibilityModel} */
-        this.accessibilityModel = new WebInspector.AccessibilityModel(this);
 
-        if (WebInspector.isWorkerFrontend() && this.isWorkerTarget()) {
+        if (this._parentTarget && this._parentTarget.isServiceWorker()) {
             /** @type {!WebInspector.ServiceWorkerCacheModel} */
             this.serviceWorkerCacheModel = new WebInspector.ServiceWorkerCacheModel(this);
         }
 
         this.tracingManager = new WebInspector.TracingManager(this);
+
+        if (this.isPage() && (Runtime.experiments.isEnabled("serviceWorkersInPageFrontend") || Runtime.experiments.isEnabled("serviceWorkersInResources")))
+            this.serviceWorkerManager = new WebInspector.ServiceWorkerManager(this);
 
         if (callback)
             callback(this);
@@ -164,17 +176,49 @@ WebInspector.Target.prototype = {
     /**
      * @return {boolean}
      */
-    isWorkerTarget: function()
+    isPage: function()
     {
-        return !this.hasCapability(WebInspector.Target.Capabilities.CanInspectWorkers);
+        return this._type === WebInspector.Target.Type.Page;
     },
 
     /**
      * @return {boolean}
      */
-    canEmulate: function()
+    isWorker: function()
     {
-        return this.hasCapability(WebInspector.Target.Capabilities.CanEmulate);
+        return this.isDedicatedWorker() || this.isServiceWorker();
+    },
+
+    /**
+     * @return {boolean}
+     */
+    isDedicatedWorker: function()
+    {
+        return this._type === WebInspector.Target.Type.DedicatedWorker;
+    },
+
+    /**
+     * @return {boolean}
+     */
+    isServiceWorker: function()
+    {
+        return this._type === WebInspector.Target.Type.ServiceWorker;
+    },
+
+    /**
+     * @return {boolean}
+     */
+    hasJSContext: function()
+    {
+        return !this.isServiceWorker();
+    },
+
+    /**
+     * @return {?WebInspector.Target}
+     */
+    parentTarget: function()
+    {
+        return this._parentTarget;
     },
 
     _onDisconnect: function()
@@ -190,6 +234,8 @@ WebInspector.Target.prototype = {
         this.cpuProfilerModel.dispose();
         if (this.serviceWorkerCacheModel)
             this.serviceWorkerCacheModel.dispose();
+        if (this.workerManager)
+            this.workerManager.dispose();
     },
 
     /**
@@ -255,8 +301,8 @@ WebInspector.TargetManager = function()
     this._observers = [];
     /** @type {!Object.<string, !Array.<{modelClass: !Function, thisObject: (!Object|undefined), listener: function(!WebInspector.Event)}>>} */
     this._modelListeners = {};
-    /** @type {boolean} */
-    this._allTargetsSuspended = false;
+    /** @type {number} */
+    this._suspendCount = 0;
 }
 
 WebInspector.TargetManager.Events = {
@@ -270,27 +316,20 @@ WebInspector.TargetManager.Events = {
 WebInspector.TargetManager.prototype = {
     suspendAllTargets: function()
     {
-        console.assert(!this._allTargetsSuspended);
-        if (this._allTargetsSuspended)
+        if (this._suspendCount++)
             return;
-        this._allTargetsSuspended = true;
-        this._targets.forEach(function(target)
-        {
+        for (var target of this._targets)
             target.suspend();
-        });
         this.dispatchEventToListeners(WebInspector.TargetManager.Events.SuspendStateChanged);
     },
 
     resumeAllTargets: function()
     {
-        console.assert(this._allTargetsSuspended);
-        if (!this._allTargetsSuspended)
+        console.assert(this._suspendCount > 0);
+        if (--this._suspendCount)
             return;
-        this._allTargetsSuspended = false;
-        this._targets.forEach(function(target)
-        {
+        for (var target of this._targets)
             target.resume();
-        });
         this.dispatchEventToListeners(WebInspector.TargetManager.Events.SuspendStateChanged);
     },
 
@@ -299,7 +338,7 @@ WebInspector.TargetManager.prototype = {
      */
     allTargetsSuspended: function()
     {
-        return this._allTargetsSuspended;
+        return !!this._suspendCount;
     },
 
     /**
@@ -404,12 +443,14 @@ WebInspector.TargetManager.prototype = {
 
     /**
      * @param {string} name
+     * @param {string} type
      * @param {!InspectorBackendClass.Connection} connection
+     * @param {?WebInspector.Target} parentTarget
      * @param {function(?WebInspector.Target)=} callback
      */
-    createTarget: function(name, connection, callback)
+    createTarget: function(name, type, connection, parentTarget, callback)
     {
-        new WebInspector.Target(name, connection, callbackWrapper.bind(this));
+        new WebInspector.Target(name, type, connection, parentTarget, callbackWrapper.bind(this));
 
         /**
          * @this {WebInspector.TargetManager}
@@ -490,6 +531,19 @@ WebInspector.TargetManager.prototype = {
     targets: function()
     {
         return this._targets.slice();
+    },
+
+    /**
+     * @return {!Array.<!WebInspector.Target>}
+     */
+    targetsWithJSContext: function()
+    {
+        var result = [];
+        for (var target of this._targets) {
+            if (target.hasJSContext())
+                result.push(target);
+        }
+        return result;
     },
 
     /**

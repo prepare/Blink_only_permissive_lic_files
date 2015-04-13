@@ -35,18 +35,21 @@ html /deep/ .platform-windows {
 }
 
 html /deep/ .platform-mac .monospace,
+html /deep/ .platform-mac.monospace,
 html /deep/ .platform-mac .source-code {
     font-size: 11px !important;
     font-family: Menlo, monospace;
 }
 
 html /deep/ .platform-windows .monospace,
+html /deep/ .platform-windows.monospace,
 html /deep/ .platform-windows .source-code {
     font-size: 12px !important;
     font-family: Consolas, Lucida Console, monospace;
 }
 
 html /deep/ .platform-linux .monospace,
+html /deep/ .platform-linux.monospace,
 html /deep/ .platform-linux .source-code {
     font-size: 11px !important;
     font-family: dejavu sans mono, monospace;
@@ -157,6 +160,14 @@ body /deep/ select {
 body /deep/ input[type="search"]:focus,
 body /deep/ input[type="text"]:focus {
     outline: auto 5px -webkit-focus-ring-color;
+}
+
+
+html /deep/ .highlighted-search-result.current-search-result {
+    border-radius: 1px;
+    padding: 1px;
+    margin: -1px;
+    background-color: rgba(255, 127, 0, 0.8);
 }
 
 .overflow-auto {

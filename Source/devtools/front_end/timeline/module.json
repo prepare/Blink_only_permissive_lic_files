@@ -8,11 +8,17 @@
             "className": "WebInspector.TimelinePanelFactory"
         },
         {
-            "type": "ui-setting",
-            "section": "Profiler",
+            "type": "setting",
+            "category": "Profiler",
             "title": "Hide chrome frame in Layers view",
             "settingName": "frameViewerHideChromeWindow",
-            "settingType": "checkbox"
+            "settingType": "boolean",
+            "defaultValue": false
+        },
+        {
+            "type": "@WebInspector.QueryParamHandler",
+            "name": "loadTimelineFromURL",
+            "className": "WebInspector.LoadTimelineHandler"
         }
     ],
     "dependencies": [
@@ -39,12 +45,12 @@
         "TimelineView.js",
         "TimelineLayersView.js",
         "TimelinePaintProfilerView.js",
-        "TracingModel.js",
         "TransformController.js",
         "PaintProfilerView.js",
         "TimelinePanel.js"
     ],
     "stylesheets": [
+        "invalidationsTree.css",
         "timelinePanel.css"
     ]
 }

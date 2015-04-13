@@ -30,11 +30,12 @@
 
 /**
  * @constructor
- * @extends {WebInspector.NativeBreakpointsSidebarPane}
+ * @extends {WebInspector.BreakpointsSidebarPaneBase}
  */
 WebInspector.DOMBreakpointsSidebarPane = function()
 {
-    WebInspector.NativeBreakpointsSidebarPane.call(this, WebInspector.UIString("DOM Breakpoints"));
+    WebInspector.BreakpointsSidebarPaneBase.call(this, WebInspector.UIString("DOM Breakpoints"));
+    this._domBreakpointsSetting = WebInspector.settings.createSetting("domBreakpoints", []);
 
     this._breakpointElements = {};
 
@@ -113,7 +114,7 @@ WebInspector.DOMBreakpointsSidebarPane.prototype = {
         var domModel = details.target().domModel;
         if (auxData.type === this._breakpointTypes.SubtreeModified) {
             var targetNodeObject = details.target().runtimeModel.createRemoteObject(auxData["targetNode"]);
-            targetNodeObject.pushNodeToFrontend(didPushNodeToFrontend.bind(this));
+            domModel.pushObjectAsNodeToFrontend(targetNodeObject, didPushNodeToFrontend.bind(this));
         } else {
             this._doCreateBreakpointHitStatusMessage(auxData, domModel.nodeForId(auxData.nodeId), null, callback);
         }
@@ -358,7 +359,7 @@ WebInspector.DOMBreakpointsSidebarPane.prototype = {
     _saveBreakpoints: function()
     {
         var breakpoints = [];
-        var storedBreakpoints = WebInspector.settings.domBreakpoints.get();
+        var storedBreakpoints = this._domBreakpointsSetting.get();
         for (var i = 0; i < storedBreakpoints.length; ++i) {
             var breakpoint = storedBreakpoints[i];
             if (breakpoint.url !== this._inspectedURL)
@@ -368,7 +369,7 @@ WebInspector.DOMBreakpointsSidebarPane.prototype = {
             var element = this._breakpointElements[id];
             breakpoints.push({ url: this._inspectedURL, path: element._node.path(), type: element._type, enabled: element._checkboxElement.checked });
         }
-        WebInspector.settings.domBreakpoints.set(breakpoints);
+        this._domBreakpointsSetting.set(breakpoints);
     },
 
     /**
@@ -394,7 +395,7 @@ WebInspector.DOMBreakpointsSidebarPane.prototype = {
                 this._setBreakpoint(node, breakpoints[i].type, breakpoints[i].enabled);
         }
 
-        var breakpoints = WebInspector.settings.domBreakpoints.get();
+        var breakpoints = this._domBreakpointsSetting.get();
         for (var i = 0; i < breakpoints.length; ++i) {
             var breakpoint = breakpoints[i];
             if (breakpoint.url !== this._inspectedURL)
@@ -427,7 +428,7 @@ WebInspector.DOMBreakpointsSidebarPane.prototype = {
             this._proxies[i].onContentReady();
     },
 
-    __proto__: WebInspector.NativeBreakpointsSidebarPane.prototype
+    __proto__: WebInspector.BreakpointsSidebarPaneBase.prototype
 }
 
 /**
