@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2008, 2009, 2010, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2012 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -10,6 +11,9 @@
  * 2.  Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
+ * 3.  Neither the name of Apple Computer, Inc. ("Apple") nor the names of
+ *     its contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -23,15 +27,38 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef UnitTestHelpers_h
-#define UnitTestHelpers_h
+#ifndef TextTrackContainer_h
+#define TextTrackContainer_h
+
+#include "core/html/HTMLDivElement.h"
 
 namespace blink {
-namespace testing {
 
-void runPendingTasks();
+class HTMLMediaElement;
 
-} // namespace testing
+class TextTrackContainer final : public HTMLDivElement {
+public:
+    static PassRefPtrWillBeRawPtr<TextTrackContainer> create(Document&);
+
+    // Runs the "rules for updating the text track rendering". The
+    // ExposingControls enum is used in the WebVTT processing model to reset the
+    // layout when the media controls become visible, to avoid overlapping them.
+    enum ExposingControls {
+        DidNotStartExposingControls,
+        DidStartExposingControls
+    };
+    void updateDisplay(HTMLMediaElement&, ExposingControls);
+
+private:
+    TextTrackContainer(Document&);
+
+    virtual bool isTextTrackContainer() const override { return true; }
+
+    virtual LayoutObject* createLayoutObject(const ComputedStyle&) override;
+};
+
+DEFINE_ELEMENT_TYPE_CASTS(TextTrackContainer, isTextTrackContainer());
+
 } // namespace blink
 
-#endif
+#endif // TextTrackContainer_h

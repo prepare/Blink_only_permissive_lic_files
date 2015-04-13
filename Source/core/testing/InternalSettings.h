@@ -111,6 +111,7 @@ public:
     void setAccessibilityFontScaleFactor(float fontScaleFactor, ExceptionState&);
     void setTextAutosizingWindowSizeOverride(int width, int height, ExceptionState&);
     void setViewportEnabled(bool, ExceptionState&);
+    void setViewportMetaEnabled(bool, ExceptionState&);
 
     // FIXME: The following are RuntimeEnabledFeatures and likely
     // cannot be changed after process start. These setters should
@@ -132,6 +133,7 @@ public:
     void setAvailableHoverTypes(const String&, ExceptionState&);
     void setPrimaryHoverType(const String&, ExceptionState&);
     void setDnsPrefetchLogging(bool, ExceptionState&);
+    void setPreloadLogging(bool, ExceptionState&);
 
 private:
     explicit InternalSettings(Page&);

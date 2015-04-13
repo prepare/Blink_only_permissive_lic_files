@@ -96,7 +96,7 @@ public:
 
     PassRefPtrWillBeRawPtr<CSSStyleDeclaration> computedStyleIncludingVisitedInfo(Node*) const;
 
-    PassRefPtrWillBeRawPtr<ShadowRoot> createUserAgentShadowRoot(Element* host);
+    PassRefPtrWillBeRawPtr<ShadowRoot> createClosedShadowRoot(Element* host);
 
     ShadowRoot* shadowRoot(Element* host);
     ShadowRoot* youngestShadowRoot(Element* host);
@@ -268,7 +268,6 @@ public:
 
     void startTrackingRepaints(Document*, ExceptionState&);
     void stopTrackingRepaints(Document*, ExceptionState&);
-    void updateLayoutIgnorePendingStylesheetsAndRunPostLayoutTasks(ExceptionState&);
     void updateLayoutIgnorePendingStylesheetsAndRunPostLayoutTasks(Node*, ExceptionState&);
     void forceFullRepaint(Document*, ExceptionState&);
 
@@ -286,6 +285,7 @@ public:
 
     String getImageSourceURL(Element*);
 
+    String selectMenuListText(HTMLSelectElement*);
     bool isSelectPopupVisible(Node*);
     bool selectPopupItemStyleIsRtl(Node*, int);
     int selectPopupItemStyleFontHeight(Node*, int);
@@ -317,6 +317,7 @@ public:
     String textSurroundingNode(Node*, int x, int y, unsigned long maxLength);
 
     void setFocused(bool);
+    void setInitialFocus(bool);
 
     bool ignoreLayoutWithPendingStylesheets(Document*);
 
@@ -324,7 +325,7 @@ public:
     // Test must call setNetworkStateNotifierTestOnly(true) before calling setNetworkConnectionInfo.
     void setNetworkConnectionInfo(const String&, ExceptionState&);
 
-    PassRefPtrWillBeRawPtr<ClientRect> boundsInRootViewSpace(Element*);
+    PassRefPtrWillBeRawPtr<ClientRect> boundsInViewportSpace(Element*);
     String serializeNavigationMarkup();
     Vector<String> getTransitionElementIds();
     PassRefPtrWillBeRawPtr<ClientRectList> getTransitionElementRects();
@@ -341,6 +342,15 @@ public:
     // Note: This is designed to be only used from PerformanceTests/BlinkGC to explicitly measure only Blink GC time.
     //       Normal LayoutTests should use gc() instead as it would trigger both Blink GC and V8 GC.
     void forceBlinkGCWithoutV8GC();
+
+    String selectedHTMLForClipboard();
+    String selectedTextForClipboard();
+
+    void setVisualViewportOffset(int x, int y);
+
+    // Return true if the given use counter exists for the given document.
+    // |useCounterId| must be one of the values from the UseCounter::Feature enum.
+    bool isUseCounted(Document*, int useCounterId);
 
 private:
     explicit Internals(Document*);

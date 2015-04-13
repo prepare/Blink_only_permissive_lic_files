@@ -59,7 +59,7 @@ void WorkerInspectorProxy::connectToInspector(WorkerInspectorProxy::PageInspecto
         return;
     ASSERT(!m_pageInspector);
     m_pageInspector = pageInspector;
-    m_workerThread->postDebuggerTask(createCrossThreadTask(connectToWorkerGlobalScopeInspectorTask, true));
+    m_workerThread->postDebuggerTask(FROM_HERE, createCrossThreadTask(connectToWorkerGlobalScopeInspectorTask, true));
 }
 
 static void disconnectFromWorkerGlobalScopeInspectorTask(ExecutionContext* context, bool)
@@ -72,7 +72,7 @@ void WorkerInspectorProxy::disconnectFromInspector()
     m_pageInspector = nullptr;
     if (!m_workerThread)
         return;
-    m_workerThread->postDebuggerTask(createCrossThreadTask(disconnectFromWorkerGlobalScopeInspectorTask, true));
+    m_workerThread->postDebuggerTask(FROM_HERE, createCrossThreadTask(disconnectFromWorkerGlobalScopeInspectorTask, true));
 }
 
 static void dispatchOnInspectorBackendTask(ExecutionContext* context, const String& message)
@@ -84,15 +84,15 @@ void WorkerInspectorProxy::sendMessageToInspector(const String& message)
 {
     if (!m_workerThread)
         return;
-    m_workerThread->postDebuggerTask(createCrossThreadTask(dispatchOnInspectorBackendTask, String(message)));
+    m_workerThread->postDebuggerTask(FROM_HERE, createCrossThreadTask(dispatchOnInspectorBackendTask, String(message)));
     m_workerThread->interruptAndDispatchInspectorCommands();
 }
 
-void WorkerInspectorProxy::writeTimelineStartedEvent(const String& sessionId, int workerId)
+void WorkerInspectorProxy::writeTimelineStartedEvent(const String& sessionId, const String& workerId)
 {
     if (!m_workerThread)
         return;
-    TRACE_EVENT_INSTANT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "TracingSessionIdForWorker", "data", InspectorTracingSessionIdForWorkerEvent::data(sessionId, workerId, m_workerThread));
+    TRACE_EVENT_INSTANT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "TracingSessionIdForWorker", TRACE_EVENT_SCOPE_THREAD, "data", InspectorTracingSessionIdForWorkerEvent::data(sessionId, workerId, m_workerThread));
 }
 
 } // namespace blink

@@ -28,36 +28,42 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef URLTestHelpers_h
-#define URLTestHelpers_h
+#ifndef StyleGridItemData_h
+#define StyleGridItemData_h
 
-#include "platform/weborigin/KURL.h"
-#include "public/platform/WebString.h"
+
+#include "core/style/GridPosition.h"
+#include "wtf/PassRefPtr.h"
+#include "wtf/RefCounted.h"
 
 namespace blink {
 
-class WebURL;
-class WebURLResponse;
+class StyleGridItemData : public RefCounted<StyleGridItemData> {
+public:
+    static PassRefPtr<StyleGridItemData> create() { return adoptRef(new StyleGridItemData); }
+    PassRefPtr<StyleGridItemData> copy() const { return adoptRef(new StyleGridItemData(*this)); }
 
-namespace URLTestHelpers {
+    bool operator==(const StyleGridItemData& o) const
+    {
+        return m_gridColumnStart == o.m_gridColumnStart && m_gridColumnEnd == o.m_gridColumnEnd
+            && m_gridRowStart == o.m_gridRowStart && m_gridRowEnd == o.m_gridRowEnd;
+    }
 
-inline blink::KURL toKURL(const std::string& url)
-{
-    WTF::String wtfString(url.c_str());
-    return blink::KURL(blink::ParsedURLString, wtfString);
-}
+    bool operator!=(const StyleGridItemData& o) const
+    {
+        return !(*this == o);
+    }
 
-// Helper functions for mock URLs. These functions set up the desired URL and mimeType, with a 200 OK return status.
-// For the mock URL, fullURL == baseURL + fileName.
-// For the actual file path:  <WebKit root directory> + relativeBaseDirectory + fileName,
-// or, if the relative base directory is not specified:  <WebKit root directory> + fileName.
-//
-void registerMockedURLFromBaseURL(const WebString& baseURL, const WebString& fileName, const WebString& mimeType = WebString::fromUTF8("text/html"));
-void registerMockedURLLoad(const WebURL& fullURL, const WebString& fileName, const WebString& mimeType = WebString::fromUTF8("text/html"));
-void registerMockedURLLoad(const WebURL& fullURL, const WebString& fileName, const WebString& relativeBaseDirectory, const WebString& mimeType);
-void registerMockedURLLoadWithCustomResponse(const WebURL& fullURL, const WebString& fileName, const WebString& relativeBaseDirectory, WebURLResponse);
+    GridPosition m_gridColumnStart;
+    GridPosition m_gridColumnEnd;
+    GridPosition m_gridRowStart;
+    GridPosition m_gridRowEnd;
 
-} // namespace URLTestHelpers
+private:
+    StyleGridItemData();
+    StyleGridItemData(const StyleGridItemData&);
+};
+
 } // namespace blink
 
-#endif
+#endif // StyleGridItemData_h

@@ -31,7 +31,6 @@
 #include "core/css/PointerProperties.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/frame/Settings.h"
-#include "core/inspector/InspectorController.h"
 #include "core/page/Page.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/Supplementable.h"
@@ -154,8 +153,6 @@ InternalSettings::InternalSettings(Page& page)
 
 void InternalSettings::resetToConsistentState()
 {
-    page()->setPageScaleFactor(1, IntPoint(0, 0));
-
     m_backup.restoreTo(settings());
     m_backup = Backup(settings());
     m_backup.m_originalTextAutosizingEnabled = settings()->textAutosizingEnabled();
@@ -211,6 +208,12 @@ void InternalSettings::setViewportEnabled(bool enabled, ExceptionState& exceptio
 {
     InternalSettingsGuardForSettings();
     settings()->setViewportEnabled(enabled);
+}
+
+void InternalSettings::setViewportMetaEnabled(bool enabled, ExceptionState& exceptionState)
+{
+    InternalSettingsGuardForSettings();
+    settings()->setViewportMetaEnabled(enabled);
 }
 
 void InternalSettings::setStandardFontFamily(const AtomicString& family, const String& script, ExceptionState& exceptionState)
@@ -483,6 +486,12 @@ void InternalSettings::setDnsPrefetchLogging(bool enabled, ExceptionState& excep
 {
     InternalSettingsGuardForSettings();
     settings()->setLogDnsPrefetchAndPreconnect(enabled);
+}
+
+void InternalSettings::setPreloadLogging(bool enabled, ExceptionState& exceptionState)
+{
+    InternalSettingsGuardForSettings();
+    settings()->setLogPreload(enabled);
 }
 
 }
