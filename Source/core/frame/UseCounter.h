@@ -27,6 +27,7 @@
 #define UseCounter_h
 
 #include "core/CSSPropertyNames.h"
+#include "core/CoreExport.h"
 #include "wtf/BitVector.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/OwnPtr.h"
@@ -54,7 +55,7 @@ class StyleSheetContents;
 // during their install of Google Chrome:
 // http://www.google.com/chrome/intl/en/privacy.html
 
-class UseCounter {
+class CORE_EXPORT UseCounter {
     WTF_MAKE_NONCOPYABLE(UseCounter);
 public:
     UseCounter();
@@ -203,7 +204,6 @@ public:
         InputTypeTextMaxLength = 191,
         InputTypePassword = 192,
         InputTypePasswordMaxLength = 193,
-        ShowModalDialog = 195,
         PrefixedPageVisibility = 196,
         CSSStyleSheetInsertRuleOptionalArg = 198, // Inconsistent with the specification and other browsers.
         DocumentBeforeUnloadRegistered = 200,
@@ -243,8 +243,6 @@ public:
         FormAssociationByParser = 248,
         SVGSVGElementInDocument = 250,
         SVGDocumentRootElement = 251,
-        EventSourceURL = 254,
-        WebSocketURL = 255,
         WorkerSubjectToCSP = 257,
         WorkerAllowedByChildBlockedByScript = 258,
         DeprecatedWebKitGradient = 260,
@@ -477,19 +475,17 @@ public:
         SRIElementWithMatchingIntegrityAttribute = 540,
         SRIElementWithNonMatchingIntegrityAttribute = 541,
         SRIElementWithUnparsableIntegrityAttribute = 542,
-        SRIElementWithIntegrityAttributeAndInsecureOrigin = 543,
-        SRIElementWithIntegrityAttributeAndInsecureResource = 544,
-        AnimationPlayerGetStartTime = 545,
-        AnimationPlayerSetStartTime = 546,
-        AnimationPlayerGetCurrentTime = 547,
-        AnimationPlayerSetCurrentTime = 548,
-        AnimationPlayerGetPlaybackRate = 549,
-        AnimationPlayerSetPlaybackRate = 550,
-        AnimationPlayerGetPlayState = 551,
-        AnimationPlayerFinish = 552,
-        AnimationPlayerPlay = 553,
-        AnimationPlayerPause = 554,
-        AnimationPlayerReverse = 555,
+        V8AnimationPlayer_StartTime_AttributeGetter = 545,
+        V8AnimationPlayer_StartTime_AttributeSetter = 546,
+        V8AnimationPlayer_CurrentTime_AttributeGetter = 547,
+        V8AnimationPlayer_CurrentTime_AttributeSetter = 548,
+        V8AnimationPlayer_PlaybackRate_AttributeGetter = 549,
+        V8AnimationPlayer_PlaybackRate_AttributeSetter = 550,
+        V8AnimationPlayer_PlayState_AttributeGetter = 551,
+        V8AnimationPlayer_Finish_Method = 552,
+        V8AnimationPlayer_Play_Method = 553,
+        V8AnimationPlayer_Pause_Method = 554,
+        V8AnimationPlayer_Reverse_Method = 555,
         // The above items are available in M39 branch.
 
         BreakIterator = 556,
@@ -513,6 +509,7 @@ public:
         WindowPostMessage = 574,
         WindowPostMessageWithLegacyTargetOriginArgument = 575,
         RenderRuby = 576,
+        CanvasRenderingContext2DCompositeOperationDarker = 577,
         ScriptElementWithInvalidTypeHasSrc = 578,
         TimelineStart = 579,
         ElementBaseURIFromXMLBase = 580,
@@ -539,7 +536,6 @@ public:
         TextWholeText = 599,
         AttrChildAccess = 600,
         AttrChildChange = 601,
-        DocumentGetOverrideStyle = 602,
         NotificationCloseEvent = 603,
         CSSKeyframesRuleAppendRule = 604,
         CSSKeyframesRuleInsertRule = 605,
@@ -556,13 +552,9 @@ public:
         MixedContentPlugin = 616,
         MixedContentPrefetch = 617,
         MixedContentVideo = 618,
-        CORSCredentialedNullOriginAccessAllowed = 619,
         AudioListenerDopplerFactor = 620,
         AudioListenerSpeedOfSound = 621,
         AudioListenerSetVelocity = 622,
-        ShadowRootGetElementsByClassName = 623,
-        ShadowRootGetElementsByTagName = 624,
-        ShadowRootGetElementsByTagNameNS = 625,
         SVGSMILAnimationInImage = 626,
         CSSSelectorPseudoFullScreenDocument = 627,
         CSSSelectorPseudoFullScreenAncestor = 628,
@@ -630,6 +622,69 @@ public:
         ServiceWorkerClientPostMessage = 690,
         CSSZoomNotEqualToOne = 691,
         SVGGraphicsElementGetTransformToElement = 692,
+        ServiceWorkerClientsGetAll = 693,
+        // The above items are available in M42 branch.
+
+        ClientRectListItem = 694,
+        WindowClientInformation = 695,
+        WindowFind = 696,
+        WindowScreenLeft = 697,
+        WindowScreenTop = 698,
+        V8AnimationPlayer_Cancel_Method = 699,
+        V8AnimationPlayer_Onfinish_AttributeGetter = 700,
+        V8AnimationPlayer_Onfinish_AttributeSetter = 701,
+        ElementOffsetParent = 702,
+        ElementOffsetTop = 703,
+        ElementOffsetLeft = 704,
+        ElementOffsetWidth = 705,
+        ElementOffsetHeight = 706,
+        V8Window_WebKitAnimationEvent_ConstructorGetter = 707,
+        V8Window_WebKitAnimationEvent_AttributeSetter = 708,
+        ResourceLoadedAfterRedirectWithCSP = 709,
+        CryptoGetRandomValues = 710,
+        SubtleCryptoEncrypt = 711,
+        SubtleCryptoDecrypt = 712,
+        SubtleCryptoSign = 713,
+        SubtleCryptoVerify = 714,
+        SubtleCryptoDigest = 715,
+        SubtleCryptoGenerateKey = 716,
+        SubtleCryptoImportKey = 717,
+        SubtleCryptoExportKey = 718,
+        SubtleCryptoDeriveBits = 719,
+        SubtleCryptoDeriveKey = 720,
+        SubtleCryptoWrapKey = 721,
+        SubtleCryptoUnwrapKey = 722,
+        CryptoAlgorithmAesCbc = 723,
+        CryptoAlgorithmHmac = 724,
+        CryptoAlgorithmRsaSsaPkcs1v1_5 = 725,
+        CryptoAlgorithmSha1 = 726,
+        CryptoAlgorithmSha256 = 727,
+        CryptoAlgorithmSha384 = 728,
+        CryptoAlgorithmSha512 = 729,
+        CryptoAlgorithmAesGcm = 730,
+        CryptoAlgorithmRsaOaep = 731,
+        CryptoAlgorithmAesCtr = 732,
+        CryptoAlgorithmAesKw = 733,
+        CryptoAlgorithmRsaPss = 734,
+        CryptoAlgorithmEcdsa = 735,
+        CryptoAlgorithmEcdh = 736,
+        CryptoAlgorithmHkdf = 737,
+        CryptoAlgorithmPbkdf2 = 738,
+        DocumentSetDomain = 739,
+        UpgradeInsecureRequestsEnabled = 740,
+        UpgradeInsecureRequestsUpgradedRequest = 741,
+        DocumentDesignMode = 742,
+        GlobalCacheStorage = 743,
+        NetInfo = 744,
+        BackgroundSync = 745,
+        TabStopProperty = 746,
+        TabStopAttribute = 747,
+        LegacyConst = 748,
+        SVGFilterRes = 749,
+        V8Permissions_Query_Method = 750,
+        LegacyCSSValueIntrinsic = 751,
+        LegacyCSSValueMinIntrinsic = 752,
+        WebkitCanvas = 753,
 
         // Add new features immediately above this line. Don't change assigned
         // numbers of any item, and don't reuse removed slots.
@@ -672,6 +727,10 @@ public:
     static void countDeprecationIfNotPrivateScript(v8::Isolate*, ExecutionContext*, Feature);
     static String deprecationMessage(Feature);
 
+    // Return whether the Feature was previously counted for this document.
+    // NOTE: only for use in testing.
+    static bool isCounted(Document&, Feature);
+
     void didCommitLoad();
 
     static UseCounter* getFrom(const Document*);
@@ -704,6 +763,13 @@ public:
         }
         void updateMeasurements();
 
+        // NOTE: only for use in testing.
+        bool hasRecordedMeasurement(Feature feature) const
+        {
+            ASSERT(feature >= 0 && feature < NumberOfFeatures);
+            return m_bits->get(feature);
+        }
+
     private:
         OwnPtr<BitVector> m_bits;
     };
@@ -713,6 +779,8 @@ private:
 
     bool recordMeasurement(Feature feature) { return m_countBits.recordMeasurement(feature); }
     void updateMeasurements();
+
+    bool hasRecordedMeasurement(Feature feature) const { return m_countBits.hasRecordedMeasurement(feature); }
 
     CountBits m_countBits;
     BitVector m_CSSFeatureBits;

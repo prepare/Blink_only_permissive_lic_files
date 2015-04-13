@@ -29,7 +29,9 @@
 #ifndef Location_h
 #define Location_h
 
+#include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/ScriptWrappable.h"
+#include "core/CoreExport.h"
 #include "core/dom/DOMStringList.h"
 #include "core/frame/DOMWindowProperty.h"
 #include "wtf/PassRefPtr.h"
@@ -47,7 +49,7 @@ class KURL;
 // in a RemoteFrame. Rather than making DOMWindowProperty support RemoteFrames and generating a lot
 // code churn, Location is implemented as a one-off with some custom lifetime management code. Namely,
 // it needs a manual call to reset() from DOMWindow::reset() to ensure it doesn't retain a stale Frame pointer.
-class Location final : public RefCountedWillBeGarbageCollected<Location>, public ScriptWrappable {
+class CORE_EXPORT Location final : public RefCountedWillBeGarbageCollected<Location>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static PassRefPtrWillBeRawPtr<Location> create(Frame* frame)
@@ -83,7 +85,12 @@ public:
 
     PassRefPtrWillBeRawPtr<DOMStringList> ancestorOrigins() const;
 
-    virtual void trace(Visitor*);
+    // Just return the |this| object the way the normal valueOf function on the Object prototype would.
+    // The valueOf function is only added to make sure that it cannot be overwritten on location
+    // objects, since that would provide a hook to change the string conversion behavior of location objects.
+    ScriptValue valueOf(const ScriptValue& thisObject) { return thisObject; }
+
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit Location(Frame*);

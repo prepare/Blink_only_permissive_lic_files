@@ -27,6 +27,7 @@
 #ifndef CanvasImageSource_h
 #define CanvasImageSource_h
 
+#include "core/CoreExport.h"
 #include "wtf/PassRefPtr.h"
 
 namespace blink {
@@ -48,7 +49,7 @@ enum SourceImageStatus {
     InvalidSourceImageStatus,
 };
 
-class CanvasImageSource {
+class CORE_EXPORT CanvasImageSource {
 public:
     virtual PassRefPtr<Image> getSourceImageForCanvas(SourceImageMode, SourceImageStatus* = 0) const = 0;
 
@@ -65,8 +66,8 @@ public:
     // source image is a subregion of the image returned by getSourceImageForCanvas.
     virtual void adjustDrawRects(FloatRect* srcRect, FloatRect* dstRect) const { }
 
-    virtual FloatSize sourceSize() const = 0;
-    virtual FloatSize defaultDestinationSize() const { return sourceSize(); }
+    virtual FloatSize elementSize() const = 0;
+    virtual FloatSize defaultDestinationSize() const { return elementSize(); }
     virtual const KURL& sourceURL() const { return blankURL(); }
     virtual bool isOpaque() const { return false; }
 

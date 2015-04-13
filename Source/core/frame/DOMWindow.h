@@ -5,6 +5,7 @@
 #ifndef DOMWindow_h
 #define DOMWindow_h
 
+#include "core/CoreExport.h"
 #include "core/events/EventTarget.h"
 #include "core/frame/DOMWindowBase64.h"
 #include "core/frame/Location.h"
@@ -25,11 +26,11 @@ class DOMWindowCSS;
 class Document;
 class Element;
 class Frame;
+class FrameRequestCallback;
 class History;
 class LocalDOMWindow;
 class MediaQueryList;
 class Navigator;
-class RequestAnimationFrameCallback;
 class Screen;
 class ScrollToOptions;
 class SerializedScriptValue;
@@ -38,14 +39,14 @@ class StyleMedia;
 
 typedef WillBeHeapVector<RefPtrWillBeMember<MessagePort>, 1> MessagePortArray;
 
-class DOMWindow : public EventTargetWithInlineData, public RefCountedWillBeNoBase<DOMWindow>, public DOMWindowBase64 {
+class CORE_EXPORT DOMWindow : public EventTargetWithInlineData, public RefCountedWillBeNoBase<DOMWindow>, public DOMWindowBase64 {
     DEFINE_WRAPPERTYPEINFO();
     REFCOUNTED_EVENT_TARGET(DOMWindow);
 public:
     virtual ~DOMWindow();
 
     // RefCountedWillBeGarbageCollectedFinalized overrides:
-    void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
     virtual bool isLocalDOMWindow() const { return false; }
     virtual bool isRemoteDOMWindow() const { return false; }
@@ -166,8 +167,8 @@ public:
     virtual PassRefPtrWillBeRawPtr<CSSRuleList> getMatchedCSSRules(Element*, const String& pseudoElt) const = 0;
 
     // WebKit animation extensions
-    virtual int requestAnimationFrame(RequestAnimationFrameCallback*) = 0;
-    virtual int webkitRequestAnimationFrame(RequestAnimationFrameCallback*) = 0;
+    virtual int requestAnimationFrame(FrameRequestCallback*) = 0;
+    virtual int webkitRequestAnimationFrame(FrameRequestCallback*) = 0;
     virtual void cancelAnimationFrame(int id) = 0;
 
     void captureEvents() { }
@@ -178,7 +179,7 @@ public:
     // window[index]...
     DOMWindow* anonymousIndexedGetter(uint32_t) const;
 
-    virtual void postMessage(PassRefPtr<SerializedScriptValue> message, const MessagePortArray*, const String& targetOrigin, LocalDOMWindow* source, ExceptionState&) = 0;
+    void postMessage(PassRefPtr<SerializedScriptValue> message, const MessagePortArray*, const String& targetOrigin, LocalDOMWindow* source, ExceptionState&);
 
     // FIXME: These should be non-virtual, but this is blocked on the security
     // origin replication work.
@@ -212,6 +213,16 @@ public:
     DEFINE_ATTRIBUTE_EVENT_LISTENER(touchmove);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(touchend);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(touchcancel);
+
+protected:
+    DOMWindow();
+
+    // Set to true when close() has been called. Needed for
+    // |window.closed| determinism; having it return 'true'
+    // only after the render widget's deferred window close
+    // operation has been performed, exposes (confusing)
+    // implementation details to scripts.
+    bool m_windowIsClosing;
 
 private:
     mutable RefPtrWillBeMember<Location> m_location;

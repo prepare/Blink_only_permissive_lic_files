@@ -19,13 +19,21 @@ public:
     String contextName() const override { return "WebGL2RenderingContext"; }
     void registerContextExtensions() override;
 
-    void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     WebGL2RenderingContext(HTMLCanvasElement* passedCanvas, PassOwnPtr<blink::WebGraphicsContext3D>, const WebGLContextAttributes& requestedAttributes);
 
+    RefPtrWillBeMember<CHROMIUMSubscribeUniform> m_chromiumSubscribeUniform;
+    RefPtrWillBeMember<EXTTextureFilterAnisotropic> m_extTextureFilterAnisotropic;
+    RefPtrWillBeMember<OESTextureFloatLinear> m_oesTextureFloatLinear;
+    RefPtrWillBeMember<WebGLCompressedTextureATC> m_webglCompressedTextureATC;
+    RefPtrWillBeMember<WebGLCompressedTextureETC1> m_webglCompressedTextureETC1;
+    RefPtrWillBeMember<WebGLCompressedTexturePVRTC> m_webglCompressedTexturePVRTC;
+    RefPtrWillBeMember<WebGLCompressedTextureS3TC> m_webglCompressedTextureS3TC;
     RefPtrWillBeMember<WebGLDebugRendererInfo> m_webglDebugRendererInfo;
     RefPtrWillBeMember<WebGLDebugShaders> m_webglDebugShaders;
+    RefPtrWillBeMember<WebGLLoseContext> m_webglLoseContext;
 };
 
 DEFINE_TYPE_CASTS(WebGL2RenderingContext, CanvasRenderingContext, context,

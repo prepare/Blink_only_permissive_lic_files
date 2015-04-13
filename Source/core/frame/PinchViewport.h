@@ -31,6 +31,7 @@
 #ifndef PinchViewport_h
 #define PinchViewport_h
 
+#include "core/CoreExport.h"
 #include "platform/geometry/FloatPoint.h"
 #include "platform/geometry/FloatRect.h"
 #include "platform/geometry/IntSize.h"
@@ -61,14 +62,14 @@ class LocalFrame;
 // offset is set through the GraphicsLayer <-> CC sync mechanisms. Its contents is the page's
 // main FrameView, which corresponds to the outer viewport. The inner viewport is always contained
 // in the outer viewport and can pan within it.
-class PinchViewport final : public NoBaseWillBeGarbageCollectedFinalized<PinchViewport>, public GraphicsLayerClient, public ScrollableArea {
+class CORE_EXPORT PinchViewport final : public NoBaseWillBeGarbageCollectedFinalized<PinchViewport>, public GraphicsLayerClient, public ScrollableArea {
 public:
     static PassOwnPtrWillBeRawPtr<PinchViewport> create(FrameHost& host)
     {
         return adoptPtrWillBeNoop(new PinchViewport(host));
     }
     virtual ~PinchViewport();
-    virtual void trace(Visitor*);
+    DECLARE_VIRTUAL_TRACE();
 
     void attachToLayerTree(GraphicsLayer*, GraphicsLayerFactory*);
     GraphicsLayer* rootGraphicsLayer()
@@ -84,15 +85,26 @@ public:
         return m_innerViewportScrollLayer.get();
     }
 
-    // Sets the location of the inner viewport relative to the outer viewport. The
+    // Sets the location of the pinch viewport relative to the outer viewport. The
     // coordinates are in partial CSS pixels.
     void setLocation(const FloatPoint&);
+    // FIXME: This should be called moveBy
     void move(const FloatPoint&);
+    void move(const FloatSize&);
     FloatPoint location() const { return m_offset; }
+
+    // Sets the location of the pinch viewport relative to the document. This
+    // will attempt to scroll the root FrameView such that the pinch viewport
+    // is at the given location. It will then scroll the pinch viewport if
+    // scrolling only the root FrameView couldn't reach the location.
+    void setLocationInDocument(const DoublePoint&);
 
     // Sets the size of the inner viewport when unscaled in CSS pixels.
     void setSize(const IntSize&);
     IntSize size() const { return m_size; }
+
+    // Gets the scaled size, i.e. the viewport in root view space.
+    FloatSize visibleSize() const;
 
     // Resets the viewport to initial state.
     void reset();
@@ -114,6 +126,8 @@ public:
     void registerLayersWithTreeView(blink::WebLayerTreeView*) const;
     void clearLayersForTreeView(blink::WebLayerTreeView*) const;
 
+    ScrollResult wheelEvent(const PlatformWheelEvent&);
+
     // The portion of the unzoomed frame visible in the inner "pinch" viewport,
     // in partial CSS pixels. Relative to the main frame.
     FloatRect visibleRect() const;
@@ -126,6 +140,7 @@ public:
     // in the viewport. The given and returned rects are in CSS pixels, meaning
     // scale isn't applied.
     FloatRect mainViewToViewportCSSPixels(const FloatRect&) const;
+    FloatPoint viewportCSSPixelsToRootFrame(const FloatPoint&) const;
 
     // Scroll the main frame and pinch viewport so that the given rect in the
     // top-level document is centered in the viewport. This method will avoid
@@ -148,6 +163,16 @@ public:
     // Adjust the viewport's offset so that it remains bounded by the outer
     // viepwort.
     void clampToBoundaries();
+
+    FloatRect viewportToRootFrame(const FloatRect&) const;
+    IntRect viewportToRootFrame(const IntRect&) const;
+    FloatRect rootFrameToViewport(const FloatRect&) const;
+    IntRect rootFrameToViewport(const IntRect&) const;
+
+    FloatPoint viewportToRootFrame(const FloatPoint&) const;
+    FloatPoint rootFrameToViewport(const FloatPoint&) const;
+    IntPoint viewportToRootFrame(const IntPoint&) const;
+    IntPoint rootFrameToViewport(const IntPoint&) const;
 private:
     explicit PinchViewport(FrameHost&);
 
@@ -161,6 +186,7 @@ private:
     virtual DoublePoint scrollPositionDouble() const override { return m_offset; }
     virtual IntPoint minimumScrollPosition() const override;
     virtual IntPoint maximumScrollPosition() const override;
+    virtual DoublePoint maximumScrollPositionDouble() const override;
     virtual int visibleHeight() const override { return visibleRect().height(); };
     virtual int visibleWidth() const override { return visibleRect().width(); };
     virtual IntSize contentsSize() const override;
@@ -175,6 +201,7 @@ private:
     virtual GraphicsLayer* layerForScrolling() const override;
     virtual GraphicsLayer* layerForHorizontalScrollbar() const override;
     virtual GraphicsLayer* layerForVerticalScrollbar() const override;
+    virtual String debugName() const override { return "PinchViewport"; }
 
     // GraphicsLayerClient implementation.
     virtual void paintContents(const GraphicsLayer*, GraphicsContext&, GraphicsLayerPaintingPhase, const IntRect& inClip) override;

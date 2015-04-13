@@ -30,6 +30,7 @@
 
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/UnionTypesCore.h"
+#include "core/CoreExport.h"
 #include "core/dom/Document.h"
 #include "core/html/HTMLElement.h"
 #include "core/html/canvas/CanvasImageSource.h"
@@ -55,7 +56,6 @@ class ImageData;
 class ImageBuffer;
 class ImageBufferSurface;
 class IntSize;
-class RecordingImageBufferFallbackSurfaceFactory;
 
 class CanvasObserver : public WillBeGarbageCollectedMixin {
     DECLARE_EMPTY_VIRTUAL_DESTRUCTOR_WILL_BE_REMOVED(CanvasObserver);
@@ -66,10 +66,10 @@ public:
     virtual void canvasDestroyed(HTMLCanvasElement*) = 0;
 #endif
 
-    virtual void trace(Visitor*) { }
+    DEFINE_INLINE_VIRTUAL_TRACE() { }
 };
 
-class HTMLCanvasElement final : public HTMLElement, public DocumentVisibilityObserver, public CanvasImageSource, public ImageBufferClient {
+class CORE_EXPORT HTMLCanvasElement final : public HTMLElement, public DocumentVisibilityObserver, public CanvasImageSource, public ImageBufferClient {
     DEFINE_WRAPPERTYPEINFO();
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLCanvasElement);
 public:
@@ -118,7 +118,6 @@ public:
     void paint(GraphicsContext*, const LayoutRect&);
 
     GraphicsContext* drawingContext() const; // Deprecated: use drawingCanvas
-    GraphicsContext* existingDrawingContext() const; // Deprecated: use existingDrawingCanvas
     SkCanvas* drawingCanvas() const;
     SkCanvas* existingDrawingCanvas() const;
 
@@ -142,6 +141,8 @@ public:
 
     bool shouldAccelerate(const IntSize&) const;
 
+    bool shouldBeDirectComposited() const;
+
     virtual const AtomicString imageSourceURL() const override;
 
     virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
@@ -152,7 +153,7 @@ public:
     // CanvasImageSource implementation
     virtual PassRefPtr<Image> getSourceImageForCanvas(SourceImageMode, SourceImageStatus*) const override;
     virtual bool wouldTaintOrigin(SecurityOrigin*) const override;
-    virtual FloatSize sourceSize() const override;
+    virtual FloatSize elementSize() const override;
     virtual bool isCanvasElement() const override { return true; }
     virtual bool isOpaque() const override;
 
@@ -164,7 +165,7 @@ public:
 
     void doDeferredPaintInvalidation();
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
     // Methods used for testing
     void createImageBufferUsingSurface(PassOwnPtr<ImageBufferSurface>);
@@ -176,13 +177,12 @@ private:
     explicit HTMLCanvasElement(Document&);
 
     virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual LayoutObject* createRenderer(const LayoutStyle&) override;
+    virtual LayoutObject* createLayoutObject(const ComputedStyle&) override;
     virtual void didRecalcStyle(StyleRecalcChange) override;
     virtual bool areAuthorShadowsAllowed() const override { return false; }
 
     void reset();
 
-    PassOwnPtr<RecordingImageBufferFallbackSurfaceFactory> createSurfaceFactory(const IntSize& deviceSize, int* msaaSampleCount) const;
     PassOwnPtr<ImageBufferSurface> createImageBufferSurface(const IntSize& deviceSize, int* msaaSampleCount);
     void createImageBuffer();
     void createImageBufferInternal(PassOwnPtr<ImageBufferSurface> externalSurface);

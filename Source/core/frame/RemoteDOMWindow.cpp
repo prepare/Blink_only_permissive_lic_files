@@ -22,7 +22,7 @@ ExecutionContext* RemoteDOMWindow::executionContext() const
     return nullptr;
 }
 
-void RemoteDOMWindow::trace(Visitor* visitor)
+DEFINE_TRACE(RemoteDOMWindow)
 {
     visitor->trace(m_frame);
     DOMWindow::trace(visitor);
@@ -327,13 +327,13 @@ PassRefPtrWillBeRawPtr<CSSRuleList> RemoteDOMWindow::getMatchedCSSRules(Element*
     return nullptr;
 }
 
-int RemoteDOMWindow::requestAnimationFrame(RequestAnimationFrameCallback*)
+int RemoteDOMWindow::requestAnimationFrame(FrameRequestCallback*)
 {
     ASSERT_NOT_REACHED();
     return 0;
 }
 
-int RemoteDOMWindow::webkitRequestAnimationFrame(RequestAnimationFrameCallback*)
+int RemoteDOMWindow::webkitRequestAnimationFrame(FrameRequestCallback*)
 {
     ASSERT_NOT_REACHED();
     return 0;
@@ -342,11 +342,6 @@ int RemoteDOMWindow::webkitRequestAnimationFrame(RequestAnimationFrameCallback*)
 void RemoteDOMWindow::cancelAnimationFrame(int id)
 {
     ASSERT_NOT_REACHED();
-}
-
-void RemoteDOMWindow::postMessage(PassRefPtr<SerializedScriptValue> message, const MessagePortArray*, const String& targetOrigin, LocalDOMWindow* source, ExceptionState&)
-{
-    // FIXME: Implement.
 }
 
 String RemoteDOMWindow::sanitizedCrossDomainAccessErrorMessage(LocalDOMWindow* callingWindow)

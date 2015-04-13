@@ -60,23 +60,23 @@ inline HTMLVideoElement::HTMLVideoElement(Document& document)
 PassRefPtrWillBeRawPtr<HTMLVideoElement> HTMLVideoElement::create(Document& document)
 {
     RefPtrWillBeRawPtr<HTMLVideoElement> video = adoptRefWillBeNoop(new HTMLVideoElement(document));
-    video->ensureUserAgentShadowRoot();
+    video->ensureClosedShadowRoot();
     video->suspendIfNeeded();
     return video.release();
 }
 
-void HTMLVideoElement::trace(Visitor* visitor)
+DEFINE_TRACE(HTMLVideoElement)
 {
     visitor->trace(m_imageLoader);
     HTMLMediaElement::trace(visitor);
 }
 
-bool HTMLVideoElement::rendererIsNeeded(const LayoutStyle& style)
+bool HTMLVideoElement::layoutObjectIsNeeded(const ComputedStyle& style)
 {
-    return HTMLElement::rendererIsNeeded(style);
+    return HTMLElement::layoutObjectIsNeeded(style);
 }
 
-LayoutObject* HTMLVideoElement::createRenderer(const LayoutStyle&)
+LayoutObject* HTMLVideoElement::createLayoutObject(const ComputedStyle&)
 {
     return new LayoutVideo(this);
 }
@@ -90,8 +90,8 @@ void HTMLVideoElement::attach(const AttachContext& context)
         if (!m_imageLoader)
             m_imageLoader = HTMLImageLoader::create(this);
         m_imageLoader->updateFromElement();
-        if (renderer())
-            toLayoutImage(renderer())->imageResource()->setImageResource(m_imageLoader->image());
+        if (layoutObject())
+            toLayoutImage(layoutObject())->imageResource()->setImageResource(m_imageLoader->image());
     }
 }
 
@@ -123,8 +123,8 @@ void HTMLVideoElement::parseAttribute(const QualifiedName& name, const AtomicStr
                 m_imageLoader = HTMLImageLoader::create(this);
             m_imageLoader->updateFromElement(ImageLoader::UpdateIgnorePreviousError);
         } else {
-            if (renderer())
-                toLayoutImage(renderer())->imageResource()->setImageResource(0);
+            if (layoutObject())
+                toLayoutImage(layoutObject())->imageResource()->setImageResource(0);
         }
         // Notify the player when the poster image URL changes.
         if (webMediaPlayer())
@@ -188,8 +188,8 @@ void HTMLVideoElement::setDisplayMode(DisplayMode mode)
 
     HTMLMediaElement::setDisplayMode(mode);
 
-    if (renderer() && displayMode() != oldMode)
-        renderer()->updateFromElement();
+    if (layoutObject() && displayMode() != oldMode)
+        layoutObject()->updateFromElement();
 }
 
 void HTMLVideoElement::updateDisplayState()
@@ -316,10 +316,10 @@ PassRefPtr<Image> HTMLVideoElement::getSourceImageForCanvas(SourceImageMode mode
 
 bool HTMLVideoElement::wouldTaintOrigin(SecurityOrigin* destinationSecurityOrigin) const
 {
-    return !isMediaDataCORSSameOrigin(destinationSecurityOrigin);
+    return hasAvailableVideoFrame() && !isMediaDataCORSSameOrigin(destinationSecurityOrigin);
 }
 
-FloatSize HTMLVideoElement::sourceSize() const
+FloatSize HTMLVideoElement::elementSize() const
 {
     return FloatSize(videoWidth(), videoHeight());
 }

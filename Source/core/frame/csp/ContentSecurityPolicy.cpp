@@ -51,12 +51,14 @@
 #include "platform/network/ContentSecurityPolicyParsers.h"
 #include "platform/network/ContentSecurityPolicyResponseHeaders.h"
 #include "platform/network/FormData.h"
+#include "platform/network/ResourceRequest.h"
 #include "platform/network/ResourceResponse.h"
 #include "platform/weborigin/KURL.h"
 #include "platform/weborigin/KnownPorts.h"
 #include "platform/weborigin/SchemeRegistry.h"
 #include "platform/weborigin/SecurityOrigin.h"
 #include "public/platform/Platform.h"
+#include "public/platform/WebURLRequest.h"
 #include "wtf/StringHasher.h"
 #include "wtf/text/StringBuilder.h"
 #include "wtf/text/StringUTF8Adaptor.h"
@@ -148,7 +150,7 @@ ContentSecurityPolicy::ContentSecurityPolicy()
     , m_sandboxMask(0)
     , m_enforceStrictMixedContentChecking(false)
     , m_referrerPolicy(ReferrerPolicyDefault)
-    , m_insecureContentPolicy(SecurityContext::InsecureContentDoNotUpgrade)
+    , m_insecureRequestsPolicy(SecurityContext::InsecureRequestsDoNotUpgrade)
 {
 }
 
@@ -161,6 +163,7 @@ void ContentSecurityPolicy::bindToExecutionContext(ExecutionContext* executionCo
 void ContentSecurityPolicy::applyPolicySideEffectsToExecutionContext()
 {
     ASSERT(m_executionContext);
+    ASSERT(securityOrigin());
     // Ensure that 'self' processes correctly.
     m_selfProtocol = securityOrigin()->protocol();
     m_selfSource = adoptPtr(new CSPSource(this, m_selfProtocol, securityOrigin()->host(), securityOrigin()->port(), String(), CSPSource::NoWildcard, CSPSource::NoWildcard));
@@ -176,8 +179,12 @@ void ContentSecurityPolicy::applyPolicySideEffectsToExecutionContext()
             document->enforceStrictMixedContentChecking();
         if (didSetReferrerPolicy())
             document->setReferrerPolicy(m_referrerPolicy);
-        if (m_insecureContentPolicy > document->insecureContentPolicy())
-            document->setInsecureContentPolicy(m_insecureContentPolicy);
+        if (m_insecureRequestsPolicy == SecurityContext::InsecureRequestsUpgrade) {
+            UseCounter::count(document, UseCounter::UpgradeInsecureRequestsEnabled);
+            document->setInsecureRequestsPolicy(m_insecureRequestsPolicy);
+            if (!securityOrigin()->host().isNull())
+                document->addInsecureNavigationUpgrade(securityOrigin()->host().impl()->hash());
+        }
 
         for (const auto& consoleMessage : m_consoleMessages)
             m_executionContext->addConsoleMessage(consoleMessage);
@@ -208,6 +215,15 @@ void ContentSecurityPolicy::copyStateFrom(const ContentSecurityPolicy* other)
     ASSERT(m_policies.isEmpty());
     for (const auto& policy : other->m_policies)
         addPolicyFromHeaderValue(policy->header(), policy->headerType(), policy->headerSource());
+}
+
+void ContentSecurityPolicy::copyPluginTypesFrom(const ContentSecurityPolicy* other)
+{
+    for (const auto& policy : other->m_policies) {
+        if (policy->hasPluginTypes()) {
+            addPolicyFromHeaderValue(policy->pluginTypesText(), policy->headerType(), policy->headerSource());
+        }
+    }
 }
 
 void ContentSecurityPolicy::didReceiveHeaders(const ContentSecurityPolicyResponseHeaders& headers)
@@ -305,11 +321,11 @@ bool isAllowedByAll(const CSPDirectiveListVector& policies, ContentSecurityPolic
     return true;
 }
 
-template<bool (CSPDirectiveList::*allowed)(ScriptState* scriptState, ContentSecurityPolicy::ReportingStatus) const>
-bool isAllowedByAllWithState(const CSPDirectiveListVector& policies, ScriptState* scriptState, ContentSecurityPolicy::ReportingStatus reportingStatus)
+template <bool (CSPDirectiveList::*allowed)(ScriptState* scriptState, ContentSecurityPolicy::ReportingStatus, ContentSecurityPolicy::ExceptionStatus) const>
+bool isAllowedByAllWithStateAndExceptionStatus(const CSPDirectiveListVector& policies, ScriptState* scriptState, ContentSecurityPolicy::ReportingStatus reportingStatus, ContentSecurityPolicy::ExceptionStatus exceptionStatus)
 {
     for (const auto& policy : policies) {
-        if (!(policy.get()->*allowed)(scriptState, reportingStatus))
+        if (!(policy.get()->*allowed)(scriptState, reportingStatus, exceptionStatus))
             return false;
     }
     return true;
@@ -355,14 +371,14 @@ bool isAllowedByAllWithHash(const CSPDirectiveListVector& policies, const CSPHas
     return true;
 }
 
-template<bool (CSPDirectiveList::*allowFromURL)(const KURL&, ContentSecurityPolicy::ReportingStatus) const>
-bool isAllowedByAllWithURL(const CSPDirectiveListVector& policies, const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus)
+template <bool (CSPDirectiveList::*allowFromURL)(const KURL&, ContentSecurityPolicy::RedirectStatus, ContentSecurityPolicy::ReportingStatus) const>
+bool isAllowedByAllWithURL(const CSPDirectiveListVector& policies, const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus)
 {
     if (SchemeRegistry::schemeShouldBypassContentSecurityPolicy(url.protocol()))
         return true;
 
     for (const auto& policy : policies) {
-        if (!(policy.get()->*allowFromURL)(url, reportingStatus))
+        if (!(policy.get()->*allowFromURL)(url, redirectStatus, reportingStatus))
             return false;
     }
     return true;
@@ -434,9 +450,9 @@ bool ContentSecurityPolicy::allowInlineStyle(const String& contextURL, const WTF
     return isAllowedByAllWithContextAndContent<&CSPDirectiveList::allowInlineStyle>(m_policies, contextURL, contextLine, reportingStatus, styleContent);
 }
 
-bool ContentSecurityPolicy::allowEval(ScriptState* scriptState, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowEval(ScriptState* scriptState, ContentSecurityPolicy::ReportingStatus reportingStatus, ContentSecurityPolicy::ExceptionStatus exceptionStatus) const
 {
-    return isAllowedByAllWithState<&CSPDirectiveList::allowEval>(m_policies, scriptState, reportingStatus);
+    return isAllowedByAllWithStateAndExceptionStatus<&CSPDirectiveList::allowEval>(m_policies, scriptState, reportingStatus, exceptionStatus);
 }
 
 String ContentSecurityPolicy::evalDisabledErrorMessage() const
@@ -457,9 +473,29 @@ bool ContentSecurityPolicy::allowPluginType(const String& type, const String& ty
     return true;
 }
 
-bool ContentSecurityPolicy::allowScriptFromSource(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowPluginTypeForDocument(const Document& document, const String& type, const String& typeAttribute, const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowScriptFromSource>(m_policies, url, reportingStatus);
+    if (document.contentSecurityPolicy() && !document.contentSecurityPolicy()->allowPluginType(type, typeAttribute, url))
+        return false;
+
+    // CSP says that a plugin document in a nested browsing context should
+    // inherit the plugin-types of its parent.
+    //
+    // FIXME: The plugin-types directive should be pushed down into the
+    // current document instead of reaching up to the parent for it here.
+    LocalFrame* frame = document.frame();
+    if (frame && frame->tree().parent() && frame->tree().parent()->isLocalFrame() && document.isPluginDocument()) {
+        ContentSecurityPolicy* parentCSP = toLocalFrame(frame->tree().parent())->document()->contentSecurityPolicy();
+        if (parentCSP && !parentCSP->allowPluginType(type, typeAttribute, url))
+            return false;
+    }
+
+    return true;
+}
+
+bool ContentSecurityPolicy::allowScriptFromSource(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+{
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowScriptFromSource>(m_policies, url, redirectStatus, reportingStatus);
 }
 
 bool ContentSecurityPolicy::allowScriptWithNonce(const String& nonce) const
@@ -492,75 +528,75 @@ void ContentSecurityPolicy::usesStyleHashAlgorithms(uint8_t algorithms)
     m_styleHashAlgorithmsUsed |= algorithms;
 }
 
-bool ContentSecurityPolicy::allowObjectFromSource(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowObjectFromSource(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowObjectFromSource>(m_policies, url, reportingStatus);
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowObjectFromSource>(m_policies, url, redirectStatus, reportingStatus);
 }
 
-bool ContentSecurityPolicy::allowChildFrameFromSource(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowChildFrameFromSource(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowChildFrameFromSource>(m_policies, url, reportingStatus);
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowChildFrameFromSource>(m_policies, url, redirectStatus, reportingStatus);
 }
 
-bool ContentSecurityPolicy::allowImageFromSource(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowImageFromSource(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
     if (SchemeRegistry::schemeShouldBypassContentSecurityPolicy(url.protocol(), SchemeRegistry::PolicyAreaImage))
         return true;
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowImageFromSource>(m_policies, url, reportingStatus);
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowImageFromSource>(m_policies, url, redirectStatus, reportingStatus);
 }
 
-bool ContentSecurityPolicy::allowStyleFromSource(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowStyleFromSource(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
     if (SchemeRegistry::schemeShouldBypassContentSecurityPolicy(url.protocol(), SchemeRegistry::PolicyAreaStyle))
         return true;
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowStyleFromSource>(m_policies, url, reportingStatus);
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowStyleFromSource>(m_policies, url, redirectStatus, reportingStatus);
 }
 
-bool ContentSecurityPolicy::allowFontFromSource(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowFontFromSource(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowFontFromSource>(m_policies, url, reportingStatus);
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowFontFromSource>(m_policies, url, redirectStatus, reportingStatus);
 }
 
-bool ContentSecurityPolicy::allowMediaFromSource(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowMediaFromSource(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowMediaFromSource>(m_policies, url, reportingStatus);
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowMediaFromSource>(m_policies, url, redirectStatus, reportingStatus);
 }
 
-bool ContentSecurityPolicy::allowConnectToSource(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowConnectToSource(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowConnectToSource>(m_policies, url, reportingStatus);
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowConnectToSource>(m_policies, url, redirectStatus, reportingStatus);
 }
 
-bool ContentSecurityPolicy::allowFormAction(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowFormAction(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowFormAction>(m_policies, url, reportingStatus);
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowFormAction>(m_policies, url, redirectStatus, reportingStatus);
 }
 
-bool ContentSecurityPolicy::allowBaseURI(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+bool ContentSecurityPolicy::allowBaseURI(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowBaseURI>(m_policies, url, reportingStatus);
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowBaseURI>(m_policies, url, redirectStatus, reportingStatus);
+}
+
+bool ContentSecurityPolicy::allowWorkerContextFromSource(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+{
+    // CSP 1.1 moves workers from 'script-src' to the new 'child-src'. Measure the impact of this backwards-incompatible change.
+    if (Document* document = this->document()) {
+        UseCounter::count(*document, UseCounter::WorkerSubjectToCSP);
+        if (isAllowedByAllWithURL<&CSPDirectiveList::allowChildContextFromSource>(m_policies, url, redirectStatus, SuppressReport) && !isAllowedByAllWithURL<&CSPDirectiveList::allowScriptFromSource>(m_policies, url, redirectStatus, SuppressReport))
+            UseCounter::count(*document, UseCounter::WorkerAllowedByChildBlockedByScript);
+    }
+
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowChildContextFromSource>(m_policies, url, redirectStatus, reportingStatus);
+}
+
+bool ContentSecurityPolicy::allowManifestFromSource(const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus, ContentSecurityPolicy::ReportingStatus reportingStatus) const
+{
+    return isAllowedByAllWithURL<&CSPDirectiveList::allowManifestFromSource>(m_policies, url, redirectStatus, reportingStatus);
 }
 
 bool ContentSecurityPolicy::allowAncestors(LocalFrame* frame, const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
 {
     return isAllowedByAllWithFrame<&CSPDirectiveList::allowAncestors>(m_policies, frame, url, reportingStatus);
-}
-
-bool ContentSecurityPolicy::allowWorkerContextFromSource(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
-{
-    // CSP 1.1 moves workers from 'script-src' to the new 'child-src'. Measure the impact of this backwards-incompatible change.
-    if (Document* document = this->document()) {
-        UseCounter::count(*document, UseCounter::WorkerSubjectToCSP);
-        if (isAllowedByAllWithURL<&CSPDirectiveList::allowChildContextFromSource>(m_policies, url, SuppressReport) && !isAllowedByAllWithURL<&CSPDirectiveList::allowScriptFromSource>(m_policies, url, SuppressReport))
-            UseCounter::count(*document, UseCounter::WorkerAllowedByChildBlockedByScript);
-    }
-
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowChildContextFromSource>(m_policies, url, reportingStatus);
-}
-
-bool ContentSecurityPolicy::allowManifestFromSource(const KURL& url, ContentSecurityPolicy::ReportingStatus reportingStatus) const
-{
-    return isAllowedByAllWithURL<&CSPDirectiveList::allowManifestFromSource>(m_policies, url, reportingStatus);
 }
 
 bool ContentSecurityPolicy::isActive() const
@@ -612,10 +648,10 @@ void ContentSecurityPolicy::enforceStrictMixedContentChecking()
     m_enforceStrictMixedContentChecking = true;
 }
 
-void ContentSecurityPolicy::setInsecureContentPolicy(SecurityContext::InsecureContentPolicy policy)
+void ContentSecurityPolicy::setInsecureRequestsPolicy(SecurityContext::InsecureRequestsPolicy policy)
 {
-    if (policy > m_insecureContentPolicy)
-        m_insecureContentPolicy = policy;
+    if (policy > m_insecureRequestsPolicy)
+        m_insecureRequestsPolicy = policy;
 }
 
 static String stripURLForUseInReport(Document* document, const KURL& url)
@@ -734,7 +770,7 @@ void ContentSecurityPolicy::reportViolation(const String& directiveText, const S
 
 void ContentSecurityPolicy::reportInvalidReferrer(const String& invalidValue)
 {
-    logToConsole("The 'referrer' Content Security Policy directive has the invalid value \"" + invalidValue + "\". Valid values are \"no-referrer\", \"no-referrer-when-downgrade\", \"origin\", and \"unsafe-url\". Note that \"origin-when-cross-origin\" is not yet supported.");
+    logToConsole("The 'referrer' Content Security Policy directive has the invalid value \"" + invalidValue + "\". Valid values are \"no-referrer\", \"no-referrer-when-downgrade\", \"origin\", \"origin-when-cross-origin\", and \"unsafe-url\".");
 }
 
 void ContentSecurityPolicy::reportReportOnlyInMeta(const String& header)
@@ -871,9 +907,18 @@ bool ContentSecurityPolicy::experimentalFeaturesEnabled() const
     return RuntimeEnabledFeatures::experimentalContentSecurityPolicyFeaturesEnabled();
 }
 
+bool ContentSecurityPolicy::shouldSendCSPHeader(Resource::Type type) const
+{
+    for (const auto& policy : m_policies) {
+        if (policy->shouldSendCSPHeader(type))
+            return true;
+    }
+    return false;
+}
+
 bool ContentSecurityPolicy::urlMatchesSelf(const KURL& url) const
 {
-    return m_selfSource->matches(url);
+    return m_selfSource->matches(url, DidNotRedirect);
 }
 
 bool ContentSecurityPolicy::protocolMatchesSelf(const KURL& url) const
@@ -891,6 +936,31 @@ bool ContentSecurityPolicy::shouldBypassMainWorld(const ExecutionContext* contex
             return document->frame()->script().shouldBypassMainWorldCSP();
     }
     return false;
+}
+
+bool ContentSecurityPolicy::isScriptResource(const ResourceRequest& resourceRequest)
+{
+    return WebURLRequest::RequestContextScript == resourceRequest.requestContext() || WebURLRequest::RequestContextImport == resourceRequest.requestContext() || WebURLRequest::RequestContextXSLT == resourceRequest.requestContext() || WebURLRequest::RequestContextPrefetch == resourceRequest.requestContext();
+}
+
+bool ContentSecurityPolicy::isStyleResource(const ResourceRequest& resourceRequest)
+{
+    return WebURLRequest::RequestContextStyle == resourceRequest.requestContext() || WebURLRequest::RequestContextPrefetch == resourceRequest.requestContext();
+}
+
+bool ContentSecurityPolicy::isImageResource(const ResourceRequest& resourceRequest)
+{
+    return WebURLRequest::RequestContextImage == resourceRequest.requestContext() || WebURLRequest::RequestContextFavicon == resourceRequest.requestContext() || WebURLRequest::RequestContextImageSet == resourceRequest.requestContext() || WebURLRequest::RequestContextPrefetch == resourceRequest.requestContext();
+}
+
+bool ContentSecurityPolicy::isFontResource(const ResourceRequest& resourceRequest)
+{
+    return WebURLRequest::RequestContextFont == resourceRequest.requestContext() || WebURLRequest::RequestContextPrefetch == resourceRequest.requestContext();
+}
+
+bool ContentSecurityPolicy::isMediaResource(const ResourceRequest& resourceRequest)
+{
+    return WebURLRequest::RequestContextAudio == resourceRequest.requestContext() || WebURLRequest::RequestContextVideo == resourceRequest.requestContext() || WebURLRequest::RequestContextTrack == resourceRequest.requestContext() || WebURLRequest::RequestContextPrefetch == resourceRequest.requestContext();
 }
 
 bool ContentSecurityPolicy::shouldSendViolationReport(const String& report) const

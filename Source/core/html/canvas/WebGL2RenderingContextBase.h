@@ -53,8 +53,8 @@ public:
     void texSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLenum, GLenum, HTMLCanvasElement*);
     void texSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLenum, GLenum, HTMLVideoElement*);
     void copyTexSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei);
-    void compressedTexImage3D(GLenum, GLint, GLenum, GLsizei, GLsizei, GLsizei, GLint, GLsizei, DOMArrayBufferView*);
-    void compressedTexSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLsizei, DOMArrayBufferView*);
+    void compressedTexImage3D(GLenum, GLint, GLenum, GLsizei, GLsizei, GLsizei, GLint, DOMArrayBufferView*);
+    void compressedTexSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, DOMArrayBufferView*);
 
     /* Programs and shaders */
     GLint getFragDataLocation(WebGLProgram*, const String&);
@@ -159,12 +159,26 @@ public:
     GLboolean isVertexArray(WebGLVertexArrayObjectOES*);
     void bindVertexArray(WebGLVertexArrayObjectOES*);
 
-    void trace(Visitor*) override;
+    /* WebGLRenderingContextBase overrides */
+    void initializeNewContext() override;
+    void bindFramebuffer(GLenum target, WebGLFramebuffer*) override;
+    ScriptValue getParameter(ScriptState*, GLenum pname) override;
+
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     WebGL2RenderingContextBase(HTMLCanvasElement*, PassOwnPtr<blink::WebGraphicsContext3D>, const WebGLContextAttributes& requestedAttributes);
 
     bool validateClearBuffer(const char* functionName, GLenum buffer, GLsizei length);
+
+    ScriptValue getInt64Parameter(ScriptState*, GLenum);
+
+    /* WebGLRenderingContextBase overrides */
+    bool validateCapability(const char* functionName, GLenum) override;
+    bool validateBufferTarget(const char* functionName, GLenum target) override;
+    bool validateAndUpdateBufferBindTarget(const char* functionName, GLenum, WebGLBuffer*) override;
+
+    RefPtrWillBeMember<WebGLFramebuffer> m_readFramebufferBinding;
 };
 
 DEFINE_TYPE_CASTS(WebGL2RenderingContextBase, CanvasRenderingContext, context,

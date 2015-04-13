@@ -45,7 +45,9 @@ class TreeScope;
 
 class EventPath final : public NoBaseWillBeGarbageCollectedFinalized<EventPath> {
 public:
-    explicit EventPath(Node&, Event* = 0);
+    explicit EventPath(Node&, Event* = nullptr);
+
+    void initializeWith(Node&, Event*);
 
     NodeEventContext& operator[](size_t index) { return m_nodeEventContexts[index]; }
     const NodeEventContext& operator[](size_t index) const { return m_nodeEventContexts[index]; }
@@ -63,7 +65,7 @@ public:
 
     static EventTarget* eventTargetRespectingTargetRules(Node&);
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
     void clear()
     {
         m_nodeEventContexts.clear();
@@ -75,6 +77,7 @@ private:
 
     void addNodeEventContext(Node&);
 
+    void initialize();
     void calculatePath();
     void calculateAdjustedTargets();
     void calculateTreeScopePrePostOrderNumbers();

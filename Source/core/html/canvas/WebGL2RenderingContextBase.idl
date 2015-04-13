@@ -170,8 +170,6 @@ typedef long long      GLint64;
     const GLenum FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE             = 0x8216;
     const GLenum FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE           = 0x8217;
     const GLenum FRAMEBUFFER_DEFAULT                           = 0x8218;
-    const GLenum DEPTH_STENCIL_ATTACHMENT                      = 0x821A;
-    const GLenum DEPTH_STENCIL                                 = 0x84F9;
     const GLenum UNSIGNED_INT_24_8                             = 0x84FA;
     const GLenum DEPTH24_STENCIL8                              = 0x88F0;
     const GLenum UNSIGNED_NORMALIZED                           = 0x8C17;
@@ -312,6 +310,9 @@ typedef long long      GLint64;
     // FIXME: This currently differs from the WebGL2 spec.
     const GLuint TIMEOUT_IGNORED                               = 0xFFFFFFFF;
 
+    /* WebGL-specific enums */
+    const GLenum MAX_CLIENT_WAIT_TIMEOUT_WEBGL                 = 0x9247;
+
     /* Buffer objects */
     void copyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);
     void getBufferSubData(GLenum target, GLintptr offset, ArrayBuffer returnedData);
@@ -337,8 +338,8 @@ typedef long long      GLint64;
     void texSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLenum format, GLenum type, HTMLCanvasElement? canvas);
     void texSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLenum format, GLenum type, HTMLVideoElement? video);
     void copyTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y, GLsizei width, GLsizei height);
-    void compressedTexImage3D(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLsizei imageSize, ArrayBufferView data);
-    void compressedTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLsizei imageSize, ArrayBufferView data);
+    void compressedTexImage3D(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth, GLint border, ArrayBufferView data);
+    void compressedTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, ArrayBufferView data);
 
     /* Programs and shaders */
     GLint getFragDataLocation(WebGLProgram? program, DOMString name);

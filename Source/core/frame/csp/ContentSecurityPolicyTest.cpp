@@ -38,44 +38,58 @@ protected:
     RefPtrWillBePersistent<Document> document;
 };
 
-TEST_F(ContentSecurityPolicyTest, ParseUpgradeInsecureRequestsDisabled)
-{
-    RuntimeEnabledFeatures::setExperimentalContentSecurityPolicyFeaturesEnabled(false);
-    csp->didReceiveHeader("upgrade-insecure-requests", ContentSecurityPolicyHeaderTypeEnforce, ContentSecurityPolicyHeaderSourceHTTP);
-    EXPECT_EQ(SecurityContext::InsecureContentDoNotUpgrade, csp->insecureContentPolicy());
-
-    csp->bindToExecutionContext(document.get());
-    EXPECT_EQ(SecurityContext::InsecureContentDoNotUpgrade, document->insecureContentPolicy());
-}
-
 TEST_F(ContentSecurityPolicyTest, ParseUpgradeInsecureRequestsEnabled)
 {
-    RuntimeEnabledFeatures::setExperimentalContentSecurityPolicyFeaturesEnabled(true);
     csp->didReceiveHeader("upgrade-insecure-requests", ContentSecurityPolicyHeaderTypeEnforce, ContentSecurityPolicyHeaderSourceHTTP);
-    EXPECT_EQ(SecurityContext::InsecureContentUpgrade, csp->insecureContentPolicy());
+    EXPECT_EQ(SecurityContext::InsecureRequestsUpgrade, csp->insecureRequestsPolicy());
 
     csp->bindToExecutionContext(document.get());
-    EXPECT_EQ(SecurityContext::InsecureContentUpgrade, document->insecureContentPolicy());
-}
-
-TEST_F(ContentSecurityPolicyTest, ParseMonitorInsecureRequestsDisabled)
-{
-    RuntimeEnabledFeatures::setExperimentalContentSecurityPolicyFeaturesEnabled(false);
-    csp->didReceiveHeader("upgrade-insecure-requests", ContentSecurityPolicyHeaderTypeReport, ContentSecurityPolicyHeaderSourceHTTP);
-    EXPECT_EQ(SecurityContext::InsecureContentDoNotUpgrade, csp->insecureContentPolicy());
-
-    csp->bindToExecutionContext(document.get());
-    EXPECT_EQ(SecurityContext::InsecureContentDoNotUpgrade, document->insecureContentPolicy());
+    EXPECT_EQ(SecurityContext::InsecureRequestsUpgrade, document->insecureRequestsPolicy());
+    EXPECT_TRUE(document->insecureNavigationsToUpgrade()->contains(secureOrigin->host().impl()->hash()));
 }
 
 TEST_F(ContentSecurityPolicyTest, ParseMonitorInsecureRequestsEnabled)
 {
-    RuntimeEnabledFeatures::setExperimentalContentSecurityPolicyFeaturesEnabled(true);
     csp->didReceiveHeader("upgrade-insecure-requests", ContentSecurityPolicyHeaderTypeReport, ContentSecurityPolicyHeaderSourceHTTP);
-    EXPECT_EQ(SecurityContext::InsecureContentMonitor, csp->insecureContentPolicy());
+    EXPECT_EQ(SecurityContext::InsecureRequestsDoNotUpgrade, csp->insecureRequestsPolicy());
 
     csp->bindToExecutionContext(document.get());
-    EXPECT_EQ(SecurityContext::InsecureContentMonitor, document->insecureContentPolicy());
+    EXPECT_EQ(SecurityContext::InsecureRequestsDoNotUpgrade, document->insecureRequestsPolicy());
+    EXPECT_FALSE(document->insecureNavigationsToUpgrade()->contains(secureOrigin->host().impl()->hash()));
+}
+
+TEST_F(ContentSecurityPolicyTest, CopyStateFrom)
+{
+    csp->didReceiveHeader("script-src 'none'; plugin-types application/x-type-1", ContentSecurityPolicyHeaderTypeEnforce, ContentSecurityPolicyHeaderSourceHTTP);
+    csp->didReceiveHeader("img-src http://example.com", ContentSecurityPolicyHeaderTypeEnforce, ContentSecurityPolicyHeaderSourceHTTP);
+
+    KURL exampleUrl(KURL(), "http://example.com");
+    KURL notExampleUrl(KURL(), "http://not-example.com");
+
+    RefPtr<ContentSecurityPolicy> csp2 = ContentSecurityPolicy::create();
+    csp2->copyStateFrom(csp.get());
+    EXPECT_FALSE(csp2->allowScriptFromSource(exampleUrl, ContentSecurityPolicy::DidNotRedirect, ContentSecurityPolicy::SuppressReport));
+    EXPECT_TRUE(csp2->allowPluginType("application/x-type-1", "application/x-type-1", exampleUrl, ContentSecurityPolicy::SuppressReport));
+    EXPECT_TRUE(csp2->allowImageFromSource(exampleUrl, ContentSecurityPolicy::DidNotRedirect, ContentSecurityPolicy::SuppressReport));
+    EXPECT_FALSE(csp2->allowImageFromSource(notExampleUrl, ContentSecurityPolicy::DidNotRedirect, ContentSecurityPolicy::SuppressReport));
+    EXPECT_FALSE(csp2->allowPluginType("application/x-type-2", "application/x-type-2", exampleUrl, ContentSecurityPolicy::SuppressReport));
+}
+
+TEST_F(ContentSecurityPolicyTest, CopyPluginTypesFrom)
+{
+    csp->didReceiveHeader("script-src 'none'; plugin-types application/x-type-1", ContentSecurityPolicyHeaderTypeEnforce, ContentSecurityPolicyHeaderSourceHTTP);
+    csp->didReceiveHeader("img-src http://example.com", ContentSecurityPolicyHeaderTypeEnforce, ContentSecurityPolicyHeaderSourceHTTP);
+
+    KURL exampleUrl(KURL(), "http://example.com");
+    KURL notExampleUrl(KURL(), "http://not-example.com");
+
+    RefPtr<ContentSecurityPolicy> csp2 = ContentSecurityPolicy::create();
+    csp2->copyPluginTypesFrom(csp.get());
+    EXPECT_TRUE(csp2->allowScriptFromSource(exampleUrl, ContentSecurityPolicy::DidNotRedirect, ContentSecurityPolicy::SuppressReport));
+    EXPECT_TRUE(csp2->allowPluginType("application/x-type-1", "application/x-type-1", exampleUrl, ContentSecurityPolicy::SuppressReport));
+    EXPECT_TRUE(csp2->allowImageFromSource(exampleUrl, ContentSecurityPolicy::DidNotRedirect, ContentSecurityPolicy::SuppressReport));
+    EXPECT_TRUE(csp2->allowImageFromSource(notExampleUrl, ContentSecurityPolicy::DidNotRedirect, ContentSecurityPolicy::SuppressReport));
+    EXPECT_FALSE(csp2->allowPluginType("application/x-type-2", "application/x-type-2", exampleUrl, ContentSecurityPolicy::SuppressReport));
 }
 
 } // namespace

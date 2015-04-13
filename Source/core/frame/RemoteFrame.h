@@ -5,6 +5,7 @@
 #ifndef RemoteFrame_h
 #define RemoteFrame_h
 
+#include "core/CoreExport.h"
 #include "core/dom/RemoteSecurityContext.h"
 #include "core/frame/Frame.h"
 
@@ -17,14 +18,14 @@ class RemoteFrameView;
 class WebLayer;
 class WindowProxyManager;
 
-class RemoteFrame: public Frame {
+class CORE_EXPORT RemoteFrame: public Frame {
 public:
     static PassRefPtrWillBeRawPtr<RemoteFrame> create(RemoteFrameClient*, FrameHost*, FrameOwner*);
 
     virtual ~RemoteFrame();
 
     // Frame overrides:
-    void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
     bool isRemoteFrame() const override { return true; }
     DOMWindow* domWindow() const override;
     WindowProxy* windowProxy(DOMWrapperWorld&) override;
@@ -49,6 +50,9 @@ public:
 
 private:
     RemoteFrame(RemoteFrameClient*, FrameHost*, FrameOwner*);
+
+    // Internal Frame helper overrides:
+    WindowProxyManager* windowProxyManager() const override { return m_windowProxyManager.get(); }
 
     RemoteFrameClient* remoteFrameClient() const;
 

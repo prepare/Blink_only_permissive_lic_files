@@ -44,7 +44,7 @@ WillBeHeapVector<RefPtrWillBeMember<EventTarget>>& TreeScopeEventContext::ensure
     m_eventPath->reserveCapacity(path.size() + (window ? 1 : 0));
     for (size_t i = 0; i < path.size(); ++i) {
         Node& rootNode = path[i].treeScopeEventContext().rootNode();
-        if (rootNode.isShadowRoot() && toShadowRoot(rootNode).type() == ShadowRoot::AuthorShadowRoot)
+        if (rootNode.isShadowRoot() && toShadowRoot(rootNode).type() == ShadowRoot::OpenShadowRoot)
             m_eventPath->append(path[i].node());
         else if (path[i].treeScopeEventContext().isInclusiveAncestorOf(*this))
             m_eventPath->append(path[i].node());
@@ -76,7 +76,7 @@ TreeScopeEventContext::TreeScopeEventContext(TreeScope& treeScope)
 
 DEFINE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(TreeScopeEventContext)
 
-void TreeScopeEventContext::trace(Visitor* visitor)
+DEFINE_TRACE(TreeScopeEventContext)
 {
     visitor->trace(m_treeScope);
     visitor->trace(m_rootNode);
