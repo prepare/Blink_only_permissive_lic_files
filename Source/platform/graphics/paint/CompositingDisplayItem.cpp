@@ -12,36 +12,35 @@
 
 namespace blink {
 
-void BeginCompositingDisplayItem::replay(GraphicsContext* context)
+void BeginCompositingDisplayItem::replay(GraphicsContext& context)
 {
-    context->setCompositeOperation(WebCoreCompositeToSkiaComposite(m_preCompositeOp, m_preBlendMode));
-    context->beginLayer(m_opacity, WebCoreCompositeToSkiaComposite(m_preCompositeOp, m_preBlendMode));
-    context->setCompositeOperation(WebCoreCompositeToSkiaComposite(m_postCompositeOp, WebBlendModeNormal));
+    context.beginLayer(m_opacity, m_xferMode, m_hasBounds ? &m_bounds : nullptr, m_colorFilter);
 }
 
 void BeginCompositingDisplayItem::appendToWebDisplayItemList(WebDisplayItemList* list) const
 {
-    // FIXME: Change this to appendCompositingItem.
-    list->appendTransparencyItem(m_opacity, m_preBlendMode);
+    SkRect bounds = WebCoreFloatRectToSKRect(m_bounds);
+    list->appendCompositingItem(m_opacity, m_xferMode, m_hasBounds ? &bounds : nullptr, GraphicsContext::WebCoreColorFilterToSkiaColorFilter(m_colorFilter).get());
 }
 
 #ifndef NDEBUG
 void BeginCompositingDisplayItem::dumpPropertiesAsDebugString(WTF::StringBuilder& stringBuilder) const
 {
     DisplayItem::dumpPropertiesAsDebugString(stringBuilder);
-    stringBuilder.append(WTF::String::format(", preCompositingOp: %d, preBlendMode: %d, opacity: %f, postCompositingOp: %d", m_preCompositeOp, m_preBlendMode, m_opacity, m_postCompositeOp));
+    stringBuilder.append(WTF::String::format(", xferMode: %d, opacity: %f", m_xferMode, m_opacity));
+    if (m_hasBounds)
+        stringBuilder.append(WTF::String::format(", bounds: [%f, %f, %f, %f]", m_bounds.location().x(), m_bounds.location().y(), m_bounds.size().width(), m_bounds.size().height()));
 }
 #endif
 
-void EndCompositingDisplayItem::replay(GraphicsContext* context)
+void EndCompositingDisplayItem::replay(GraphicsContext& context)
 {
-    context->endLayer();
+    context.endLayer();
 }
 
 void EndCompositingDisplayItem::appendToWebDisplayItemList(WebDisplayItemList* list) const
 {
-    // FIXME: Change this to appendEndCompositingItem.
-    list->appendEndTransparencyItem();
+    list->appendEndCompositingItem();
 }
 
 } // namespace blink

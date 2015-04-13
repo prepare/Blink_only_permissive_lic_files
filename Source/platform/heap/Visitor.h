@@ -40,19 +40,10 @@
 #include "wtf/Forward.h"
 #include "wtf/HashMap.h"
 #include "wtf/HashTraits.h"
-#include "wtf/InstanceCounter.h"
-#include "wtf/OwnPtr.h"
-#include "wtf/RefPtr.h"
 #include "wtf/TypeTraits.h"
-#include "wtf/WeakPtr.h"
 #if ENABLE(GC_PROFILING)
+#include "wtf/InstanceCounter.h"
 #include "wtf/text/WTFString.h"
-#endif
-
-#if ENABLE(ASSERT)
-#define DEBUG_ONLY(x) x
-#else
-#define DEBUG_ONLY(x)
 #endif
 
 namespace blink {
@@ -63,16 +54,17 @@ class GarbageCollectedMixin;
 class HeapObjectHeader;
 class InlinedGlobalMarkingVisitor;
 template<typename T> class Member;
-template<typename T> class WeakMember;
+template<ThreadAffinity affinity> class ThreadLocalPersistents;
+template<typename T, typename RootsAccessor = ThreadLocalPersistents<ThreadingTrait<T>::Affinity>> class Persistent;
+template<typename T> class CrossThreadPersistent;
 class Visitor;
+template<typename T> class WeakMember;
 
 template <typename T> struct IsGarbageCollectedType;
 #define STATIC_ASSERT_IS_GARBAGE_COLLECTED(T, ErrorMessage) \
     static_assert(IsGarbageCollectedType<T>::value, ErrorMessage)
 #define STATIC_ASSERT_IS_NOT_GARBAGE_COLLECTED(T, ErrorMessage) \
     static_assert(!IsGarbageCollectedType<T>::value, ErrorMessage)
-
-template<bool needsTracing, WTF::WeakHandlingFlag weakHandlingFlag, WTF::ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits> struct CollectionBackingTraceTrait;
 
 // The TraceMethodDelegate is used to convert a trace method for type T to a TraceCallback.
 // This allows us to pass a type's trace method as a parameter to the PersistentNode
@@ -83,33 +75,6 @@ template<typename T, void (T::*method)(Visitor*)>
 struct TraceMethodDelegate {
     static void trampoline(Visitor* visitor, void* self) { (reinterpret_cast<T*>(self)->*method)(visitor); }
 };
-
-// GCInfo contains meta-data associated with objects allocated in the
-// Blink heap. This meta-data consists of a function pointer used to
-// trace the pointers in the object during garbage collection, an
-// indication of whether or not the object needs a finalization
-// callback, and a function pointer used to finalize the object when
-// the garbage collector determines that the object is no longer
-// reachable. There is a GCInfo struct for each class that directly
-// inherits from GarbageCollected or GarbageCollectedFinalized.
-struct GCInfo {
-    bool hasFinalizer() const { return m_nonTrivialFinalizer; }
-    bool hasVTable() const { return m_hasVTable; }
-    TraceCallback m_trace;
-    FinalizationCallback m_finalize;
-    bool m_nonTrivialFinalizer;
-    bool m_hasVTable;
-#if ENABLE(GC_PROFILING)
-    // |m_className| is held as a reference to prevent dtor being called at exit.
-    const String& m_className;
-#endif
-};
-
-#if ENABLE(ASSERT)
-PLATFORM_EXPORT void assertObjectHasGCInfo(const void*, size_t gcInfoIndex);
-
-#endif
-
 
 // The FinalizerTraitImpl specifies how to finalize objects. Object
 // that inherit from GarbageCollectedFinalized are finalized by
@@ -141,9 +106,22 @@ struct FinalizerTrait {
     static void finalize(void* obj) { FinalizerTraitImpl<T, nonTrivialFinalizer>::finalize(obj); }
 };
 
-// Trait to get the GCInfo structure for types that have their
-// instances allocated in the Blink garbage-collected heap.
-template<typename T> struct GCInfoTrait;
+// Template to determine if a class is a GarbageCollectedMixin by checking if it
+// has IsGarbageCollectedMixinMarker
+template<typename T>
+struct IsGarbageCollectedMixin {
+private:
+    typedef char YesType;
+    struct NoType {
+        char padding[8];
+    };
+
+    template <typename U> static YesType checkMarker(typename U::IsGarbageCollectedMixinMarker*);
+    template <typename U> static NoType checkMarker(...);
+
+public:
+    static const bool value = sizeof(checkMarker<T>(nullptr)) == sizeof(YesType);
+};
 
 template<typename T, bool = WTF::IsSubclassOfTemplate<typename WTF::RemoveConst<T>::Type, GarbageCollected>::value> class NeedsAdjustAndMark;
 
@@ -158,12 +136,10 @@ template <typename T> const bool NeedsAdjustAndMark<T, true>::value;
 template<typename T>
 class NeedsAdjustAndMark<T, false> {
 public:
-    static const bool value = WTF::IsSubclass<typename WTF::RemoveConst<T>::Type, GarbageCollectedMixin>::value;
+    static const bool value = IsGarbageCollectedMixin<typename WTF::RemoveConst<T>::Type>::value;
 };
 
 template <typename T> const bool NeedsAdjustAndMark<T, false>::value;
-
-template<typename T, bool = NeedsAdjustAndMark<T>::value> class DefaultTraceTrait;
 
 // HasInlinedTraceMethod<T>::value is true for T supporting
 // T::trace(InlinedGlobalMarkingVisitor).
@@ -173,7 +149,6 @@ template<typename T, bool = NeedsAdjustAndMark<T>::value> class DefaultTraceTrai
 // define trace methods supporting both inlined/uninlined tracing.
 template <typename T>
 struct HasInlinedTraceMethod {
-#if ENABLE(INLINED_TRACE)
 private:
     typedef char YesType;
     struct NoType {
@@ -184,13 +159,12 @@ private:
     template <typename U> static NoType checkMarker(...);
 public:
     static const bool value = sizeof(checkMarker<T>(nullptr)) == sizeof(YesType);
-#else
-    static const bool value = false;
-#endif
 };
 
 template <typename T, bool = HasInlinedTraceMethod<T>::value>
 struct TraceCompatibilityAdaptor;
+
+template<typename T, bool = NeedsAdjustAndMark<T>::value> class DefaultTraceTrait;
 
 // The TraceTrait is used to specify how to mark an object pointer and
 // how to trace all of the pointers in the object.
@@ -229,8 +203,6 @@ public:
 };
 
 template<typename T> class TraceTrait<const T> : public TraceTrait<T> { };
-
-#if ENABLE(INLINED_TRACE)
 
 #define DECLARE_TRACE_IMPL(maybevirtual)                                     \
 public:                                                                      \
@@ -277,27 +249,6 @@ public:
     template <typename VisitorDispatcher>                                                             \
     inline void traceAfterDispatchImpl(VisitorDispatcher visitor)
 
-#else // !ENABLE(INLINED_TRACE)
-
-#define DECLARE_TRACE_IMPL(maybevirtual) \
-public:                                  \
-    maybevirtual void trace(Visitor*);
-
-#define DEFINE_TRACE(T) void T::trace(Visitor* visitor)
-
-#define DEFINE_INLINE_TRACE_IMPL(maybevirtual) \
-    maybevirtual void trace(Visitor* visitor)
-
-#define DECLARE_TRACE_AFTER_DISPATCH() void traceAfterDispatch(Visitor*);
-
-#define DEFINE_TRACE_AFTER_DISPATCH(T) \
-    void T::traceAfterDispatch(Visitor* visitor)
-
-#define DEFINE_INLINE_TRACE_AFTER_DISPATCH() \
-    void traceAfterDispatch(Visitor* visitor)
-
-#endif
-
 #define EMPTY_MACRO_ARGUMENT
 
 #define DECLARE_TRACE() DECLARE_TRACE_IMPL(EMPTY_MACRO_ARGUMENT)
@@ -320,10 +271,9 @@ public:                                  \
 //
 // A class type can opt out of eager tracing by declaring a TraceEagerlyTrait<>
 // specialization, mapping the trait's |value| to |false| (see the
-// WILL_NOT_BE_EAGERLY_TRACED() macros below.) For Blink, this is done for
+// WILL_NOT_BE_EAGERLY_TRACED_CLASS() macros below.) For Blink, this is done for
 // the small set of GCed classes that are directly recursive.
-#define MARKER_EAGER_TRACING 1
-
+//
 // The TraceEagerlyTrait<T> trait controls whether or not a class
 // (and its subclasses) should be eagerly traced or not.
 //
@@ -339,15 +289,8 @@ public:                                  \
 template<typename T, typename Enabled = void>
 class TraceEagerlyTrait {
 public:
-    static const bool value = MARKER_EAGER_TRACING;
+    static const bool value = true;
 };
-
-#define WILL_NOT_BE_EAGERLY_TRACED(TYPE)                                                    \
-template<typename T>                                                                        \
-class TraceEagerlyTrait<T, typename WTF::EnableIf<WTF::IsSubclass<T, TYPE>::value>::Type> { \
-public:                                                                                     \
-    static const bool value = false;                                                        \
-}
 
 // Disable eager tracing for TYPE, but not any of its subclasses.
 #define WILL_NOT_BE_EAGERLY_TRACED_CLASS(TYPE)   \
@@ -357,13 +300,60 @@ public:                                          \
     static const bool value = false;             \
 }
 
+template<typename T>
+class TraceEagerlyTrait<Member<T>> {
+public:
+    static const bool value = TraceEagerlyTrait<T>::value;
+};
+
+template<typename T>
+class TraceEagerlyTrait<WeakMember<T>> {
+public:
+    static const bool value = TraceEagerlyTrait<T>::value;
+};
+
+template<typename T>
+class TraceEagerlyTrait<Persistent<T>> {
+public:
+    static const bool value = TraceEagerlyTrait<T>::value;
+};
+
+template<typename T>
+class TraceEagerlyTrait<CrossThreadPersistent<T>> {
+public:
+    static const bool value = TraceEagerlyTrait<T>::value;
+};
+
+template<typename ValueArg, size_t inlineCapacity> class HeapListHashSetAllocator;
+template<typename T, size_t inlineCapacity>
+class TraceEagerlyTrait<WTF::ListHashSetNode<T, HeapListHashSetAllocator<T, inlineCapacity>>> {
+public:
+    static const bool value = false;
+};
+
 template<typename Collection>
 struct OffHeapCollectionTraceTrait;
 
+template<typename T, bool = NeedsAdjustAndMark<T>::value> class ObjectAliveTrait;
+
 template<typename T>
-struct ObjectAliveTrait {
+class ObjectAliveTrait<T, false> {
+public:
     template<typename VisitorDispatcher>
-    static bool isHeapObjectAlive(VisitorDispatcher, T*);
+    static bool isHeapObjectAlive(VisitorDispatcher visitor, T* obj)
+    {
+        return visitor->isMarked(obj);
+    }
+};
+
+template<typename T>
+class ObjectAliveTrait<T, true> {
+public:
+    template<typename VisitorDispatcher>
+    static bool isHeapObjectAlive(VisitorDispatcher visitor, T* obj)
+    {
+        return obj->isHeapObjectAlive(visitor);
+    }
 };
 
 // VisitorHelper contains common implementation of Visitor helper methods.
@@ -380,6 +370,8 @@ public:
     template<typename T>
     void mark(T* t)
     {
+        // Check that we actually know the definition of T when tracing.
+        static_assert(sizeof(T), "T must be fully defined");
         if (!t)
             return;
 #if ENABLE(ASSERT)
@@ -395,7 +387,7 @@ public:
     template<typename T>
     void trace(const Member<T>& t)
     {
-        Derived::fromHelper(this)->mark(t.get());
+        mark(t.get());
     }
 
     // Fallback method used only when we need to trace raw pointers of T.
@@ -403,13 +395,12 @@ public:
     template<typename T>
     void trace(const T* t)
     {
-        Derived::fromHelper(this)->mark(const_cast<T*>(t));
+        mark(const_cast<T*>(t));
     }
-
     template<typename T>
     void trace(T* t)
     {
-        Derived::fromHelper(this)->mark(t);
+        mark(t);
     }
 
     // WeakMember version of the templated trace method. It doesn't keep
@@ -444,27 +435,14 @@ public:
     template<typename T>
     void trace(const T& t)
     {
+        // Check that we actually know the definition of T when tracing.
+        static_assert(sizeof(T), "T must be fully defined");
         if (WTF::IsPolymorphic<T>::value) {
             intptr_t vtable = *reinterpret_cast<const intptr_t*>(&t);
             if (!vtable)
                 return;
         }
         TraceCompatibilityAdaptor<T>::trace(Derived::fromHelper(this), &const_cast<T&>(t));
-    }
-
-    // For simple cases where you just want to zero out a cell when the thing
-    // it is pointing at is garbage, you can use this. This will register a
-    // callback for each cell that needs to be zeroed, so if you have a lot of
-    // weak cells in your object you should still consider using
-    // registerWeakMembers above.
-    //
-    // In contrast to registerWeakMembers, the weak cell callbacks are
-    // run on the thread performing garbage collection. Therefore, all
-    // threads are stopped during weak cell callbacks.
-    template<typename T>
-    void registerWeakCell(T** cell)
-    {
-        Derived::fromHelper(this)->registerWeakCellWithCallback(reinterpret_cast<void**>(cell), &handleWeakCell<T>);
     }
 
     // The following trace methods are for off-heap collections.
@@ -532,20 +510,33 @@ public:
 
     void markNoTracing(const void* pointer) { Derived::fromHelper(this)->mark(pointer, reinterpret_cast<TraceCallback>(0)); }
     void markHeaderNoTracing(HeapObjectHeader* header) { Derived::fromHelper(this)->markHeader(header, reinterpret_cast<TraceCallback>(0)); }
-    template<typename T> void markNoTracing(const T* pointer) { Derived::fromHelper(this)->mark(pointer, reinterpret_cast<TraceCallback>(0)); }
+
+    // For simple cases where you just want to zero out a cell when the thing
+    // it is pointing at is garbage, you can use this. This will register a
+    // callback for each cell that needs to be zeroed, so if you have a lot of
+    // weak cells in your object you should still consider using
+    // registerWeakMembers above.
+    //
+    // In contrast to registerWeakMembers, the weak cell callbacks are
+    // run on the thread performing garbage collection. Therefore, all
+    // threads are stopped during weak cell callbacks.
+    template<typename T>
+    void registerWeakCell(T** cell)
+    {
+        Derived::fromHelper(this)->registerWeakCellWithCallback(reinterpret_cast<void**>(cell), &handleWeakCell<T>);
+    }
 
     template<typename T, void (T::*method)(Visitor*)>
     void registerWeakMembers(const T* obj)
     {
-        Derived::fromHelper(this)->registerWeakMembers(obj, &TraceMethodDelegate<T, method>::trampoline);
+        registerWeakMembers(obj, &TraceMethodDelegate<T, method>::trampoline);
     }
-
     void registerWeakMembers(const void* object, WeakPointerCallback callback)
     {
         Derived::fromHelper(this)->registerWeakMembers(object, object, callback);
     }
 
-    template<typename T> inline bool isAlive(T* obj)
+    template<typename T> inline bool isHeapObjectAlive(T* obj)
     {
         // Check that we actually know the definition of T when tracing.
         static_assert(sizeof(T), "T must be fully defined");
@@ -558,13 +549,13 @@ public:
             return true;
         return ObjectAliveTrait<T>::isHeapObjectAlive(Derived::fromHelper(this), obj);
     }
-    template<typename T> inline bool isAlive(const Member<T>& member)
+    template<typename T> inline bool isHeapObjectAlive(const Member<T>& member)
     {
-        return isAlive(member.get());
+        return isHeapObjectAlive(member.get());
     }
-    template<typename T> inline bool isAlive(RawPtr<T> ptr)
+    template<typename T> inline bool isHeapObjectAlive(RawPtr<T> ptr)
     {
-        return isAlive(ptr.get());
+        return isHeapObjectAlive(ptr.get());
     }
 
 private:
@@ -586,22 +577,12 @@ public:
     friend class VisitorHelper<Visitor>;
     friend class InlinedGlobalMarkingVisitor;
 
-    enum VisitorType {
-        GlobalMarkingVisitorType,
-        GenericVisitorType,
+    enum MarkingMode {
+        GlobalMarking,
+        ThreadLocalMarking,
     };
 
     virtual ~Visitor() { }
-
-    // FIXME: This is a temporary hack to cheat old Blink GC plugin checks.
-    // Old GC Plugin doesn't accept calling VisitorHelper<Visitor>::trace
-    // as a valid mark. This manual redirect worksaround the issue by
-    // making the method declaration on Visitor class.
-    template<typename T>
-    void trace(const T& t)
-    {
-        VisitorHelper<Visitor>::trace(t);
-    }
 
     using VisitorHelper<Visitor>::mark;
 
@@ -662,32 +643,16 @@ public:
     }
 #endif
 
-    inline static bool canTraceEagerly()
-    {
-        ASSERT(m_stackFrameDepth);
-        return m_stackFrameDepth->isSafeToRecurse();
-    }
-
-    inline static void configureEagerTraceLimit()
-    {
-        if (!m_stackFrameDepth)
-            m_stackFrameDepth = new StackFrameDepth;
-        m_stackFrameDepth->configureLimit();
-    }
-
     inline bool isGlobalMarkingVisitor() const { return m_isGlobalMarkingVisitor; }
 
 protected:
-    explicit Visitor(VisitorType type)
-        : m_isGlobalMarkingVisitor(type == GlobalMarkingVisitorType)
+    explicit Visitor(MarkingMode markingMode)
+        : m_isGlobalMarkingVisitor(markingMode == GlobalMarking)
     { }
 
     virtual void registerWeakCellWithCallback(void**, WeakPointerCallback) = 0;
 #if ENABLE(GC_PROFILING)
-    virtual void recordObjectGraphEdge(const void*)
-    {
-        ASSERT_NOT_REACHED();
-    }
+    virtual void recordObjectGraphEdge(const void*) = 0;
 
     void* m_hostObject;
     String m_hostName;
@@ -699,7 +664,6 @@ protected:
 
 private:
     static Visitor* fromHelper(VisitorHelper<Visitor>* helper) { return static_cast<Visitor*>(helper); }
-    static StackFrameDepth* m_stackFrameDepth;
 
     bool m_isGlobalMarkingVisitor;
 };
@@ -709,7 +673,7 @@ template <typename T>
 void VisitorHelper<Derived>::handleWeakCell(Visitor* self, void* obj)
 {
     T** cell = reinterpret_cast<T**>(obj);
-    if (*cell && !self->isAlive(*cell))
+    if (*cell && !self->isHeapObjectAlive(*cell))
         *cell = nullptr;
 }
 
@@ -744,14 +708,7 @@ struct OffHeapCollectionTraceTrait<WTF::Deque<T, N>> {
     }
 };
 
-template<typename T, typename Traits = WTF::VectorTraits<T>>
-class HeapVectorBacking;
-
-template<typename Table>
-class HeapHashTableBacking {
-public:
-    static void finalize(void* pointer);
-};
+template<typename T> struct GCInfoTrait;
 
 template<typename T>
 class DefaultTraceTrait<T, false> {
@@ -782,9 +739,9 @@ public:
             // calls from HashTable weak processing. Remove the condition once
             // it is refactored.
 #if !defined(ADDRESS_SANITIZER)
-            ASSERT(visitor->canTraceEagerly() || visitor->isMarked(t));
+            ASSERT(StackFrameDepth::isSafeToRecurse() || visitor->isMarked(t));
 #endif
-            if (LIKELY(visitor->canTraceEagerly())) {
+            if (LIKELY(StackFrameDepth::isSafeToRecurse())) {
                 if (visitor->ensureMarked(t)) {
                     TraceTrait<T>::trace(visitor, const_cast<T*>(t));
                 }
@@ -827,35 +784,6 @@ public:
 #endif
 };
 
-template<typename T, bool = NeedsAdjustAndMark<T>::value> class DefaultObjectAliveTrait;
-
-template<typename T>
-class DefaultObjectAliveTrait<T, false> {
-public:
-    template<typename VisitorDispatcher>
-    static bool isHeapObjectAlive(VisitorDispatcher visitor, T* obj)
-    {
-        return visitor->isMarked(obj);
-    }
-};
-
-template<typename T>
-class DefaultObjectAliveTrait<T, true> {
-public:
-    template<typename VisitorDispatcher>
-    static bool isHeapObjectAlive(VisitorDispatcher visitor, T* obj)
-    {
-        return obj->isHeapObjectAlive(visitor);
-    }
-};
-
-template<typename T>
-template<typename VisitorDispatcher>
-bool ObjectAliveTrait<T>::isHeapObjectAlive(VisitorDispatcher visitor, T* obj)
-{
-    return DefaultObjectAliveTrait<T>::isHeapObjectAlive(visitor, obj);
-}
-
 // The GarbageCollectedMixin interface and helper macro
 // USING_GARBAGE_COLLECTED_MIXIN can be used to automatically define
 // TraceTrait/ObjectAliveTrait on non-leftmost deriving classes
@@ -883,11 +811,9 @@ public:
     virtual void adjustAndMark(Visitor*) const = 0;
     virtual bool isHeapObjectAlive(Visitor*) const = 0;
     virtual void trace(Visitor*) { }
-#if ENABLE(INLINED_TRACE)
     virtual void adjustAndMark(InlinedGlobalMarkingVisitor) const = 0;
     virtual bool isHeapObjectAlive(InlinedGlobalMarkingVisitor) const = 0;
     virtual void trace(InlinedGlobalMarkingVisitor);
-#endif
 };
 
 #define DEFINE_GARBAGE_COLLECTED_MIXIN_METHODS(VISITOR, TYPE)                                                                           \
@@ -905,23 +831,92 @@ public:                                                                         
     }                                                                                                                                   \
     virtual bool isHeapObjectAlive(VISITOR visitor) const override                                                                      \
     {                                                                                                                                   \
-        return visitor->isAlive(this);                                                                                                  \
+        return visitor->isHeapObjectAlive(this);                                                                                                  \
     }                                                                                                                                   \
 private:
-#if ENABLE(INLINED_TRACE)
+
+// A C++ object's vptr will be initialized to its leftmost base's vtable after
+// the constructors of all its subclasses have run, so if a subclass constructor
+// tries to access any of the vtbl entries of its leftmost base prematurely,
+// it'll find an as-yet incorrect vptr and fail. Which is exactly what a
+// garbage collector will try to do if it tries to access the leftmost base
+// while one of the subclass constructors of a GC mixin object triggers a GC.
+// It is consequently not safe to allow any GCs while these objects are under
+// (sub constructor) construction.
+//
+// To prevent GCs in that restricted window of a mixin object's construction:
+//
+//  - The initial allocation of the mixin object will enter a no GC scope.
+//    This is done by overriding 'operator new' for mixin instances.
+//  - When the constructor for the mixin is invoked, after all the
+//    derived constructors have run, it will invoke the constructor
+//    for a field whose only purpose is to leave the GC scope.
+//    GarbageCollectedMixinConstructorMarker's constructor takes care of
+//    this and the field is declared by way of USING_GARBAGE_COLLECTED_MIXIN().
+
+#define DEFINE_GARBAGE_COLLECTED_MIXIN_CONSTRUCTOR_MARKER(TYPE)                         \
+public:                                                                                 \
+    GC_PLUGIN_IGNORE("crbug.com/456823")                                                \
+    void* operator new(size_t size)                                                     \
+    {                                                                                   \
+        void* object = TYPE::allocateObject(size);                                      \
+        ThreadState* state = ThreadStateFor<ThreadingTrait<TYPE>::Affinity>::state();   \
+        state->enterGCForbiddenScopeIfNeeded(&(reinterpret_cast<TYPE*>(object)->m_mixinConstructorMarker)); \
+        return object;                                                                  \
+    }                                                                                   \
+    GarbageCollectedMixinConstructorMarker m_mixinConstructorMarker;                    \
+private:
+
+// Mixins that wrap/nest others requires extra handling:
+//
+//  class A : public GarbageCollected<A>, public GarbageCollectedMixin {
+//  USING_GARBAGE_COLLECTED_MIXIN(A);
+//  ...
+//  }'
+//  public B final : public A, public SomeOtherMixinInterface {
+//  USING_GARBAGE_COLLECTED_MIXIN(B);
+//  ...
+//  };
+//
+// The "operator new" for B will enter the forbidden GC scope, but
+// upon construction, two GarbageCollectedMixinConstructorMarker constructors
+// will run -- one for A (first) and another for B (secondly). Only
+// the second one should leave the forbidden GC scope. This is realized by
+// recording the address of B's GarbageCollectedMixinConstructorMarker
+// when the "operator new" for B runs, and leaving the forbidden GC scope
+// when the constructor of the recorded GarbageCollectedMixinConstructorMarker
+// runs.
 #define USING_GARBAGE_COLLECTED_MIXIN(TYPE)                       \
     DEFINE_GARBAGE_COLLECTED_MIXIN_METHODS(blink::Visitor*, TYPE) \
-    DEFINE_GARBAGE_COLLECTED_MIXIN_METHODS(blink::InlinedGlobalMarkingVisitor, TYPE)
-#else
-#define USING_GARBAGE_COLLECTED_MIXIN(TYPE) \
-    DEFINE_GARBAGE_COLLECTED_MIXIN_METHODS(blink::Visitor*, TYPE)
-#endif
+    DEFINE_GARBAGE_COLLECTED_MIXIN_METHODS(blink::InlinedGlobalMarkingVisitor, TYPE) \
+    DEFINE_GARBAGE_COLLECTED_MIXIN_CONSTRUCTOR_MARKER(TYPE)
 
 #if ENABLE(OILPAN)
 #define WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(TYPE) USING_GARBAGE_COLLECTED_MIXIN(TYPE)
 #else
 #define WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(TYPE)
 #endif
+
+// An empty class with a constructor that's arranged invoked when all derived constructors
+// of a mixin instance have completed and it is safe to allow GCs again. See
+// AllocateObjectTrait<> comment for more.
+//
+// USING_GARBAGE_COLLECTED_MIXIN() declares a GarbageCollectedMixinConstructorMarker<> private
+// field. By following Blink convention of using the macro at the top of a class declaration,
+// its constructor will run first.
+class GarbageCollectedMixinConstructorMarker {
+public:
+    GarbageCollectedMixinConstructorMarker()
+    {
+        // FIXME: if prompt conservative GCs are needed, forced GCs that
+        // were denied while within this scope, could now be performed.
+        // For now, assume the next out-of-line allocation request will
+        // happen soon enough and take care of it. Mixin objects aren't
+        // overly common.
+        ThreadState* state = ThreadState::current();
+        state->leaveGCForbiddenScopeIfNeeded(this);
+    }
+};
 
 #if ENABLE(GC_PROFILING)
 template<typename T>
@@ -934,75 +929,6 @@ struct TypenameStringTrait {
 };
 #endif
 
-// s_gcInfoTable holds the per-class GCInfo descriptors; each heap
-// object header keeps its index into this table.
-extern PLATFORM_EXPORT GCInfo const** s_gcInfoTable;
+} // namespace blink
 
-class GCInfoTable {
-public:
-    PLATFORM_EXPORT static void ensureGCInfoIndex(const GCInfo*, size_t*);
-
-    static void init();
-    static void shutdown();
-
-    // The (max + 1) GCInfo index supported.
-    static const size_t maxIndex = 1 << 15;
-
-private:
-    static void resize();
-
-    static int s_gcInfoIndex;
-    static size_t s_gcInfoTableSize;
-};
-
-// This macro should be used when returning a unique 15 bit integer
-// for a given gcInfo.
-#define RETURN_GCINFO_INDEX()                                  \
-    static size_t gcInfoIndex = 0;                             \
-    ASSERT(s_gcInfoTable);                                     \
-    if (!acquireLoad(&gcInfoIndex))                            \
-        GCInfoTable::ensureGCInfoIndex(&gcInfo, &gcInfoIndex); \
-    ASSERT(gcInfoIndex >= 1);                                  \
-    ASSERT(gcInfoIndex < GCInfoTable::maxIndex);               \
-    return gcInfoIndex;
-
-template<typename T>
-struct GCInfoAtBase {
-    static size_t index()
-    {
-        static const GCInfo gcInfo = {
-            TraceTrait<T>::trace,
-            FinalizerTrait<T>::finalize,
-            FinalizerTrait<T>::nonTrivialFinalizer,
-            WTF::IsPolymorphic<T>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<T>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename T, bool = WTF::IsSubclassOfTemplate<typename WTF::RemoveConst<T>::Type, GarbageCollected>::value> struct GetGarbageCollectedBase;
-
-template<typename T>
-struct GetGarbageCollectedBase<T, true> {
-    typedef typename T::GarbageCollectedBase type;
-};
-
-template<typename T>
-struct GetGarbageCollectedBase<T, false> {
-    typedef T type;
-};
-
-template<typename T>
-struct GCInfoTrait {
-    static size_t index()
-    {
-        return GCInfoAtBase<typename GetGarbageCollectedBase<T>::type>::index();
-    }
-};
-
-}
-
-#endif
+#endif // Visitor_h

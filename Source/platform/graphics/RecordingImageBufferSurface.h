@@ -28,7 +28,7 @@ public:
 };
 
 class PLATFORM_EXPORT RecordingImageBufferSurface : public ImageBufferSurface {
-    WTF_MAKE_NONCOPYABLE(RecordingImageBufferSurface); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(RecordingImageBufferSurface); WTF_MAKE_FAST_ALLOCATED(RecordingImageBufferSurface);
 public:
     RecordingImageBufferSurface(const IntSize&, PassOwnPtr<RecordingImageBufferFallbackSurfaceFactory> fallbackFactory, OpacityMode = NonOpaque);
     virtual ~RecordingImageBufferSurface();
@@ -37,7 +37,7 @@ public:
     SkCanvas* canvas() const override;
     PassRefPtr<SkPicture> getPicture() override;
     void willDrawVideo() override;
-    void didDraw() override;
+    void didDraw(const FloatRect&) override;
     bool isValid() const override { return true; }
     bool isRecording() const override { return !m_fallbackSurface; }
     void willAccessPixels() override;
@@ -45,8 +45,9 @@ public:
     void finalizeFrame(const FloatRect&) override;
     void setImageBuffer(ImageBuffer*) override;
     PassRefPtr<SkImage> newImageSnapshot() const override;
-    bool needsClipTracking() const override { return !m_fallbackSurface; }
     void draw(GraphicsContext*, const FloatRect& destRect, const FloatRect& srcRect, SkXfermode::Mode, bool needsCopy) override;
+    bool isExpensiveToPaint() override;
+    void setHasExpensiveOp() override { m_currentFrameHasExpensiveOp = true; }
 
     // Passthroughs to fallback surface
     const SkBitmap& bitmap() override;
@@ -65,14 +66,19 @@ private:
     void fallBackToRasterCanvas();
     bool initializeCurrentFrame();
     bool finalizeFrameInternal();
+    int approximateOpCount();
 
     OwnPtr<SkPictureRecorder> m_currentFrame;
     RefPtr<SkPicture> m_previousFrame;
     OwnPtr<ImageBufferSurface> m_fallbackSurface;
     ImageBuffer* m_imageBuffer;
     int m_initialSaveCount;
+    int m_currentFramePixelCount;
+    int m_previousFramePixelCount;
     bool m_frameWasCleared;
     bool m_didRecordDrawCommandsInCurrentFrame;
+    bool m_currentFrameHasExpensiveOp;
+    bool m_previousFrameHasExpensiveOp;
     OwnPtr<RecordingImageBufferFallbackSurfaceFactory> m_fallbackFactory;
 };
 

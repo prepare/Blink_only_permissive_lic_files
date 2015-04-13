@@ -77,7 +77,7 @@ enum ScaleBehavior {
 };
 
 class PLATFORM_EXPORT ImageBuffer {
-    WTF_MAKE_NONCOPYABLE(ImageBuffer); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(ImageBuffer); WTF_MAKE_FAST_ALLOCATED(ImageBuffer);
 public:
     static PassOwnPtr<ImageBuffer> create(const IntSize&, OpacityMode = NonOpaque);
     static PassOwnPtr<ImageBuffer> create(PassOwnPtr<ImageBufferSurface>);
@@ -89,12 +89,13 @@ public:
     const IntSize& size() const { return m_surface->size(); }
     bool isAccelerated() const { return m_surface->isAccelerated(); }
     bool isRecording() const { return m_surface->isRecording(); }
+    void setHasExpensiveOp() { m_surface->setHasExpensiveOp(); }
+    bool isExpensiveToPaint() const { return m_surface->isExpensiveToPaint(); }
     bool isSurfaceValid() const;
     bool restoreSurface() const;
-    bool needsClipTracking() const { return m_surface->needsClipTracking(); }
-    void didDraw() const { m_surface->didDraw(); }
+    void didDraw(const FloatRect& rect) const { m_surface->didDraw(rect); }
 
-    void setFilterLevel(SkPaint::FilterLevel filterLevel) { m_surface->setFilterLevel(filterLevel); }
+    void setFilterQuality(SkFilterQuality filterQuality) { m_surface->setFilterQuality(filterQuality); }
     void setIsHidden(bool hidden) { m_surface->setIsHidden(hidden); }
 
     // Called by subclasses of ImageBufferSurface to install a new canvas object
@@ -147,6 +148,7 @@ public:
     PassRefPtr<SkImage> newImageSnapshot() const;
 
     DisplayItemClient displayItemClient() const { return toDisplayItemClient(this); }
+    String debugName() const { return "ImageBuffer"; }
 
 private:
     ImageBuffer(PassOwnPtr<ImageBufferSurface>);

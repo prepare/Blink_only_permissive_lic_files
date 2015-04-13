@@ -5,7 +5,7 @@
 #ifndef CompositingDisplayItem_h
 #define CompositingDisplayItem_h
 
-#include "platform/geometry/LayoutRect.h"
+#include "platform/geometry/FloatRect.h"
 #include "platform/graphics/GraphicsTypes.h"
 #include "platform/graphics/paint/DisplayItem.h"
 #include "public/platform/WebBlendMode.h"
@@ -17,45 +17,50 @@
 namespace blink {
 
 class PLATFORM_EXPORT BeginCompositingDisplayItem : public PairedBeginDisplayItem {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED(BeginCompositingDisplayItem);
 public:
-    static PassOwnPtr<BeginCompositingDisplayItem> create(DisplayItemClient client, const CompositeOperator preCompositeOp, const WebBlendMode& preBlendMode, const float opacity, const CompositeOperator postCompositeOp)
+    static PassOwnPtr<BeginCompositingDisplayItem> create(const DisplayItemClientWrapper& client, const SkXfermode::Mode xferMode, const float opacity, const FloatRect* bounds = nullptr, ColorFilter colorFilter = ColorFilterNone)
     {
-        return adoptPtr(new BeginCompositingDisplayItem(client, preCompositeOp, preBlendMode, opacity, postCompositeOp));
+        return adoptPtr(new BeginCompositingDisplayItem(client, xferMode, opacity, bounds, colorFilter));
     }
 
-    BeginCompositingDisplayItem(DisplayItemClient client, const CompositeOperator preCompositeOp, const WebBlendMode& preBlendMode, const float opacity, const CompositeOperator postCompositeOp)
+    BeginCompositingDisplayItem(const DisplayItemClientWrapper& client, const SkXfermode::Mode xferMode, const float opacity, const FloatRect* bounds, ColorFilter colorFilter = ColorFilterNone)
         : PairedBeginDisplayItem(client, BeginCompositing)
-        , m_preCompositeOp(preCompositeOp)
-        , m_preBlendMode(preBlendMode)
+        , m_xferMode(xferMode)
         , m_opacity(opacity)
-        , m_postCompositeOp(postCompositeOp) { }
+        , m_hasBounds(bounds)
+        , m_colorFilter(colorFilter)
+        {
+            if (bounds)
+                m_bounds = FloatRect(*bounds);
+        }
 
-    virtual void replay(GraphicsContext*) override;
+    virtual void replay(GraphicsContext&) override;
     virtual void appendToWebDisplayItemList(WebDisplayItemList*) const override;
 
 private:
 #ifndef NDEBUG
     virtual void dumpPropertiesAsDebugString(WTF::StringBuilder&) const override;
 #endif
-    const CompositeOperator m_preCompositeOp;
-    const WebBlendMode m_preBlendMode;
+    const SkXfermode::Mode m_xferMode;
     const float m_opacity;
-    const CompositeOperator m_postCompositeOp;
+    bool m_hasBounds;
+    FloatRect m_bounds;
+    ColorFilter m_colorFilter;
 };
 
 class PLATFORM_EXPORT EndCompositingDisplayItem : public PairedEndDisplayItem {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED(EndCompositingDisplayItem);
 public:
-    static PassOwnPtr<EndCompositingDisplayItem> create(DisplayItemClient client)
+    static PassOwnPtr<EndCompositingDisplayItem> create(const DisplayItemClientWrapper& client)
     {
         return adoptPtr(new EndCompositingDisplayItem(client));
     }
 
-    EndCompositingDisplayItem(DisplayItemClient client)
+    EndCompositingDisplayItem(const DisplayItemClientWrapper& client)
         : PairedEndDisplayItem(client, EndCompositing) { }
 
-    virtual void replay(GraphicsContext*) override;
+    virtual void replay(GraphicsContext&) override;
     virtual void appendToWebDisplayItemList(WebDisplayItemList*) const override;
 
 private:

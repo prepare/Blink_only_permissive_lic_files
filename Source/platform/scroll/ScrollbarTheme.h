@@ -38,7 +38,7 @@ class PlatformMouseEvent;
 class ScrollbarThemeClient;
 
 class PLATFORM_EXPORT ScrollbarTheme {
-    WTF_MAKE_NONCOPYABLE(ScrollbarTheme); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(ScrollbarTheme); WTF_MAKE_FAST_ALLOCATED(ScrollbarTheme);
 public:
     ScrollbarTheme() { }
     virtual ~ScrollbarTheme() { }
@@ -80,7 +80,7 @@ public:
 
     virtual void invalidatePart(ScrollbarThemeClient*, ScrollbarPart);
 
-    virtual void paintScrollCorner(GraphicsContext*, DisplayItemClient, const IntRect& cornerRect);
+    virtual void paintScrollCorner(GraphicsContext*, const DisplayItemClientWrapper&, const IntRect& cornerRect);
     virtual void paintTickmarks(GraphicsContext*, ScrollbarThemeClient*, const IntRect&) { }
     virtual void paintOverhangBackground(GraphicsContext*, const IntRect&, const IntRect&, const IntRect&);
     virtual void paintOverhangShadows(GraphicsContext*, const IntSize&, const IntRect&, const IntRect&, const IntRect&) { }
@@ -135,7 +135,8 @@ public:
     static bool mockScrollbarsEnabled();
 
 protected:
-    bool paintInternal(ScrollbarThemeClient*, GraphicsContext*, const IntRect& damageRect);
+    static DisplayItem::Type buttonPartToDisplayItemType(ScrollbarPart);
+    static DisplayItem::Type trackPiecePartToDisplayItemType(ScrollbarPart);
 
 private:
     static ScrollbarTheme* nativeTheme(); // Must be implemented to return the correct theme subclass.

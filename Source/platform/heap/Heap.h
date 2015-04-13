@@ -33,18 +33,18 @@
 
 #include "platform/PlatformExport.h"
 #include "platform/heap/AddressSanitizer.h"
+#include "platform/heap/GCInfo.h"
 #include "platform/heap/ThreadState.h"
 #include "platform/heap/Visitor.h"
 #include "public/platform/WebThread.h"
 #include "wtf/Assertions.h"
 #include "wtf/Atomics.h"
+#include "wtf/ContainerAnnotations.h"
+#include "wtf/Forward.h"
 #include "wtf/HashCountedSet.h"
 #include "wtf/LinkedHashSet.h"
 #include "wtf/ListHashSet.h"
-#include "wtf/OwnPtr.h"
 #include "wtf/PageAllocator.h"
-#include "wtf/PassRefPtr.h"
-#include "wtf/ThreadSafeRefCounted.h"
 #include <stdint.h>
 
 namespace blink {
@@ -90,8 +90,6 @@ static const intptr_t zappedVTable = 0xd0d;
 class CallbackStack;
 class PageMemory;
 class NormalPageHeap;
-template<ThreadAffinity affinity> class ThreadLocalPersistents;
-template<typename T, typename RootsAccessor = ThreadLocalPersistents<ThreadingTrait<T>::Affinity>> class Persistent;
 
 #if ENABLE(GC_PROFILING)
 class TracedValue;
@@ -99,17 +97,19 @@ class TracedValue;
 
 // HeapObjectHeader is 4 byte (32 bit) that has the following layout:
 //
-// | gcInfoIndex (15 bit) | size (14 bit) | dead bit (1 bit) | freed bit (1 bit) | mark bit (1 bit) |
+// | gcInfoIndex (14 bit) | DOM mark bit (1 bit) | size (14 bit) | dead bit (1 bit) | freed bit (1 bit) | mark bit (1 bit) |
 //
 // - For non-large objects, 14 bit is enough for |size| because the blink
 //   page size is 2^17 byte and each object is guaranteed to be aligned with
 //   2^3 byte.
 // - For large objects, |size| is 0. The actual size of a large object is
 //   stored in LargeObjectPage::m_payloadSize.
-// - 15 bit is enough for gcInfoIndex because there are less than 2^15 types
+// - 1 bit used to mark DOM trees for V8.
+// - 14 bit is enough for gcInfoIndex because there are less than 2^14 types
 //   in Blink.
-const size_t headerGCInfoIndexShift = 17;
-const size_t headerGCInfoIndexMask = (static_cast<size_t>((1 << 15) - 1)) << headerGCInfoIndexShift;
+const size_t headerDOMMarkBitMask = 1u << 17;
+const size_t headerGCInfoIndexShift = 18;
+const size_t headerGCInfoIndexMask = (static_cast<size_t>((1 << 14) - 1)) << headerGCInfoIndexShift;
 const size_t headerSizeMask = (static_cast<size_t>((1 << 14) - 1)) << 3;
 const size_t headerMarkBitMask = 1;
 const size_t headerFreedBitMask = 2;
@@ -162,23 +162,23 @@ public:
     bool isPromptlyFreed() const { return (m_encoded & headerPromptlyFreedBitMask) == headerPromptlyFreedBitMask; }
     NO_SANITIZE_ADDRESS
     void markPromptlyFreed() { m_encoded |= headerPromptlyFreedBitMask; }
-    inline size_t size() const;
+    size_t size() const;
 
     NO_SANITIZE_ADDRESS
     size_t gcInfoIndex() const { return (m_encoded & headerGCInfoIndexMask) >> headerGCInfoIndexShift; }
     NO_SANITIZE_ADDRESS
     void setSize(size_t size) { m_encoded = size | (m_encoded & ~headerSizeMask); }
-    inline bool isMarked() const;
-    inline void mark();
-    inline void unmark();
-    inline void markDead();
-    inline bool isDead() const;
+    bool isMarked() const;
+    void mark();
+    void unmark();
+    void markDead();
+    bool isDead() const;
 
-    inline Address payload();
-    inline size_t payloadSize();
-    inline Address payloadEnd();
+    Address payload();
+    size_t payloadSize();
+    Address payloadEnd();
 
-    inline void checkHeader() const;
+    void checkHeader() const;
 #if ENABLE(ASSERT)
     // Zap magic number with a new magic number that means there was once an
     // object allocated here, but it was freed because nobody marked it during
@@ -241,8 +241,7 @@ private:
 inline HeapObjectHeader* HeapObjectHeader::fromPayload(const void* payload)
 {
     Address addr = reinterpret_cast<Address>(const_cast<void*>(payload));
-    HeapObjectHeader* header =
-        reinterpret_cast<HeapObjectHeader*>(addr - sizeof(HeapObjectHeader));
+    HeapObjectHeader* header = reinterpret_cast<HeapObjectHeader*>(addr - sizeof(HeapObjectHeader));
     return header;
 }
 
@@ -567,9 +566,17 @@ public:
         return reinterpret_cast<HeapObjectHeader*>(headerAddress);
     }
 
+#ifdef ANNOTATE_CONTIGUOUS_CONTAINER
+    void setIsVectorBackingPage() { m_isVectorBackingPage = true; }
+    bool isVectorBackingPage() const { return m_isVectorBackingPage; }
+#endif
+
 private:
 
     size_t m_payloadSize;
+#ifdef ANNOTATE_CONTIGUOUS_CONTAINER
+    bool m_isVectorBackingPage;
+#endif
 };
 
 // A HeapDoesNotContainCache provides a fast way of taking an arbitrary
@@ -735,15 +742,14 @@ public:
     void prepareHeapForTermination();
     void prepareForSweep();
     Address lazySweep(size_t, size_t gcInfoIndex);
+    void sweepUnsweptPage();
+    // Returns true if we have swept all pages within the deadline.
+    // Returns false otherwise.
+    bool lazySweepWithDeadline(double deadlineSeconds);
     void completeSweep();
 
     ThreadState* threadState() { return m_threadState; }
     int heapIndex() const { return m_index; }
-    inline static size_t allocationSizeFromSize(size_t);
-    inline static size_t roundedAllocationSize(size_t size)
-    {
-        return allocationSizeFromSize(size) - sizeof(HeapObjectHeader);
-    }
 
 protected:
     BasePage* m_firstPage;
@@ -777,15 +783,14 @@ public:
     void snapshotFreeList(TracedValue&) override;
 #endif
 
-    inline Address allocate(size_t payloadSize, size_t gcInfoIndex);
-    inline Address allocateObject(size_t allocationSize, size_t gcInfoIndex);
+    Address allocateObject(size_t allocationSize, size_t gcInfoIndex);
 
     void freePage(NormalPage*);
 
     bool coalesce();
     void promptlyFreeObject(HeapObjectHeader*);
     bool expandObject(HeapObjectHeader*, size_t);
-    void shrinkObject(HeapObjectHeader*, size_t);
+    bool shrinkObject(HeapObjectHeader*, size_t);
     void decreasePromptlyFreedSize(size_t size) { m_promptlyFreedSize -= size; }
 
 private:
@@ -795,7 +800,7 @@ private:
     Address currentAllocationPoint() const { return m_currentAllocationPoint; }
     size_t remainingAllocationSize() const { return m_remainingAllocationSize; }
     bool hasCurrentAllocationArea() const { return currentAllocationPoint() && remainingAllocationSize(); }
-    inline void setAllocationPoint(Address, size_t);
+    void setAllocationPoint(Address, size_t);
     void updateRemainingAllocationSize();
     Address allocateFromFreeList(size_t, size_t gcInfoIndex);
 
@@ -872,7 +877,7 @@ public:
         return !ObjectAliveTrait<T>::isHeapObjectAlive(s_markingVisitor, const_cast<T*>(objectPointer));
 #else
         // FIXME: remove when lazy sweeping is always on
-        // (cf. ThreadState::postGCProcessing()).
+        // (cf. ThreadState::preSweep()).
         return false;
 #endif
     }
@@ -920,15 +925,39 @@ public:
     static bool weakTableRegistered(const void*);
 #endif
 
-    template<typename T> static Address allocateOnHeapIndex(size_t, int heapIndex, size_t gcInfoIndex);
+    static inline size_t allocationSizeFromSize(size_t size)
+    {
+        // Check the size before computing the actual allocation size.  The
+        // allocation size calculation can overflow for large sizes and the check
+        // therefore has to happen before any calculation on the size.
+        RELEASE_ASSERT(size < maxHeapObjectSize);
+
+        // Add space for header.
+        size_t allocationSize = size + sizeof(HeapObjectHeader);
+        // Align size with allocation granularity.
+        allocationSize = (allocationSize + allocationMask) & ~allocationMask;
+        return allocationSize;
+    }
+    static inline size_t roundedAllocationSize(size_t size)
+    {
+        return allocationSizeFromSize(size) - sizeof(HeapObjectHeader);
+    }
+    static Address allocateOnHeapIndex(ThreadState*, size_t, int heapIndex, size_t gcInfoIndex);
     template<typename T> static Address allocate(size_t);
     template<typename T> static Address reallocate(void* previous, size_t);
 
-    static void collectGarbage(ThreadState::StackState, ThreadState::GCType = ThreadState::GCWithSweep);
+    enum GCReason {
+        IdleGC,
+        PreciseGC,
+        ConservativeGC,
+        ForcedGCForTesting,
+        NumberOfGCReason
+    };
+    static const char* gcReasonString(GCReason);
+    static void collectGarbage(ThreadState::StackState, ThreadState::GCType, GCReason);
     static void collectGarbageForTerminatingThread(ThreadState*);
     static void collectAllGarbage();
 
-    static void visitObjects(ThreadState*, const HashSet<void*>&);
     static void processMarkingStack(Visitor*);
     static void postMarkingProcessing(Visitor*);
     static void globalWeakProcessing(Visitor*);
@@ -990,7 +1019,27 @@ public:
     static void increaseAllocatedSpace(size_t delta) { atomicAdd(&s_allocatedSpace, static_cast<long>(delta)); }
     static void decreaseAllocatedSpace(size_t delta) { atomicSubtract(&s_allocatedSpace, static_cast<long>(delta)); }
     static size_t allocatedSpace() { return acquireLoad(&s_allocatedSpace); }
+    static size_t estimatedLiveObjectSize() { return acquireLoad(&s_estimatedLiveObjectSize); }
+    static void setEstimatedLiveObjectSize(size_t size) { releaseStore(&s_estimatedLiveObjectSize, size); }
+
     static double estimatedMarkingTime();
+    static void reportMemoryUsageHistogram();
+
+    // On object allocation, register the object's externally allocated memory.
+    static void increaseExternallyAllocatedBytes(size_t);
+    static size_t externallyAllocatedBytes() { return acquireLoad(&s_externallyAllocatedBytes); }
+
+    // On object tracing, register the object's externally allocated memory (as still live.)
+    static void increaseExternallyAllocatedBytesAlive(size_t delta)
+    {
+        ASSERT(ThreadState::current()->isInGC());
+        s_externallyAllocatedBytesAlive += delta;
+    }
+    static size_t externallyAllocatedBytesAlive() { return s_externallyAllocatedBytesAlive; }
+
+    static void requestUrgentGC();
+    static void clearUrgentGC() { releaseStore(&s_requestedUrgentGC, 0); }
+    static bool isUrgentGCRequested() { return acquireLoad(&s_requestedUrgentGC); }
 
 private:
     // A RegionTree is a simple binary search tree of PageMemoryRegions sorted
@@ -1012,8 +1061,8 @@ private:
         RegionTree* m_right;
     };
 
-    static void resetAllocatedObjectSize() { ASSERT(ThreadState::current()->isInGC()); s_allocatedObjectSize = 0; }
-    static void resetMarkedObjectSize() { ASSERT(ThreadState::current()->isInGC()); s_markedObjectSize = 0; }
+    // Reset counters that track live and allocated-since-last-GC sizes.
+    static void resetHeapCounters();
 
     static Visitor* s_markingVisitor;
     static CallbackStack* s_markingStack;
@@ -1029,8 +1078,33 @@ private:
     static size_t s_allocatedSpace;
     static size_t s_allocatedObjectSize;
     static size_t s_markedObjectSize;
+    static size_t s_estimatedLiveObjectSize;
+    static size_t s_externallyAllocatedBytes;
+    static size_t s_externallyAllocatedBytesAlive;
+    static unsigned s_requestedUrgentGC;
+    static double s_estimatedMarkingTimePerByte;
+
     friend class ThreadState;
 };
+
+// We use sized heaps for normal pages to improve memory locality.
+// It seems that the same type of objects are likely to be accessed together,
+// which means that we want to group objects by type. That's why we provide
+// dedicated heaps for popular types (e.g., Node, CSSValue), but it's not
+// practical to prepare dedicated heaps for all types. Thus we group objects
+// by their sizes, hoping that it will approximately group objects
+// by their types.
+static int heapIndexForNormalHeap(size_t size)
+{
+    if (size < 64) {
+        if (size < 32)
+            return NormalPage1HeapIndex;
+        return NormalPage2HeapIndex;
+    }
+    if (size < 128)
+        return NormalPage3HeapIndex;
+    return NormalPage4HeapIndex;
+}
 
 // Base class for objects allocated in the Blink garbage-collected heap.
 //
@@ -1068,6 +1142,11 @@ public:
     using GarbageCollectedBase = T;
 
     void* operator new(size_t size)
+    {
+        return allocateObject(size);
+    }
+
+    static void* allocateObject(size_t size)
     {
         return Heap::allocate<T>(size);
     }
@@ -1263,18 +1342,18 @@ size_t HeapObjectHeader::size() const
     return result;
 }
 
-NO_SANITIZE_ADDRESS
+NO_SANITIZE_ADDRESS inline
 void HeapObjectHeader::checkHeader() const
 {
     ASSERT(pageFromObject(this)->orphaned() || m_magic == magic);
 }
 
-Address HeapObjectHeader::payload()
+inline Address HeapObjectHeader::payload()
 {
     return reinterpret_cast<Address>(this) + sizeof(HeapObjectHeader);
 }
 
-Address HeapObjectHeader::payloadEnd()
+inline Address HeapObjectHeader::payloadEnd()
 {
     return reinterpret_cast<Address>(this) + size();
 }
@@ -1329,21 +1408,7 @@ void HeapObjectHeader::markDead()
     m_encoded |= headerDeadBitMask;
 }
 
-size_t BaseHeap::allocationSizeFromSize(size_t size)
-{
-    // Check the size before computing the actual allocation size.  The
-    // allocation size calculation can overflow for large sizes and the check
-    // therefore has to happen before any calculation on the size.
-    RELEASE_ASSERT(size < maxHeapObjectSize);
-
-    // Add space for header.
-    size_t allocationSize = size + sizeof(HeapObjectHeader);
-    // Align size with allocation granularity.
-    allocationSize = (allocationSize + allocationMask) & ~allocationMask;
-    return allocationSize;
-}
-
-Address NormalPageHeap::allocateObject(size_t allocationSize, size_t gcInfoIndex)
+inline Address NormalPageHeap::allocateObject(size_t allocationSize, size_t gcInfoIndex)
 {
 #if ENABLE(GC_PROFILING)
     m_cumulativeAllocationSize += allocationSize;
@@ -1371,37 +1436,19 @@ Address NormalPageHeap::allocateObject(size_t allocationSize, size_t gcInfoIndex
     return outOfLineAllocate(allocationSize, gcInfoIndex);
 }
 
-Address NormalPageHeap::allocate(size_t size, size_t gcInfoIndex)
+inline Address Heap::allocateOnHeapIndex(ThreadState* state, size_t size, int heapIndex, size_t gcInfoIndex)
 {
-    return allocateObject(allocationSizeFromSize(size), gcInfoIndex);
-}
-
-template<typename T>
-struct HeapIndexTrait {
-    static int index() { return NormalPageHeapIndex; };
-};
-
-// FIXME: The forward declaration is layering violation.
-#define DEFINE_TYPED_HEAP_TRAIT(Type)                   \
-    class Type;                                         \
-    template <> struct HeapIndexTrait<class Type> {     \
-        static int index() { return Type##HeapIndex; }; \
-    };
-FOR_EACH_TYPED_HEAP(DEFINE_TYPED_HEAP_TRAIT)
-#undef DEFINE_TYPED_HEAP_TRAIT
-
-template<typename T>
-Address Heap::allocateOnHeapIndex(size_t size, int heapIndex, size_t gcInfoIndex)
-{
-    ThreadState* state = ThreadStateFor<ThreadingTrait<T>::Affinity>::state();
     ASSERT(state->isAllocationAllowed());
-    return static_cast<NormalPageHeap*>(state->heap(heapIndex))->allocate(size, gcInfoIndex);
+    ASSERT(heapIndex != LargeObjectHeapIndex);
+    NormalPageHeap* heap = static_cast<NormalPageHeap*>(state->heap(heapIndex));
+    return heap->allocateObject(allocationSizeFromSize(size), gcInfoIndex);
 }
 
 template<typename T>
 Address Heap::allocate(size_t size)
 {
-    return allocateOnHeapIndex<T>(size, HeapIndexTrait<T>::index(), GCInfoTrait<T>::index());
+    ThreadState* state = ThreadStateFor<ThreadingTrait<T>::Affinity>::state();
+    return Heap::allocateOnHeapIndex(state, size, heapIndexForNormalHeap(size), GCInfoTrait<T>::index());
 }
 
 template<typename T>
@@ -1412,13 +1459,16 @@ Address Heap::reallocate(void* previous, size_t size)
         // malloc(0).  In both cases we do nothing and return nullptr.
         return nullptr;
     }
-    Address address = Heap::allocateOnHeapIndex<T>(size, HeapIndexTrait<T>::index(), GCInfoTrait<T>::index());
+    ThreadState* state = ThreadStateFor<ThreadingTrait<T>::Affinity>::state();
+    // TODO(haraken): reallocate() should use the heap that the original object
+    // is using. This won't be a big deal since reallocate() is rarely used.
+    Address address = Heap::allocateOnHeapIndex(state, size, heapIndexForNormalHeap(size), GCInfoTrait<T>::index());
     if (!previous) {
         // This is equivalent to malloc(size).
         return address;
     }
     HeapObjectHeader* previousHeader = HeapObjectHeader::fromPayload(previous);
-    // FIXME: We don't support reallocate() for finalizable objects.
+    // TODO(haraken): We don't support reallocate() for finalizable objects.
     ASSERT(!Heap::gcInfo(previousHeader->gcInfoIndex())->hasFinalizer());
     ASSERT(previousHeader->gcInfoIndex() == GCInfoTrait<T>::index());
     size_t copySize = previousHeader->payloadSize();
@@ -1428,13 +1478,43 @@ Address Heap::reallocate(void* previous, size_t size)
     return address;
 }
 
+inline void Heap::increaseExternallyAllocatedBytes(size_t delta)
+{
+    // Flag GC urgency on a 50% increase in external allocation
+    // since the last GC, but not for less than 100M.
+    //
+    // FIXME: consider other, 'better' policies (e.g., have the count of
+    // heap objects with external allocations be taken into
+    // account, ...) The overall goal here is to trigger a
+    // GC such that it considerably lessens memory pressure
+    // for a renderer process, when absolutely needed.
+    size_t externalBytesAllocatedSinceLastGC = atomicAdd(&s_externallyAllocatedBytes, static_cast<long>(delta));
+    if (LIKELY(externalBytesAllocatedSinceLastGC < 100 * 1024 * 1024))
+        return;
+
+    if (UNLIKELY(isUrgentGCRequested()))
+        return;
+
+    size_t externalBytesAliveAtLastGC = externallyAllocatedBytesAlive();
+    if (UNLIKELY(externalBytesAllocatedSinceLastGC > externalBytesAliveAtLastGC / 2))
+        Heap::requestUrgentGC();
+}
+
+template<bool needsTracing, WTF::WeakHandlingFlag weakHandlingFlag, WTF::ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits> struct CollectionBackingTraceTrait;
+template<typename T, typename Traits = WTF::VectorTraits<T>> class HeapVectorBacking;
+template<typename Table> class HeapHashTableBacking {
+public:
+    static void finalize(void* pointer);
+    void finalizeGarbageCollectedObject() { finalize(this); }
+};
+
 class HeapAllocatorQuantizer {
 public:
     template<typename T>
     static size_t quantizedSize(size_t count)
     {
         RELEASE_ASSERT(count <= kMaxUnquantizedAllocation / sizeof(T));
-        return BaseHeap::roundedAllocationSize(count * sizeof(T));
+        return Heap::roundedAllocationSize(count * sizeof(T));
     }
     static const size_t kMaxUnquantizedAllocation = maxHeapObjectSize;
 };
@@ -1450,36 +1530,50 @@ public:
     template <typename T>
     static T* allocateVectorBacking(size_t size)
     {
+        ThreadState* state = ThreadStateFor<ThreadingTrait<T>::Affinity>::state();
+        ASSERT(state->isAllocationAllowed());
         size_t gcInfoIndex = GCInfoTrait<HeapVectorBacking<T, VectorTraits<T>>>::index();
-        return reinterpret_cast<T*>(Heap::allocateOnHeapIndex<T>(size, VectorHeapIndex, gcInfoIndex));
+        NormalPageHeap* heap = static_cast<NormalPageHeap*>(state->vectorBackingHeap(gcInfoIndex));
+        return reinterpret_cast<T*>(heap->allocateObject(Heap::allocationSizeFromSize(size), gcInfoIndex));
     }
-    PLATFORM_EXPORT static void freeVectorBacking(void* address);
+    template <typename T>
+    static T* allocateExpandedVectorBacking(size_t size)
+    {
+        ThreadState* state = ThreadStateFor<ThreadingTrait<T>::Affinity>::state();
+        ASSERT(state->isAllocationAllowed());
+        size_t gcInfoIndex = GCInfoTrait<HeapVectorBacking<T, VectorTraits<T>>>::index();
+        NormalPageHeap* heap = static_cast<NormalPageHeap*>(state->vectorBackingHeap(gcInfoIndex));
+        return reinterpret_cast<T*>(heap->allocateObject(Heap::allocationSizeFromSize(size), gcInfoIndex));
+    }
+    PLATFORM_EXPORT static void freeVectorBacking(void*);
     PLATFORM_EXPORT static bool expandVectorBacking(void*, size_t);
     static inline bool shrinkVectorBacking(void* address, size_t quantizedCurrentSize, size_t quantizedShrunkSize)
     {
-        shrinkVectorBackingInternal(address, quantizedCurrentSize, quantizedShrunkSize);
+        // Returns always true, so the inlining in turn enables call site simplifications.
+        backingShrink(address, quantizedCurrentSize, quantizedShrunkSize);
         return true;
     }
     template <typename T>
     static T* allocateInlineVectorBacking(size_t size)
     {
         size_t gcInfoIndex = GCInfoTrait<HeapVectorBacking<T, VectorTraits<T>>>::index();
-        return reinterpret_cast<T*>(Heap::allocateOnHeapIndex<T>(size, InlineVectorHeapIndex, gcInfoIndex));
+        ThreadState* state = ThreadStateFor<ThreadingTrait<T>::Affinity>::state();
+        return reinterpret_cast<T*>(Heap::allocateOnHeapIndex(state, size, InlineVectorHeapIndex, gcInfoIndex));
     }
-    PLATFORM_EXPORT static void freeInlineVectorBacking(void* address);
+    PLATFORM_EXPORT static void freeInlineVectorBacking(void*);
     PLATFORM_EXPORT static bool expandInlineVectorBacking(void*, size_t);
-    static inline bool shrinkInlineVectorBacking(void* address, size_t quantizedCurrentSize, size_t quantizedShrinkedSize)
+    static inline bool shrinkInlineVectorBacking(void* address, size_t quantizedCurrentSize, size_t quantizedShrunkSize)
     {
-        shrinkInlineVectorBackingInternal(address, quantizedCurrentSize, quantizedShrinkedSize);
+        backingShrink(address, quantizedCurrentSize, quantizedShrunkSize);
         return true;
     }
-
 
     template <typename T, typename HashTable>
     static T* allocateHashTableBacking(size_t size)
     {
         size_t gcInfoIndex = GCInfoTrait<HeapHashTableBacking<HashTable>>::index();
-        return reinterpret_cast<T*>(Heap::allocateOnHeapIndex<T>(size, HashTableHeapIndex, gcInfoIndex));
+        ThreadState* state = ThreadStateFor<ThreadingTrait<T>::Affinity>::state();
+        return reinterpret_cast<T*>(Heap::allocateOnHeapIndex(state, size, HashTableHeapIndex, gcInfoIndex));
     }
     template <typename T, typename HashTable>
     static T* allocateZeroedHashTableBacking(size_t size)
@@ -1540,7 +1634,8 @@ public:
     }
 
 #if ENABLE(ASSERT)
-    static bool weakTableRegistered(Visitor* visitor, const void* closure)
+    template<typename VisitorDispatcher>
+    static bool weakTableRegistered(VisitorDispatcher visitor, const void* closure)
     {
         return visitor->weakTableRegistered(closure);
     }
@@ -1579,17 +1674,15 @@ public:
 private:
     static void backingFree(void*);
     static bool backingExpand(void*, size_t);
-    static void backingShrink(void*, size_t quantizedCurrentSize, size_t quantizedShrunkSize);
-    PLATFORM_EXPORT static void shrinkVectorBackingInternal(void*, size_t quantizedCurrentSize, size_t quantizedShrunkSize);
-    PLATFORM_EXPORT static void shrinkInlineVectorBackingInternal(void*, size_t quantizedCurrentSize, size_t quantizedShrunkSize);
+    PLATFORM_EXPORT static void backingShrink(void*, size_t quantizedCurrentSize, size_t quantizedShrunkSize);
 
     template<typename T, size_t u, typename V> friend class WTF::Vector;
     template<typename T, typename U, typename V, typename W> friend class WTF::HashSet;
     template<typename T, typename U, typename V, typename W, typename X, typename Y> friend class WTF::HashMap;
 };
 
-template<typename Value>
-static void traceListHashSetValue(Visitor* visitor, Value& value)
+template<typename VisitorDispatcher, typename Value>
+static void traceListHashSetValue(VisitorDispatcher visitor, Value& value)
 {
     // We use the default hash traits for the value in the node, because
     // ListHashSet does not let you specify any specific ones.
@@ -1606,11 +1699,11 @@ static void traceListHashSetValue(Visitor* visitor, Value& value)
 // declare pointers to instances.  These pointers are always null, and no
 // objects are instantiated.
 template<typename ValueArg, size_t inlineCapacity>
-struct HeapListHashSetAllocator : public HeapAllocator {
+class HeapListHashSetAllocator : public HeapAllocator {
+public:
     using TableAllocator = HeapAllocator;
     using Node = WTF::ListHashSetNode<ValueArg, HeapListHashSetAllocator>;
 
-public:
     class AllocatorProvider {
     public:
         // For the heap allocation we don't need an actual allocator object, so
@@ -1619,6 +1712,7 @@ public:
 
         // No allocator object is needed.
         void createAllocatorIfNeeded() { }
+        void releaseAllocator() { }
 
         // There is no allocator object in the HeapListHashSet (unlike in the
         // regular ListHashSet) so there is nothing to swap.
@@ -1638,7 +1732,8 @@ public:
         return malloc<void*, Node>(sizeof(Node));
     }
 
-    static void traceValue(Visitor* visitor, Node* node)
+    template<typename VisitorDispatcher>
+    static void traceValue(VisitorDispatcher visitor, Node* node)
     {
         traceListHashSetValue(visitor, node->m_value);
     }
@@ -1744,7 +1839,7 @@ public:
     }
 
     // FIXME: Doesn't work if there is an inline buffer, due to crbug.com/360572
-    inline void swap(HeapDeque& other)
+    void swap(HeapDeque& other)
     {
         Deque<T, inlineCapacity, HeapAllocator>::swap(other);
     }
@@ -1776,311 +1871,6 @@ template<typename T, typename U, typename V>
 inline void swap(HeapLinkedHashSet<T, U, V>& a, HeapLinkedHashSet<T, U, V>& b) { a.swap(b); }
 template<typename T, typename U, typename V>
 inline void swap(HeapHashCountedSet<T, U, V>& a, HeapHashCountedSet<T, U, V>& b) { a.swap(b); }
-
-template<typename T>
-struct ThreadingTrait<Member<T>> {
-    static const ThreadAffinity Affinity = ThreadingTrait<T>::Affinity;
-};
-
-template<typename T>
-struct ThreadingTrait<WeakMember<T>> {
-    static const ThreadAffinity Affinity = ThreadingTrait<T>::Affinity;
-};
-
-template<typename Key, typename Value, typename T, typename U, typename V>
-struct ThreadingTrait<HashMap<Key, Value, T, U, V, HeapAllocator>> {
-    static const ThreadAffinity Affinity =
-        (ThreadingTrait<Key>::Affinity == MainThreadOnly)
-        && (ThreadingTrait<Value>::Affinity == MainThreadOnly) ? MainThreadOnly : AnyThread;
-};
-
-template<typename First, typename Second>
-struct ThreadingTrait<WTF::KeyValuePair<First, Second>> {
-    static const ThreadAffinity Affinity =
-        (ThreadingTrait<First>::Affinity == MainThreadOnly)
-        && (ThreadingTrait<Second>::Affinity == MainThreadOnly) ? MainThreadOnly : AnyThread;
-};
-
-template<typename T, typename U, typename V>
-struct ThreadingTrait<HashSet<T, U, V, HeapAllocator>> {
-    static const ThreadAffinity Affinity = ThreadingTrait<T>::Affinity;
-};
-
-
-template<typename T, size_t inlineCapacity>
-struct ThreadingTrait<Vector<T, inlineCapacity, HeapAllocator>> {
-    static const ThreadAffinity Affinity = ThreadingTrait<T>::Affinity;
-};
-
-template<typename T, typename Traits>
-struct ThreadingTrait<HeapVectorBacking<T, Traits>> {
-    static const ThreadAffinity Affinity = ThreadingTrait<T>::Affinity;
-};
-
-template<typename T, size_t inlineCapacity>
-struct ThreadingTrait<Deque<T, inlineCapacity, HeapAllocator>> {
-    static const ThreadAffinity Affinity = ThreadingTrait<T>::Affinity;
-};
-
-template<typename T, typename U, typename V>
-struct ThreadingTrait<HashCountedSet<T, U, V, HeapAllocator>> {
-    static const ThreadAffinity Affinity = ThreadingTrait<T>::Affinity;
-};
-
-template<typename Table>
-struct ThreadingTrait<HeapHashTableBacking<Table>> {
-    using Key = typename Table::KeyType;
-    using Value = typename Table::ValueType;
-    static const ThreadAffinity Affinity =
-        (ThreadingTrait<Key>::Affinity == MainThreadOnly)
-        && (ThreadingTrait<Value>::Affinity == MainThreadOnly) ? MainThreadOnly : AnyThread;
-};
-
-template<typename T, typename U, typename V, typename W, typename X>
-struct ThreadingTrait<HeapHashMap<T, U, V, W, X>> : public ThreadingTrait<HashMap<T, U, V, W, X, HeapAllocator>> { };
-
-template<typename T, typename U, typename V>
-struct ThreadingTrait<HeapHashSet<T, U, V>> : public ThreadingTrait<HashSet<T, U, V, HeapAllocator>> { };
-
-template<typename T, size_t inlineCapacity>
-struct ThreadingTrait<HeapVector<T, inlineCapacity>> : public ThreadingTrait<Vector<T, inlineCapacity, HeapAllocator>> { };
-
-template<typename T, size_t inlineCapacity>
-struct ThreadingTrait<HeapDeque<T, inlineCapacity>> : public ThreadingTrait<Deque<T, inlineCapacity, HeapAllocator>> { };
-
-template<typename T, typename U, typename V>
-struct ThreadingTrait<HeapHashCountedSet<T, U, V>> : public ThreadingTrait<HashCountedSet<T, U, V, HeapAllocator>> { };
-
-// The standard implementation of GCInfoTrait<T>::index() just returns a static
-// from the class T, but we can't do that for HashMap, HashSet, Vector, etc.
-// because they are in WTF and know nothing of GCInfos. Instead we have a
-// specialization of GCInfoTrait for these four classes here.
-
-template<typename Key, typename Value, typename T, typename U, typename V>
-struct GCInfoTrait<HashMap<Key, Value, T, U, V, HeapAllocator>> {
-    static size_t index()
-    {
-        using TargetType = HashMap<Key, Value, T, U, V, HeapAllocator>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            nullptr,
-            false, // HashMap needs no finalizer.
-            WTF::IsPolymorphic<TargetType>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename T, typename U, typename V>
-struct GCInfoTrait<HashSet<T, U, V, HeapAllocator>> {
-    static size_t index()
-    {
-        using TargetType = HashSet<T, U, V, HeapAllocator>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            nullptr,
-            false, // HashSet needs no finalizer.
-            WTF::IsPolymorphic<TargetType>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename T, typename U, typename V>
-struct GCInfoTrait<LinkedHashSet<T, U, V, HeapAllocator>> {
-    static size_t index()
-    {
-        using TargetType = LinkedHashSet<T, U, V, HeapAllocator>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            LinkedHashSet<T, U, V, HeapAllocator>::finalize,
-            true, // Needs finalization. The anchor needs to unlink itself from the chain.
-            WTF::IsPolymorphic<TargetType>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename ValueArg, size_t inlineCapacity, typename U>
-struct GCInfoTrait<ListHashSet<ValueArg, inlineCapacity, U, HeapListHashSetAllocator<ValueArg, inlineCapacity>>> {
-    static size_t index()
-    {
-        using TargetType = WTF::ListHashSet<ValueArg, inlineCapacity, U, HeapListHashSetAllocator<ValueArg, inlineCapacity>>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            nullptr,
-            false, // ListHashSet needs no finalization though its backing might.
-            false, // no vtable.
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename T, typename Allocator>
-struct GCInfoTrait<WTF::ListHashSetNode<T, Allocator>> {
-    static size_t index()
-    {
-        using TargetType = WTF::ListHashSetNode<T, Allocator>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            TargetType::finalize,
-            WTF::HashTraits<T>::needsDestruction, // The node needs destruction if its data does.
-            false, // no vtable.
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename T>
-struct GCInfoTrait<Vector<T, 0, HeapAllocator>> {
-    static size_t index()
-    {
-#if ENABLE(GC_PROFILING)
-        using TargetType = Vector<T, 0, HeapAllocator>;
-#endif
-        static const GCInfo gcInfo = {
-            TraceTrait<Vector<T, 0, HeapAllocator>>::trace,
-            nullptr,
-            false, // Vector needs no finalizer if it has no inline capacity.
-            WTF::IsPolymorphic<Vector<T, 0, HeapAllocator>>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename T, size_t inlineCapacity>
-struct FinalizerTrait<Vector<T, inlineCapacity, HeapAllocator>> : public FinalizerTraitImpl<Vector<T, inlineCapacity, HeapAllocator>, true> { };
-
-template<typename T, size_t inlineCapacity>
-struct GCInfoTrait<Vector<T, inlineCapacity, HeapAllocator>> {
-    static size_t index()
-    {
-        using TargetType = Vector<T, inlineCapacity, HeapAllocator>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            FinalizerTrait<TargetType>::finalize,
-            // Finalizer is needed to destruct things stored in the inline capacity.
-            inlineCapacity && VectorTraits<T>::needsDestruction,
-            WTF::IsPolymorphic<TargetType>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename T>
-struct GCInfoTrait<Deque<T, 0, HeapAllocator>> {
-    static size_t index()
-    {
-        using TargetType = Deque<T, 0, HeapAllocator>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            nullptr,
-            false, // Deque needs no finalizer if it has no inline capacity.
-            WTF::IsPolymorphic<TargetType>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename T, typename U, typename V>
-struct GCInfoTrait<HashCountedSet<T, U, V, HeapAllocator>> {
-    static size_t index()
-    {
-        using TargetType = HashCountedSet<T, U, V, HeapAllocator>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            nullptr,
-            false, // HashCountedSet is just a HashTable, and needs no finalizer.
-            WTF::IsPolymorphic<TargetType>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename T, size_t inlineCapacity>
-struct FinalizerTrait<Deque<T, inlineCapacity, HeapAllocator>> : public FinalizerTraitImpl<Deque<T, inlineCapacity, HeapAllocator>, true> { };
-
-template<typename T, size_t inlineCapacity>
-struct GCInfoTrait<Deque<T, inlineCapacity, HeapAllocator>> {
-    static size_t index()
-    {
-        using TargetType = Deque<T, inlineCapacity, HeapAllocator>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            FinalizerTrait<TargetType>::finalize,
-            // Finalizer is needed to destruct things stored in the inline capacity.
-            inlineCapacity && VectorTraits<T>::needsDestruction,
-            WTF::IsPolymorphic<TargetType>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename T, typename Traits>
-struct GCInfoTrait<HeapVectorBacking<T, Traits>> {
-    static size_t index()
-    {
-        using TargetType = HeapVectorBacking<T, Traits>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            FinalizerTrait<TargetType>::finalize,
-            Traits::needsDestruction,
-            false, // We don't support embedded objects in HeapVectors with vtables.
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
-
-template<typename Table>
-struct GCInfoTrait<HeapHashTableBacking<Table>> {
-    static size_t index()
-    {
-        using TargetType = HeapHashTableBacking<Table>;
-        static const GCInfo gcInfo = {
-            TraceTrait<TargetType>::trace,
-            HeapHashTableBacking<Table>::finalize,
-            Table::ValueTraits::needsDestruction,
-            WTF::IsPolymorphic<TargetType>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<TargetType>::get()
-#endif
-        };
-        RETURN_GCINFO_INDEX();
-    }
-};
 
 } // namespace blink
 
@@ -2140,6 +1930,12 @@ struct TraceInCollectionTrait<NoWeakHandlingInCollections, strongify, blink::Hea
         // Use the payload size as recorded by the heap to determine how many
         // elements to mark.
         size_t length = header->payloadSize() / sizeof(T);
+#ifdef ANNOTATE_CONTIGUOUS_CONTAINER
+        // Have no option but to mark the whole container as accessible, but
+        // this trace() is only used for backing stores that are identified
+        // as roots independent from a vector.
+        ANNOTATE_CHANGE_SIZE(array, length, 0, length);
+#endif
         for (size_t i = 0; i < length; ++i)
             blink::CollectionBackingTraceTrait<ShouldBeTraced<Traits>::value, Traits::weakHandlingFlag, WeakPointersActStrong, T, Traits>::trace(visitor, array[i]);
         return false;
@@ -2419,7 +2215,7 @@ template<typename Table>
 void HeapHashTableBacking<Table>::finalize(void* pointer)
 {
     using Value = typename Table::ValueType;
-    ASSERT(Table::ValueTraits::needsDestruction);
+    ASSERT(!WTF::IsTriviallyDestructible<Value>::value);
     HeapObjectHeader* header = HeapObjectHeader::fromPayload(pointer);
     // Use the payload size as recorded by the heap to determine how many
     // elements to finalize.
@@ -2430,21 +2226,6 @@ void HeapHashTableBacking<Table>::finalize(void* pointer)
             table[i].~Value();
     }
 }
-
-template<typename T, typename U, typename V, typename W, typename X>
-struct GCInfoTrait<HeapHashMap<T, U, V, W, X>> : public GCInfoTrait<HashMap<T, U, V, W, X, HeapAllocator>> { };
-template<typename T, typename U, typename V>
-struct GCInfoTrait<HeapHashSet<T, U, V>> : public GCInfoTrait<HashSet<T, U, V, HeapAllocator>> { };
-template<typename T, typename U, typename V>
-struct GCInfoTrait<HeapLinkedHashSet<T, U, V>> : public GCInfoTrait<LinkedHashSet<T, U, V, HeapAllocator>> { };
-template<typename T, size_t inlineCapacity, typename U>
-struct GCInfoTrait<HeapListHashSet<T, inlineCapacity, U>> : public GCInfoTrait<ListHashSet<T, inlineCapacity, U, HeapListHashSetAllocator<T, inlineCapacity>>> { };
-template<typename T, size_t inlineCapacity>
-struct GCInfoTrait<HeapVector<T, inlineCapacity>> : public GCInfoTrait<Vector<T, inlineCapacity, HeapAllocator>> { };
-template<typename T, size_t inlineCapacity>
-struct GCInfoTrait<HeapDeque<T, inlineCapacity>> : public GCInfoTrait<Deque<T, inlineCapacity, HeapAllocator>> { };
-template<typename T, typename U, typename V>
-struct GCInfoTrait<HeapHashCountedSet<T, U, V>> : public GCInfoTrait<HashCountedSet<T, U, V, HeapAllocator>> { };
 
 } // namespace blink
 

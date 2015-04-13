@@ -35,12 +35,16 @@
 #include "platform/Task.h"
 #include "platform/TraceEvent.h"
 #include "platform/heap/CallbackStack.h"
-#include "platform/heap/MarkingVisitorImpl.h"
+#include "platform/heap/MarkingVisitor.h"
+#include "platform/heap/SafePoint.h"
 #include "platform/heap/ThreadState.h"
 #include "public/platform/Platform.h"
-#include "wtf/AddressSpaceRandomization.h"
 #include "wtf/Assertions.h"
+#include "wtf/ContainerAnnotations.h"
 #include "wtf/LeakAnnotations.h"
+#include "wtf/MainThread.h"
+#include "wtf/PageAllocator.h"
+#include "wtf/Partitions.h"
 #include "wtf/PassOwnPtr.h"
 #if ENABLE(GC_PROFILING)
 #include "platform/TracedValue.h"
@@ -59,6 +63,39 @@
 #include <windows.h>
 #endif
 
+#ifdef ANNOTATE_CONTIGUOUS_CONTAINER
+// FIXME: have ContainerAnnotations.h define an ENABLE_-style name instead.
+#define ENABLE_ASAN_CONTAINER_ANNOTATIONS 1
+
+// When finalizing a non-inlined vector backing store/container, remove
+// its contiguous container annotation. Required as it will not be destructed
+// from its Vector.
+#define ASAN_RETIRE_CONTAINER_ANNOTATION(object, objectSize)                          \
+    do {                                                                              \
+        BasePage* page = pageFromObject(object);                                      \
+        ASSERT(page);                                                                 \
+        bool isContainer = ThreadState::isVectorHeapIndex(page->heap()->heapIndex()); \
+        if (!isContainer && page->isLargeObjectPage())                                \
+            isContainer = static_cast<LargeObjectPage*>(page)->isVectorBackingPage(); \
+        if (isContainer)                                                              \
+            ANNOTATE_DELETE_BUFFER(object, objectSize, 0);                            \
+    } while (0)
+
+// A vector backing store represented by a large object is marked
+// so that when it is finalized, its ASan annotation will be
+// correctly retired.
+#define ASAN_MARK_LARGE_VECTOR_CONTAINER(heap, largeObject)                 \
+    if (ThreadState::isVectorHeapIndex(heap->heapIndex())) {                \
+        BasePage* largePage = pageFromObject(largeObject);                  \
+        ASSERT(largePage->isLargeObjectPage());                             \
+        static_cast<LargeObjectPage*>(largePage)->setIsVectorBackingPage(); \
+    }
+#else
+#define ENABLE_ASAN_CONTAINER_ANNOTATIONS 0
+#define ASAN_RETIRE_CONTAINER_ANNOTATION(payload, payloadSize)
+#define ASAN_MARK_LARGE_VECTOR_CONTAINER(heap, largeObject)
+#endif
+
 namespace blink {
 
 #if ENABLE(GC_PROFILING)
@@ -73,11 +110,6 @@ static String classOf(const void* object)
 static bool vTableInitialized(void* objectPointer)
 {
     return !!(*reinterpret_cast<Address*>(objectPointer));
-}
-
-static Address roundToBlinkPageBoundary(void* base)
-{
-    return reinterpret_cast<Address>((reinterpret_cast<uintptr_t>(base) + blinkPageOffsetMask) & blinkPageBaseMask);
 }
 
 static size_t roundToOsPageSize(size_t size)
@@ -106,36 +138,23 @@ public:
 
     void release()
     {
-#if OS(POSIX)
-        int err = munmap(m_base, m_size);
-        RELEASE_ASSERT(!err);
-#else
-        bool success = VirtualFree(m_base, 0, MEM_RELEASE);
-        RELEASE_ASSERT(success);
-#endif
+        WTF::freePages(m_base, m_size);
     }
 
     WARN_UNUSED_RETURN bool commit()
     {
-#if OS(POSIX)
-        return !mprotect(m_base, m_size, PROT_READ | PROT_WRITE);
-#else
-        void* result = VirtualAlloc(m_base, m_size, MEM_COMMIT, PAGE_READWRITE);
-        return !!result;
-#endif
+        return WTF::setSystemPagesAccessible(m_base, m_size);
     }
 
     void decommit()
     {
+        // TODO(haraken): Consider if we can replace the following code
+        // with decommitSystemPages().
 #if OS(POSIX)
-        int err = mprotect(m_base, m_size, PROT_NONE);
-        RELEASE_ASSERT(!err);
-        // FIXME: Consider using MADV_FREE on MacOS.
+        // TODO(haraken): Consider using MADV_FREE on MacOS.
         madvise(m_base, m_size, MADV_DONTNEED);
-#else
-        bool success = VirtualFree(m_base, m_size, MEM_DECOMMIT);
-        RELEASE_ASSERT(success);
 #endif
+        WTF::setSystemPagesInaccessible(m_base, m_size);
     }
 
     Address base() const { return m_base; }
@@ -145,6 +164,24 @@ private:
     Address m_base;
     size_t m_size;
 };
+
+// TODO(haraken): Like partitionOutOfMemoryWithLotsOfUncommitedPages(),
+// we should probably have a way to distinguish physical memory OOM from
+// virtual address space OOM.
+static NEVER_INLINE void blinkGCOutOfMemory()
+{
+#if OS(WIN)
+    // Crash at a special address (0x9b)
+    // to be easily distinguished on crash reports.
+    // This is because crash stack traces are inaccurate on Windows and
+    // blinkGCOutOfMemory might be not included in the stack traces.
+    reinterpret_cast<void(*)()>(0x9b)();
+#endif
+
+    // On non-Windows environment, IMMEDIATE_CRASH is sufficient
+    // because blinkGCOutOfMemory will appear in crash stack traces.
+    IMMEDIATE_CRASH();
+}
 
 // A PageMemoryRegion represents a chunk of reserved virtual address
 // space containing a number of blink heap pages. On Windows, reserved
@@ -221,87 +258,12 @@ private:
 
     static PageMemoryRegion* allocate(size_t size, unsigned numPages)
     {
-        // Compute a random blink page aligned address for the page memory
-        // region and attempt to get the memory there.
-        Address randomAddress = reinterpret_cast<Address>(WTF::getRandomPageBase());
-        Address alignedRandomAddress = roundToBlinkPageBoundary(randomAddress);
-
-#if OS(POSIX)
-        Address base = static_cast<Address>(mmap(alignedRandomAddress, size, PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0));
-        if (base == roundToBlinkPageBoundary(base))
-            return new PageMemoryRegion(base, size, numPages);
-
-        // We failed to get a blink page aligned chunk of memory.
-        // Unmap the chunk that we got and fall back to overallocating
-        // and selecting an aligned sub part of what we allocate.
-        if (base != MAP_FAILED) {
-            int error = munmap(base, size);
-            RELEASE_ASSERT(!error);
-        }
-        size_t allocationSize = size + blinkPageSize;
-        for (int attempt = 0; attempt < 10; ++attempt) {
-            base = static_cast<Address>(mmap(alignedRandomAddress, allocationSize, PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0));
-            if (base != MAP_FAILED)
-                break;
-            randomAddress = reinterpret_cast<Address>(WTF::getRandomPageBase());
-            alignedRandomAddress = roundToBlinkPageBoundary(randomAddress);
-        }
-        RELEASE_ASSERT(base != MAP_FAILED);
-
-        Address end = base + allocationSize;
-        Address alignedBase = roundToBlinkPageBoundary(base);
-        Address regionEnd = alignedBase + size;
-
-        // If the allocated memory was not blink page aligned release
-        // the memory before the aligned address.
-        if (alignedBase != base)
-            MemoryRegion(base, alignedBase - base).release();
-
-        // Free the additional memory at the end of the page if any.
-        if (regionEnd < end)
-            MemoryRegion(regionEnd, end - regionEnd).release();
-
-        return new PageMemoryRegion(alignedBase, size, numPages);
-#else
-        Address base = static_cast<Address>(VirtualAlloc(alignedRandomAddress, size, MEM_RESERVE, PAGE_NOACCESS));
-        if (base) {
-            ASSERT(base == alignedRandomAddress);
-            return new PageMemoryRegion(base, size, numPages);
-        }
-
-        // We failed to get the random aligned address that we asked
-        // for. Fall back to overallocating. On Windows it is
-        // impossible to partially release a region of memory
-        // allocated by VirtualAlloc. To avoid wasting virtual address
-        // space we attempt to release a large region of memory
-        // returned as a whole and then allocate an aligned region
-        // inside this larger region.
-        size_t allocationSize = size + blinkPageSize;
-        for (int attempt = 0; attempt < 3; ++attempt) {
-            base = static_cast<Address>(VirtualAlloc(0, allocationSize, MEM_RESERVE, PAGE_NOACCESS));
-            RELEASE_ASSERT(base);
-            VirtualFree(base, 0, MEM_RELEASE);
-
-            Address alignedBase = roundToBlinkPageBoundary(base);
-            base = static_cast<Address>(VirtualAlloc(alignedBase, size, MEM_RESERVE, PAGE_NOACCESS));
-            if (base) {
-                ASSERT(base == alignedBase);
-                return new PageMemoryRegion(alignedBase, size, numPages);
-            }
-        }
-
-        // We failed to avoid wasting virtual address space after
-        // several attempts.
-        base = static_cast<Address>(VirtualAlloc(0, allocationSize, MEM_RESERVE, PAGE_NOACCESS));
-        RELEASE_ASSERT(base);
-
-        // FIXME: If base is by accident blink page size aligned
-        // here then we can create two pages out of reserved
-        // space. Do this.
-        Address alignedBase = roundToBlinkPageBoundary(base);
-
-        return new PageMemoryRegion(alignedBase, size, numPages);
-#endif
+        // Round size up to the allocation granularity.
+        size = (size + WTF::kPageAllocationGranularityOffsetMask) & WTF::kPageAllocationGranularityBaseMask;
+        Address base = static_cast<Address>(WTF::allocPages(nullptr, size, blinkPageSize, WTF::PageInaccessible));
+        if (!base)
+            blinkGCOutOfMemory();
+        return new PageMemoryRegion(base, size, numPages);
     }
 
     bool m_isLargePage;
@@ -439,7 +401,7 @@ public:
 
 private:
     ThreadState* m_state;
-    ThreadState::SafePointScope m_safePointScope;
+    SafePointScope m_safePointScope;
     bool m_parkedAllThreads; // False if we fail to park all threads
 };
 
@@ -458,6 +420,8 @@ void HeapObjectHeader::finalize(Address object, size_t objectSize)
     if (gcInfo->hasFinalizer()) {
         gcInfo->m_finalize(object);
     }
+
+    ASAN_RETIRE_CONTAINER_ANNOTATION(object, objectSize);
 
 #if ENABLE(ASSERT) || defined(LEAK_SANITIZER) || defined(ADDRESS_SANITIZER)
     // In Debug builds, memory is zapped when it's freed, and the zapped memory
@@ -647,31 +611,56 @@ Address BaseHeap::lazySweep(size_t allocationSize, size_t gcInfoIndex)
     return result;
 }
 
+void BaseHeap::sweepUnsweptPage()
+{
+    BasePage* page = m_firstUnsweptPage;
+    if (page->isEmpty()) {
+        page->unlink(&m_firstUnsweptPage);
+        page->removeFromHeap();
+    } else {
+        // Sweep a page and move the page from m_firstUnsweptPages to
+        // m_firstPages.
+        page->sweep();
+        page->unlink(&m_firstUnsweptPage);
+        page->link(&m_firstPage);
+        page->markAsSwept();
+    }
+}
+
+bool BaseHeap::lazySweepWithDeadline(double deadlineSeconds)
+{
+    // It might be heavy to call Platform::current()->monotonicallyIncreasingTime()
+    // per page (i.e., 128 KB sweep or one LargeObject sweep), so we check
+    // the deadline per 10 pages.
+    static const int deadlineCheckInterval = 10;
+
+    RELEASE_ASSERT(threadState()->isSweepingInProgress());
+    ASSERT(threadState()->sweepForbidden());
+    ASSERT(!threadState()->isMainThread() || ScriptForbiddenScope::isScriptForbidden());
+
+    int pageCount = 1;
+    while (m_firstUnsweptPage) {
+        sweepUnsweptPage();
+        if (pageCount % deadlineCheckInterval == 0) {
+            if (deadlineSeconds <= Platform::current()->monotonicallyIncreasingTime()) {
+                // Deadline has come.
+                return !m_firstUnsweptPage;
+            }
+        }
+        pageCount++;
+    }
+    return true;
+}
+
 void BaseHeap::completeSweep()
 {
     RELEASE_ASSERT(threadState()->isSweepingInProgress());
     ASSERT(threadState()->sweepForbidden());
-
-    if (threadState()->isMainThread())
-        ScriptForbiddenScope::enter();
+    ASSERT(!threadState()->isMainThread() || ScriptForbiddenScope::isScriptForbidden());
 
     while (m_firstUnsweptPage) {
-        BasePage* page = m_firstUnsweptPage;
-        if (page->isEmpty()) {
-            page->unlink(&m_firstUnsweptPage);
-            page->removeFromHeap();
-        } else {
-            // Sweep a page and move the page from m_firstUnsweptPages to
-            // m_firstPages.
-            page->sweep();
-            page->unlink(&m_firstUnsweptPage);
-            page->link(&m_firstPage);
-            page->markAsSwept();
-        }
+        sweepUnsweptPage();
     }
-
-    if (threadState()->isMainThread())
-        ScriptForbiddenScope::exit();
 }
 
 NormalPageHeap::NormalPageHeap(ThreadState* state, int index)
@@ -915,7 +904,7 @@ bool NormalPageHeap::expandObject(HeapObjectHeader* header, size_t newSize)
     // size.
     if (header->payloadSize() >= newSize)
         return true;
-    size_t allocationSize = allocationSizeFromSize(newSize);
+    size_t allocationSize = Heap::allocationSizeFromSize(newSize);
     ASSERT(allocationSize > header->size());
     size_t expandSize = allocationSize - header->size();
     if (header->payloadEnd() == m_currentAllocationPoint && expandSize <= m_remainingAllocationSize) {
@@ -932,10 +921,10 @@ bool NormalPageHeap::expandObject(HeapObjectHeader* header, size_t newSize)
     return false;
 }
 
-void NormalPageHeap::shrinkObject(HeapObjectHeader* header, size_t newSize)
+bool NormalPageHeap::shrinkObject(HeapObjectHeader* header, size_t newSize)
 {
     ASSERT(header->payloadSize() > newSize);
-    size_t allocationSize = allocationSizeFromSize(newSize);
+    size_t allocationSize = Heap::allocationSizeFromSize(newSize);
     ASSERT(header->size() > allocationSize);
     size_t shrinkSize = header->size() - allocationSize;
     if (header->payloadEnd() == m_currentAllocationPoint) {
@@ -944,15 +933,16 @@ void NormalPageHeap::shrinkObject(HeapObjectHeader* header, size_t newSize)
         FILL_ZERO_IF_PRODUCTION(m_currentAllocationPoint, shrinkSize);
         ASAN_POISON_MEMORY_REGION(m_currentAllocationPoint, shrinkSize);
         header->setSize(allocationSize);
-    } else {
-        ASSERT(shrinkSize >= sizeof(HeapObjectHeader));
-        ASSERT(header->gcInfoIndex() > 0);
-        HeapObjectHeader* freedHeader = new (NotNull, header->payloadEnd() - shrinkSize) HeapObjectHeader(shrinkSize, header->gcInfoIndex());
-        freedHeader->markPromptlyFreed();
-        ASSERT(pageFromObject(reinterpret_cast<Address>(header)) == findPageFromAddress(reinterpret_cast<Address>(header)));
-        m_promptlyFreedSize += shrinkSize;
-        header->setSize(allocationSize);
+        return true;
     }
+    ASSERT(shrinkSize >= sizeof(HeapObjectHeader));
+    ASSERT(header->gcInfoIndex() > 0);
+    HeapObjectHeader* freedHeader = new (NotNull, header->payloadEnd() - shrinkSize) HeapObjectHeader(shrinkSize, header->gcInfoIndex());
+    freedHeader->markPromptlyFreed();
+    ASSERT(pageFromObject(reinterpret_cast<Address>(header)) == findPageFromAddress(reinterpret_cast<Address>(header)));
+    m_promptlyFreedSize += shrinkSize;
+    header->setSize(allocationSize);
+    return false;
 }
 
 Address NormalPageHeap::lazySweepPages(size_t allocationSize, size_t gcInfoIndex)
@@ -1019,8 +1009,12 @@ Address NormalPageHeap::outOfLineAllocate(size_t allocationSize, size_t gcInfoIn
 #endif
 
     // 1. If this allocation is big enough, allocate a large object.
-    if (allocationSize >= largeObjectSizeThreshold)
-        return static_cast<LargeObjectHeap*>(threadState()->heap(LargeObjectHeapIndex))->allocateLargeObjectPage(allocationSize, gcInfoIndex);
+    if (allocationSize >= largeObjectSizeThreshold) {
+        LargeObjectHeap* largeObjectHeap = static_cast<LargeObjectHeap*>(threadState()->heap(LargeObjectHeapIndex));
+        Address largeObject = largeObjectHeap->allocateLargeObjectPage(allocationSize, gcInfoIndex);
+        ASAN_MARK_LARGE_VECTOR_CONTAINER(this, largeObject);
+        return largeObject;
+    }
 
     // 2. Check if we should trigger a GC.
     updateRemainingAllocationSize();
@@ -1540,6 +1534,7 @@ void NormalPage::sweep()
 
 void NormalPage::markUnmarkedObjectsDead()
 {
+    size_t markedObjectSize = 0;
     for (Address headerAddress = payload(); headerAddress < payloadEnd();) {
         HeapObjectHeader* header = reinterpret_cast<HeapObjectHeader*>(headerAddress);
         ASSERT(header->size() < blinkPagePayloadSize());
@@ -1550,12 +1545,16 @@ void NormalPage::markUnmarkedObjectsDead()
             continue;
         }
         header->checkHeader();
-        if (header->isMarked())
+        if (header->isMarked()) {
             header->unmark();
-        else
+            markedObjectSize += header->size();
+        } else {
             header->markDead();
+        }
         headerAddress += header->size();
     }
+    if (markedObjectSize)
+        Heap::increaseMarkedObjectSize(markedObjectSize);
 }
 
 void NormalPage::populateObjectStartBitMap()
@@ -1774,6 +1773,9 @@ NormalPageHeap* NormalPage::heapForNormalPage()
 LargeObjectPage::LargeObjectPage(PageMemory* storage, BaseHeap* heap, size_t payloadSize)
     : BasePage(storage, heap)
     , m_payloadSize(payloadSize)
+#if ENABLE(ASAN_CONTAINER_ANNOTATIONS)
+    , m_isVectorBackingPage(false)
+#endif
 {
 }
 
@@ -1795,17 +1797,19 @@ void LargeObjectPage::removeFromHeap()
 
 void LargeObjectPage::sweep()
 {
-    Heap::increaseMarkedObjectSize(size());
     heapObjectHeader()->unmark();
+    Heap::increaseMarkedObjectSize(size());
 }
 
 void LargeObjectPage::markUnmarkedObjectsDead()
 {
     HeapObjectHeader* header = heapObjectHeader();
-    if (header->isMarked())
+    if (header->isMarked()) {
         header->unmark();
-    else
+        Heap::increaseMarkedObjectSize(size());
+    } else {
         header->markDead();
+    }
 }
 
 void LargeObjectPage::checkAndMarkPointer(Visitor* visitor, Address address)
@@ -1944,213 +1948,6 @@ void Heap::flushHeapDoesNotContainCache()
     s_heapDoesNotContainCache->flush();
 }
 
-enum MarkingMode {
-    GlobalMarking,
-    ThreadLocalMarking, // This works only if the thread is terminating.
-    ZombieMarking,
-};
-
-template <MarkingMode Mode>
-class MarkingVisitor final : public Visitor, public MarkingVisitorImpl<MarkingVisitor<Mode>> {
-public:
-    using Impl = MarkingVisitorImpl<MarkingVisitor<Mode>>;
-    friend class MarkingVisitorImpl<MarkingVisitor<Mode>>;
-
-#if ENABLE(GC_PROFILING)
-    using LiveObjectSet = HashSet<uintptr_t>;
-    using LiveObjectMap = HashMap<String, LiveObjectSet>;
-    using ObjectGraph = HashMap<uintptr_t, std::pair<uintptr_t, String>>;
-#endif
-
-    MarkingVisitor()
-        : Visitor(Mode == GlobalMarking ? Visitor::GlobalMarkingVisitorType : Visitor::GenericVisitorType)
-    {
-    }
-
-    virtual void markHeader(HeapObjectHeader* header, TraceCallback callback) override
-    {
-        Impl::visitHeader(header, header->payload(), callback);
-    }
-
-    virtual void mark(const void* objectPointer, TraceCallback callback) override
-    {
-        Impl::mark(objectPointer, callback);
-    }
-
-    virtual void registerDelayedMarkNoTracing(const void* object) override
-    {
-        Impl::registerDelayedMarkNoTracing(object);
-    }
-
-    virtual void registerWeakMembers(const void* closure, const void* objectPointer, WeakPointerCallback callback) override
-    {
-        Impl::registerWeakMembers(closure, objectPointer, callback);
-    }
-
-    virtual void registerWeakTable(const void* closure, EphemeronCallback iterationCallback, EphemeronCallback iterationDoneCallback)
-    {
-        Impl::registerWeakTable(closure, iterationCallback, iterationDoneCallback);
-    }
-
-#if ENABLE(ASSERT)
-    virtual bool weakTableRegistered(const void* closure)
-    {
-        return Impl::weakTableRegistered(closure);
-    }
-#endif
-
-    virtual bool isMarked(const void* objectPointer) override
-    {
-        return Impl::isMarked(objectPointer);
-    }
-
-    virtual bool ensureMarked(const void* objectPointer) override
-    {
-        return Impl::ensureMarked(objectPointer);
-    }
-
-#if ENABLE(GC_PROFILING)
-    virtual void recordObjectGraphEdge(const void* objectPointer) override
-    {
-        MutexLocker locker(objectGraphMutex());
-        String className(classOf(objectPointer));
-        {
-            LiveObjectMap::AddResult result = currentlyLive().add(className, LiveObjectSet());
-            result.storedValue->value.add(reinterpret_cast<uintptr_t>(objectPointer));
-        }
-        ObjectGraph::AddResult result = objectGraph().add(reinterpret_cast<uintptr_t>(objectPointer), std::make_pair(reinterpret_cast<uintptr_t>(m_hostObject), m_hostName));
-        ASSERT(result.isNewEntry);
-        // fprintf(stderr, "%s[%p] -> %s[%p]\n", m_hostName.ascii().data(), m_hostObject, className.ascii().data(), objectPointer);
-    }
-
-    void reportStats()
-    {
-        fprintf(stderr, "\n---------- AFTER MARKING -------------------\n");
-        for (LiveObjectMap::iterator it = currentlyLive().begin(), end = currentlyLive().end(); it != end; ++it) {
-            fprintf(stderr, "%s %u", it->key.ascii().data(), it->value.size());
-
-            if (it->key == "blink::Document")
-                reportStillAlive(it->value, previouslyLive().get(it->key));
-
-            fprintf(stderr, "\n");
-        }
-
-        previouslyLive().swap(currentlyLive());
-        currentlyLive().clear();
-
-        for (uintptr_t object : objectsToFindPath()) {
-            dumpPathToObjectFromObjectGraph(objectGraph(), object);
-        }
-    }
-
-    static void reportStillAlive(LiveObjectSet current, LiveObjectSet previous)
-    {
-        int count = 0;
-
-        fprintf(stderr, " [previously %u]", previous.size());
-        for (uintptr_t object : current) {
-            if (previous.find(object) == previous.end())
-                continue;
-            count++;
-        }
-
-        if (!count)
-            return;
-
-        fprintf(stderr, " {survived 2GCs %d: ", count);
-        for (uintptr_t object : current) {
-            if (previous.find(object) == previous.end())
-                continue;
-            fprintf(stderr, "%ld", object);
-            if (--count)
-                fprintf(stderr, ", ");
-        }
-        ASSERT(!count);
-        fprintf(stderr, "}");
-    }
-
-    static void dumpPathToObjectFromObjectGraph(const ObjectGraph& graph, uintptr_t target)
-    {
-        ObjectGraph::const_iterator it = graph.find(target);
-        if (it == graph.end())
-            return;
-        fprintf(stderr, "Path to %lx of %s\n", target, classOf(reinterpret_cast<const void*>(target)).ascii().data());
-        while (it != graph.end()) {
-            fprintf(stderr, "<- %lx of %s\n", it->value.first, it->value.second.utf8().data());
-            it = graph.find(it->value.first);
-        }
-        fprintf(stderr, "\n");
-    }
-
-    static void dumpPathToObjectOnNextGC(void* p)
-    {
-        objectsToFindPath().add(reinterpret_cast<uintptr_t>(p));
-    }
-
-    static Mutex& objectGraphMutex()
-    {
-        AtomicallyInitializedStaticReference(Mutex, mutex, new Mutex);
-        return mutex;
-    }
-
-    static LiveObjectMap& previouslyLive()
-    {
-        DEFINE_STATIC_LOCAL(LiveObjectMap, map, ());
-        return map;
-    }
-
-    static LiveObjectMap& currentlyLive()
-    {
-        DEFINE_STATIC_LOCAL(LiveObjectMap, map, ());
-        return map;
-    }
-
-    static ObjectGraph& objectGraph()
-    {
-        DEFINE_STATIC_LOCAL(ObjectGraph, graph, ());
-        return graph;
-    }
-
-    static HashSet<uintptr_t>& objectsToFindPath()
-    {
-        DEFINE_STATIC_LOCAL(HashSet<uintptr_t>, set, ());
-        return set;
-    }
-#endif
-
-protected:
-    virtual void registerWeakCellWithCallback(void** cell, WeakPointerCallback callback) override
-    {
-        Impl::registerWeakCellWithCallback(cell, callback);
-    }
-
-    inline bool shouldMarkObject(const void* objectPointer)
-    {
-        if (Mode == GlobalMarking)
-            return true;
-
-        if (Mode == ThreadLocalMarking) {
-            BasePage* page = pageFromObject(objectPointer);
-            ASSERT(!page->orphaned());
-            // When doing a thread local GC, the marker checks if the object
-            // resides in another thread's heap. If it does, the object should
-            // not be marked & traced.
-            return page->terminating();
-        }
-
-        // ZombieMarking case.  Any objects must not be owned by other threads.
-        ASSERT(ThreadState::current()->findPageFromAddress(objectPointer));
-        return true;
-    }
-
-#if ENABLE(ASSERT)
-    virtual void checkMarkingAllowed() override
-    {
-        ASSERT(ThreadState::current()->isInGC());
-    }
-#endif
-};
-
 void Heap::init()
 {
     ThreadState::init();
@@ -2159,12 +1956,13 @@ void Heap::init()
     s_weakCallbackStack = new CallbackStack();
     s_ephemeronStack = new CallbackStack();
     s_heapDoesNotContainCache = new HeapDoesNotContainCache();
-    s_markingVisitor = new MarkingVisitor<GlobalMarking>();
+    s_markingVisitor = new MarkingVisitor<Visitor::GlobalMarking>();
     s_freePagePool = new FreePagePool();
     s_orphanedPagePool = new OrphanedPagePool();
     s_allocatedObjectSize = 0;
     s_allocatedSpace = 0;
     s_markedObjectSize = 0;
+    s_estimatedMarkingTimePerByte = 0.0;
 
     GCInfoTable::init();
 }
@@ -2261,7 +2059,7 @@ const GCInfo* Heap::findGCInfo(Address address)
 #if ENABLE(GC_PROFILING)
 void Heap::dumpPathToObjectOnNextGC(void* p)
 {
-    static_cast<MarkingVisitor<GlobalMarking>*>(s_markingVisitor)->dumpPathToObjectOnNextGC(p);
+    static_cast<MarkingVisitor<Visitor::GlobalMarking>*>(s_markingVisitor)->dumpPathToObjectOnNextGC(p);
 }
 
 String Heap::createBacktraceString()
@@ -2402,7 +2200,21 @@ void Heap::postGC(ThreadState::GCType gcType)
         state->postGC(gcType);
 }
 
-void Heap::collectGarbage(ThreadState::StackState stackState, ThreadState::GCType gcType)
+const char* Heap::gcReasonString(GCReason reason)
+{
+    switch (reason) {
+#define STRINGIFY_REASON(reason) case reason: return #reason;
+        STRINGIFY_REASON(IdleGC);
+        STRINGIFY_REASON(PreciseGC);
+        STRINGIFY_REASON(ConservativeGC);
+        STRINGIFY_REASON(ForcedGCForTesting);
+#undef STRINGIFY_REASON
+    case NumberOfGCReason: ASSERT_NOT_REACHED();
+    }
+    return "<Unknown>";
+}
+
+void Heap::collectGarbage(ThreadState::StackState stackState, ThreadState::GCType gcType, GCReason reason)
 {
     ThreadState* state = ThreadState::current();
     ThreadState::GCState originalGCState = state->gcState();
@@ -2423,12 +2235,12 @@ void Heap::collectGarbage(ThreadState::StackState stackState, ThreadState::GCTyp
     s_lastGCWasConservative = false;
 
     TRACE_EVENT2("blink_gc", "Heap::collectGarbage",
-        "precise", stackState == ThreadState::NoHeapPointersOnStack,
-        "forced", gcType == ThreadState::GCWithSweep);
+        "lazySweeping", gcType == ThreadState::GCWithoutSweep,
+        "gcReason", gcReasonString(reason));
     TRACE_EVENT_SCOPED_SAMPLING_STATE("blink_gc", "BlinkGC");
     double timeStamp = WTF::currentTimeMS();
 #if ENABLE(GC_PROFILING)
-    static_cast<MarkingVisitor<GlobalMarking>*>(s_markingVisitor)->objectGraph().clear();
+    static_cast<MarkingVisitor<Visitor::GlobalMarking>*>(s_markingVisitor)->objectGraph().clear();
 #endif
 
     // Disallow allocation during garbage collection (but not during the
@@ -2436,11 +2248,11 @@ void Heap::collectGarbage(ThreadState::StackState stackState, ThreadState::GCTyp
     ThreadState::NoAllocationScope noAllocationScope(state);
 
     preGC();
-    s_markingVisitor->configureEagerTraceLimit();
-    ASSERT(s_markingVisitor->canTraceEagerly());
+    StackFrameDepth::configureStackLimit();
+    ASSERT(StackFrameDepth::isSafeToRecurse());
 
-    Heap::resetMarkedObjectSize();
-    Heap::resetAllocatedObjectSize();
+    size_t totalObjectSize = Heap::allocatedObjectSize() + Heap::markedObjectSize();
+    Heap::resetHeapCounters();
 
     // 1. Trace persistent roots.
     ThreadState::visitPersistentRoots(s_markingVisitor);
@@ -2470,28 +2282,23 @@ void Heap::collectGarbage(ThreadState::StackState stackState, ThreadState::GCTyp
     postGC(gcType);
 
 #if ENABLE(GC_PROFILING)
-    static_cast<MarkingVisitor<GlobalMarking>*>(s_markingVisitor)->reportStats();
+    static_cast<MarkingVisitor<Visitor::GlobalMarking>*>(s_markingVisitor)->reportStats();
 #endif
 
+    double markingTimeInMilliseconds = WTF::currentTimeMS() - timeStamp;
+    s_estimatedMarkingTimePerByte = totalObjectSize ? (markingTimeInMilliseconds / 1000 / totalObjectSize) : 0;
+
     if (Platform::current()) {
-        Platform::current()->histogramCustomCounts("BlinkGC.CollectGarbage", WTF::currentTimeMS() - timeStamp, 0, 10 * 1000, 50);
+        Platform::current()->histogramCustomCounts("BlinkGC.CollectGarbage", markingTimeInMilliseconds, 0, 10 * 1000, 50);
         Platform::current()->histogramCustomCounts("BlinkGC.TotalObjectSpace", Heap::allocatedObjectSize() / 1024, 0, 4 * 1024 * 1024, 50);
         Platform::current()->histogramCustomCounts("BlinkGC.TotalAllocatedSpace", Heap::allocatedSpace() / 1024, 0, 4 * 1024 * 1024, 50);
+        Platform::current()->histogramEnumeration("BlinkGC.GCReason", reason, NumberOfGCReason);
+        Heap::reportMemoryUsageHistogram();
+        WTF::Partitions::reportMemoryUsageHistogram();
     }
 
     if (state->isMainThread())
         ScriptForbiddenScope::exit();
-}
-
-void Heap::visitObjects(ThreadState* state, const HashSet<void*>& objects)
-{
-    MarkingVisitor<ZombieMarking> visitor;
-    ThreadState::NoAllocationScope noAllocationScope(state);
-    for (void* address : objects)
-        checkAndMarkPointer(&visitor, reinterpret_cast<Address>(address));
-    processMarkingStack(&visitor);
-    postMarkingProcessing(&visitor);
-    globalWeakProcessing(&visitor);
 }
 
 void Heap::collectGarbageForTerminatingThread(ThreadState* state)
@@ -2500,12 +2307,12 @@ void Heap::collectGarbageForTerminatingThread(ThreadState* state)
     // garbage collection since we don't want to allow a global GC at the
     // same time as a thread local GC.
     {
-        MarkingVisitor<ThreadLocalMarking> markingVisitor;
+        MarkingVisitor<Visitor::ThreadLocalMarking> markingVisitor;
         ThreadState::NoAllocationScope noAllocationScope(state);
 
         state->preGC();
-        s_markingVisitor->configureEagerTraceLimit();
-        ASSERT(s_markingVisitor->canTraceEagerly());
+        StackFrameDepth::configureStackLimit();
+        ASSERT(StackFrameDepth::isSafeToRecurse());
 
         // 1. Trace the thread local persistent roots. For thread local GCs we
         // don't trace the stack (ie. no conservative scanning) since this is
@@ -2528,7 +2335,7 @@ void Heap::collectGarbageForTerminatingThread(ThreadState* state)
 
         state->postGC(ThreadState::GCWithSweep);
     }
-    state->postGCProcessing();
+    state->preSweep();
 }
 
 void Heap::processMarkingStack(Visitor* markingVisitor)
@@ -2590,13 +2397,43 @@ void Heap::collectAllGarbage()
     // some heap allocated objects own objects that contain persistents
     // pointing to other heap allocated objects.
     for (int i = 0; i < 5; ++i)
-        collectGarbage(ThreadState::NoHeapPointersOnStack);
+        collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, ForcedGCForTesting);
 }
 
 double Heap::estimatedMarkingTime()
 {
-    // FIXME: Implement heuristics
-    return 0.0;
+    ASSERT(ThreadState::current()->isMainThread());
+
+    // Use 8 ms as initial estimated marking time.
+    // 8 ms is long enough for low-end mobile devices to mark common
+    // real-world object graphs.
+    if (s_estimatedMarkingTimePerByte == 0)
+        return 0.008;
+
+    // Assuming that the collection rate of this GC will be mostly equal to
+    // the collection rate of the last GC, estimate the marking time of this GC.
+    return s_estimatedMarkingTimePerByte * (Heap::allocatedObjectSize() + Heap::markedObjectSize());
+}
+
+void Heap::reportMemoryUsageHistogram()
+{
+    static size_t supportedMaxSizeInMB = 4 * 1024;
+    static size_t observedMaxSizeInMB = 0;
+
+    // We only report the memory in the main thread.
+    if (!isMainThread())
+        return;
+    // +1 is for rounding up the sizeInMB.
+    size_t sizeInMB = Heap::allocatedSpace() / 1024 / 1024 + 1;
+    if (sizeInMB >= supportedMaxSizeInMB)
+        sizeInMB = supportedMaxSizeInMB - 1;
+    if (sizeInMB > observedMaxSizeInMB) {
+        // Send a UseCounter only when we see the highest memory usage
+        // we've ever seen.
+        if (Platform::current())
+            Platform::current()->histogramEnumeration("BlinkGC.CommittedSize", sizeInMB, supportedMaxSizeInMB);
+        observedMaxSizeInMB = sizeInMB;
+    }
 }
 
 size_t Heap::objectPayloadSizeForTesting()
@@ -2631,7 +2468,9 @@ void HeapAllocator::backingFree(void* address)
 
     HeapObjectHeader* header = HeapObjectHeader::fromPayload(address);
     header->checkHeader();
-    static_cast<NormalPage*>(page)->heapForNormalPage()->promptlyFreeObject(header);
+    NormalPageHeap* heap = static_cast<NormalPage*>(page)->heapForNormalPage();
+    state->promptlyFreed(header->gcInfoIndex());
+    heap->promptlyFreeObject(header);
 }
 
 void HeapAllocator::freeVectorBacking(void* address)
@@ -2668,7 +2507,11 @@ bool HeapAllocator::backingExpand(void* address, size_t newSize)
 
     HeapObjectHeader* header = HeapObjectHeader::fromPayload(address);
     header->checkHeader();
-    return static_cast<NormalPage*>(page)->heapForNormalPage()->expandObject(header, newSize);
+    NormalPageHeap* heap = static_cast<NormalPage*>(page)->heapForNormalPage();
+    bool succeed = heap->expandObject(header, newSize);
+    if (succeed)
+        state->allocationPointAdjusted(heap->heapIndex());
+    return succeed;
 }
 
 bool HeapAllocator::expandVectorBacking(void* address, size_t newSize)
@@ -2711,17 +2554,10 @@ void HeapAllocator::backingShrink(void* address, size_t quantizedCurrentSize, si
 
     HeapObjectHeader* header = HeapObjectHeader::fromPayload(address);
     header->checkHeader();
-    static_cast<NormalPage*>(page)->heapForNormalPage()->shrinkObject(header, quantizedShrunkSize);
-}
-
-void HeapAllocator::shrinkVectorBackingInternal(void* address, size_t quantizedCurrentSize, size_t quantizedShrunkSize)
-{
-    backingShrink(address, quantizedCurrentSize, quantizedShrunkSize);
-}
-
-void HeapAllocator::shrinkInlineVectorBackingInternal(void* address, size_t quantizedCurrentSize, size_t quantizedShrunkSize)
-{
-    backingShrink(address, quantizedCurrentSize, quantizedShrunkSize);
+    NormalPageHeap* heap = static_cast<NormalPage*>(page)->heapForNormalPage();
+    bool succeed = heap->shrinkObject(header, quantizedShrunkSize);
+    if (succeed)
+        state->allocationPointAdjusted(heap->heapIndex());
 }
 
 BasePage* Heap::lookup(Address address)
@@ -2815,6 +2651,32 @@ void Heap::RegionTree::remove(PageMemoryRegion* region, RegionTree** context)
     delete current;
 }
 
+void Heap::resetHeapCounters()
+{
+    ASSERT(ThreadState::current()->isInGC());
+
+    s_allocatedObjectSize = 0;
+    s_markedObjectSize = 0;
+
+    // Similarly, reset the amount of externally allocated memory.
+    s_externallyAllocatedBytes = 0;
+    s_externallyAllocatedBytesAlive = 0;
+
+    s_requestedUrgentGC = false;
+}
+
+void Heap::requestUrgentGC()
+{
+    // The urgent-gc flag will be considered the next time an out-of-line
+    // allocation is made. Bump allocations from the current block will
+    // go ahead until it can no longer service an allocation request.
+    //
+    // FIXME: if that delays urgently needed GCs for too long, consider
+    // flushing out per-heap "allocation points" to trigger the GC
+    // right away.
+    releaseStore(&s_requestedUrgentGC, 1);
+}
+
 Visitor* Heap::s_markingVisitor;
 CallbackStack* Heap::s_markingStack;
 CallbackStack* Heap::s_postMarkingCallbackStack;
@@ -2829,5 +2691,13 @@ Heap::RegionTree* Heap::s_regionTree = nullptr;
 size_t Heap::s_allocatedObjectSize = 0;
 size_t Heap::s_allocatedSpace = 0;
 size_t Heap::s_markedObjectSize = 0;
+// We don't want to use 0 KB for the initial value because it may end up
+// triggering the first GC of some thread too prematurely.
+size_t Heap::s_estimatedLiveObjectSize = 512 * 1024;
+
+size_t Heap::s_externallyAllocatedBytes = 0;
+size_t Heap::s_externallyAllocatedBytesAlive = 0;
+unsigned Heap::s_requestedUrgentGC = false;
+double Heap::s_estimatedMarkingTimePerByte = 0.0;
 
 } // namespace blink

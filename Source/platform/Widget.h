@@ -68,9 +68,13 @@ public:
     void move(int x, int y) { setFrameRect(IntRect(x, y, width(), height())); }
     void move(const IntPoint& p) { setFrameRect(IntRect(p, size())); }
 
+    // layoutWidgetIfPossible is only supported by plugins, and not the various ...View
+    // classes that also inherit from Widget.
+    virtual void layoutWidgetIfPossible() { }
     virtual void paint(GraphicsContext*, const IntRect&) { }
     void invalidate() { invalidateRect(boundsRect()); }
     virtual void invalidateRect(const IntRect&) = 0;
+    virtual void issuePaintInvalidations() { }
 
     virtual void setFocus(bool, WebFocusType) { }
 
@@ -125,7 +129,7 @@ public:
     // Notifies this widget that it will no longer be receiving events.
     virtual void eventListenersRemoved() { }
 
-    virtual void trace(Visitor*);
+    DECLARE_VIRTUAL_TRACE();
     virtual void dispose() { }
 
 private:

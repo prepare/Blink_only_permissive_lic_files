@@ -29,6 +29,7 @@
 #include "platform/heap/Handle.h"
 #include "wtf/Assertions.h"
 #include "wtf/HashMap.h"
+#include "wtf/Noncopyable.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 
@@ -114,7 +115,7 @@ template<>
 class SupplementTracing<true> : public GarbageCollectedMixin { };
 
 template<>
-class SupplementTracing<false> {
+class GC_PLUGIN_IGNORE("crbug.com/476419") SupplementTracing<false> {
 public:
     virtual ~SupplementTracing() { }
     // FIXME: Oilpan: this trace() method is only provided to minimize
@@ -123,7 +124,7 @@ public:
     //
     // When that transition type is removed (or its use is substantially
     // reduced), remove this dummy trace method also.
-    virtual void trace(Visitor*) { }
+    DEFINE_INLINE_VIRTUAL_TRACE() { }
 };
 
 template<typename T, bool isGarbageCollected = false>
@@ -155,7 +156,7 @@ class SupplementableTracing;
 template<typename T>
 class SupplementableTracing<T, true> : public GarbageCollectedMixin {
 public:
-    virtual void trace(Visitor* visitor)
+    DEFINE_INLINE_VIRTUAL_TRACE()
     {
         visitor->trace(m_supplements);
     }
@@ -167,7 +168,9 @@ protected:
 
 template<typename T>
 class SupplementableTracing<T, false> {
+    WTF_MAKE_NONCOPYABLE(SupplementableTracing);
 protected:
+    SupplementableTracing() { }
     typedef HashMap<const char*, OwnPtr<SupplementBase<T, false>>, PtrHash<const char*>> SupplementMap;
     SupplementMap m_supplements;
 };

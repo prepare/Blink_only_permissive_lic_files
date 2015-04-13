@@ -52,15 +52,6 @@ bool ScrollbarTheme::gMockScrollbarsEnabled = false;
 
 bool ScrollbarTheme::paint(ScrollbarThemeClient* scrollbar, GraphicsContext* graphicsContext, const IntRect& damageRect)
 {
-    DisplayItem::Type displayItemType = scrollbar->orientation() == HorizontalScrollbar ? DisplayItem::ScrollbarHorizontal : DisplayItem::ScrollbarVertical;
-    DrawingRecorder recorder(graphicsContext, scrollbar->displayItemClient(), displayItemType, damageRect);
-    if (recorder.canUseCachedDrawing())
-        return false;
-    return paintInternal(scrollbar, graphicsContext, damageRect);
-}
-
-bool ScrollbarTheme::paintInternal(ScrollbarThemeClient* scrollbar, GraphicsContext* graphicsContext, const IntRect& damageRect)
-{
     // Create the ScrollbarControlPartMask based on the damageRect
     ScrollbarControlPartMask scrollMask = NoPart;
 
@@ -214,12 +205,12 @@ void ScrollbarTheme::invalidatePart(ScrollbarThemeClient* scrollbar, ScrollbarPa
     scrollbar->invalidateRect(result);
 }
 
-void ScrollbarTheme::paintScrollCorner(GraphicsContext* context, DisplayItemClient displayItemClient, const IntRect& cornerRect)
+void ScrollbarTheme::paintScrollCorner(GraphicsContext* context, const DisplayItemClientWrapper& displayItemClient, const IntRect& cornerRect)
 {
     if (cornerRect.isEmpty())
         return;
 
-    DrawingRecorder recorder(context, displayItemClient, DisplayItem::ScrollbarCorner, cornerRect);
+    DrawingRecorder recorder(*context, displayItemClient, DisplayItem::ScrollbarCorner, cornerRect);
     if (recorder.canUseCachedDrawing())
         return;
 
@@ -379,6 +370,36 @@ void ScrollbarTheme::setMockScrollbarsEnabled(bool flag)
 bool ScrollbarTheme::mockScrollbarsEnabled()
 {
     return gMockScrollbarsEnabled;
+}
+
+DisplayItem::Type ScrollbarTheme::buttonPartToDisplayItemType(ScrollbarPart part)
+{
+    switch (part) {
+    case BackButtonStartPart:
+        return DisplayItem::ScrollbarBackButtonStart;
+    case BackButtonEndPart:
+        return DisplayItem::ScrollbarBackButtonEnd;
+    case ForwardButtonStartPart:
+        return DisplayItem::ScrollbarForwardButtonStart;
+    case ForwardButtonEndPart:
+        return DisplayItem::ScrollbarForwardButtonEnd;
+    default:
+        ASSERT_NOT_REACHED();
+        return DisplayItem::ScrollbarBackButtonStart;
+    }
+}
+
+DisplayItem::Type ScrollbarTheme::trackPiecePartToDisplayItemType(ScrollbarPart part)
+{
+    switch (part) {
+    case BackTrackPart:
+        return DisplayItem::ScrollbarBackTrack;
+    case ForwardTrackPart:
+        return DisplayItem::ScrollbarForwardTrack;
+    default:
+        ASSERT_NOT_REACHED();
+        return DisplayItem::ScrollbarBackTrack;
+    }
 }
 
 } // namespace blink

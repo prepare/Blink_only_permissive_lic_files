@@ -46,23 +46,6 @@ namespace blink {
 
 template<typename T> class HeapTerminatedArray;
 
-// Template to determine if a class is a GarbageCollectedMixin by checking if it
-// has IsGarbageCollectedMixinMarker
-template<typename T>
-struct IsGarbageCollectedMixin {
-private:
-    typedef char YesType;
-    struct NoType {
-        char padding[8];
-    };
-
-    template <typename U> static YesType checkMarker(typename U::IsGarbageCollectedMixinMarker*);
-    template <typename U> static NoType checkMarker(...);
-
-public:
-    static const bool value = sizeof(checkMarker<T>(nullptr)) == sizeof(YesType);
-};
-
 template <typename T>
 struct IsGarbageCollectedType {
     using TrueType = char;
@@ -107,11 +90,11 @@ public:
     {
     }
 
-    bool isAlive() { return m_trace; }
+    bool isHeapObjectAlive() { return m_trace; }
 
     virtual ~PersistentNode()
     {
-        ASSERT(isAlive());
+        ASSERT(isHeapObjectAlive());
         m_trace = nullptr;
     }
 
@@ -182,9 +165,9 @@ public:
     {
         typename RootsAccessor::Lock lock;
         ASSERT(m_roots == RootsAccessor::roots()); // Check that the thread is using the same roots list.
-        ASSERT(isAlive());
-        ASSERT(m_next->isAlive());
-        ASSERT(m_prev->isAlive());
+        ASSERT(isHeapObjectAlive());
+        ASSERT(m_next->isHeapObjectAlive());
+        ASSERT(m_prev->isHeapObjectAlive());
         m_next->m_prev = m_prev;
         m_prev->m_next = m_next;
     }
@@ -293,7 +276,7 @@ class CrossThreadPersistent;
 //
 // We have to construct and destruct Persistent with default RootsAccessor in
 // the same thread.
-template<typename T, typename RootsAccessor /* = ThreadLocalPersistents<ThreadingTrait<T>::Affinity > */ >
+template<typename T, typename RootsAccessor /*= ThreadLocalPersistents<ThreadingTrait<T>::Affinity>*/>
 class Persistent : public PersistentBase<RootsAccessor, Persistent<T, RootsAccessor>> {
 public:
     Persistent() : m_raw(nullptr) { }
@@ -426,7 +409,32 @@ class CrossThreadPersistent : public Persistent<T, GlobalPersistents> {
 public:
     CrossThreadPersistent(T* raw) : Persistent<T, GlobalPersistents>(raw) { }
 
-    using Persistent<T, GlobalPersistents>::operator=;
+    CrossThreadPersistent& operator=(const CrossThreadPersistent& other)
+    {
+        Persistent<T, GlobalPersistents>::operator=(other);
+        return *this;
+    }
+
+    template<typename U>
+    CrossThreadPersistent& operator=(const Persistent<U, GlobalPersistents>& other)
+    {
+        Persistent<T, GlobalPersistents>::operator=(other);
+        return *this;
+    }
+
+    template<typename U>
+    CrossThreadPersistent& operator=(const Member<U>& other)
+    {
+        Persistent<T, GlobalPersistents>::operator=(other);
+        return *this;
+    }
+
+    template<typename U>
+    CrossThreadPersistent& operator=(const RawPtr<U>& other)
+    {
+        Persistent<T, GlobalPersistents>::operator=(other);
+        return *this;
+    }
 };
 
 // FIXME: derive affinity based on the collection.
@@ -444,7 +452,8 @@ public:
     template<typename OtherCollection>
     PersistentHeapCollectionBase(const OtherCollection& other) : Collection(other) { }
 
-    void trace(Visitor* visitor)
+    template<typename VisitorDispatcher>
+    void trace(VisitorDispatcher visitor)
     {
 #if ENABLE(GC_PROFILING)
         visitor->setHostInfo(this, "PersistentHeapCollectionBase");
@@ -775,6 +784,7 @@ public:
 #define RawPtrWillBeMember blink::Member
 #define RawPtrWillBePersistent blink::Persistent
 #define RawPtrWillBeWeakMember blink::WeakMember
+#define OwnPtrWillBeCrossThreadPersistent blink::CrossThreadPersistent
 #define OwnPtrWillBeMember blink::Member
 #define OwnPtrWillBePersistent blink::Persistent
 #define OwnPtrWillBeRawPtr WTF::RawPtr
@@ -824,7 +834,7 @@ template<typename T> T* adoptPtrWillBeNoop(T* ptr)
     return ptr;
 }
 
-#define WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED // do nothing when oilpan is enabled.
+#define WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(type) // do nothing when oilpan is enabled.
 #define DECLARE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(type) // do nothing
 #define DECLARE_EMPTY_VIRTUAL_DESTRUCTOR_WILL_BE_REMOVED(type) // do nothing
 #define DEFINE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(type) // do nothing
@@ -853,6 +863,7 @@ template<typename T> T* adoptPtrWillBeNoop(T* ptr)
 #define RawPtrWillBeMember WTF::RawPtr
 #define RawPtrWillBePersistent WTF::RawPtr
 #define RawPtrWillBeWeakMember WTF::RawPtr
+#define OwnPtrWillBeCrossThreadPersistent WTF::OwnPtr
 #define OwnPtrWillBeMember WTF::OwnPtr
 #define OwnPtrWillBePersistent WTF::OwnPtr
 #define OwnPtrWillBeRawPtr WTF::OwnPtr
@@ -891,7 +902,7 @@ template<typename T> T* adoptPtrWillBeNoop(T* ptr)
 template<typename T> PassRefPtrWillBeRawPtr<T> adoptRefWillBeNoop(T* ptr) { return adoptRef(ptr); }
 template<typename T> PassOwnPtrWillBeRawPtr<T> adoptPtrWillBeNoop(T* ptr) { return adoptPtr(ptr); }
 
-#define WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED WTF_MAKE_FAST_ALLOCATED
+#define WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(type) WTF_MAKE_FAST_ALLOCATED(type)
 #define DECLARE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(type) \
     public:                                            \
         ~type();                                       \
@@ -908,84 +919,6 @@ template<typename T> PassOwnPtrWillBeRawPtr<T> adoptPtrWillBeNoop(T* ptr) { retu
     DEFINE_STATIC_REF(type, name, arguments)
 
 #endif // ENABLE(OILPAN)
-
-template<typename T>
-class TraceEagerlyTrait<Member<T>> {
-public:
-    static const bool value = TraceEagerlyTrait<T>::value;
-};
-
-template<typename T>
-class TraceEagerlyTrait<WeakMember<T>> {
-public:
-    static const bool value = TraceEagerlyTrait<T>::value;
-};
-
-template<typename T>
-class TraceEagerlyTrait<Persistent<T>> {
-public:
-    static const bool value = TraceEagerlyTrait<T>::value;
-};
-
-template<typename T>
-class TraceEagerlyTrait<CrossThreadPersistent<T>> {
-public:
-    static const bool value = TraceEagerlyTrait<T>::value;
-};
-
-template<typename T, typename U, typename V, typename W, typename X>
-class TraceEagerlyTrait<HeapHashMap<T, U, V, W, X>> {
-public:
-    static const bool value = MARKER_EAGER_TRACING || TraceEagerlyTrait<T>::value || TraceEagerlyTrait<U>::value;
-};
-
-template<typename T, typename U, typename V>
-class TraceEagerlyTrait<HeapHashSet<T, U, V>> {
-public:
-    static const bool value = MARKER_EAGER_TRACING || TraceEagerlyTrait<T>::value;
-};
-
-template<typename T, typename U, typename V>
-class TraceEagerlyTrait<HeapLinkedHashSet<T, U, V>> {
-public:
-    static const bool value = MARKER_EAGER_TRACING || TraceEagerlyTrait<T>::value;
-};
-
-template<typename T, size_t inlineCapacity, typename U>
-class TraceEagerlyTrait<HeapListHashSet<T, inlineCapacity, U>> {
-public:
-    static const bool value = MARKER_EAGER_TRACING || TraceEagerlyTrait<T>::value;
-};
-
-template<typename T, size_t inlineCapacity>
-class TraceEagerlyTrait<WTF::ListHashSetNode<T, HeapListHashSetAllocator<T, inlineCapacity>>> {
-public:
-    static const bool value = false;
-};
-
-template<typename T, size_t inlineCapacity>
-class TraceEagerlyTrait<HeapVector<T, inlineCapacity>> {
-public:
-    static const bool value = MARKER_EAGER_TRACING || TraceEagerlyTrait<T>::value;
-};
-
-template<typename T, typename U>
-class TraceEagerlyTrait<HeapVectorBacking<T, U>> {
-public:
-    static const bool value = MARKER_EAGER_TRACING || TraceEagerlyTrait<T>::value;
-};
-
-template<typename T, size_t inlineCapacity>
-class TraceEagerlyTrait<HeapDeque<T, inlineCapacity>> {
-public:
-    static const bool value = MARKER_EAGER_TRACING || TraceEagerlyTrait<T>::value;
-};
-
-template<typename T, typename U, typename V>
-class TraceEagerlyTrait<HeapHashCountedSet<T, U, V>> {
-public:
-    static const bool value = MARKER_EAGER_TRACING || TraceEagerlyTrait<T>::value;
-};
 
 } // namespace blink
 
@@ -1028,7 +961,6 @@ template <typename T, size_t inlineCapacity> struct VectorTraits<blink::HeapDequ
 };
 
 template<typename T> struct HashTraits<blink::Member<T>> : SimpleClassHashTraits<blink::Member<T>> {
-    static const bool needsDestruction = false;
     // FIXME: The distinction between PeekInType and PassInType is there for
     // the sake of the reference counting handles. When they are gone the two
     // types can be merged into PassInType.
@@ -1079,13 +1011,15 @@ template<typename T> struct HashTraits<blink::WeakMember<T>> : SimpleClassHashTr
 
     static PeekOutType peek(const blink::WeakMember<T>& value) { return value; }
     static PassOutType passOut(const blink::WeakMember<T>& value) { return value; }
-    static bool traceInCollection(blink::Visitor* visitor, blink::WeakMember<T>& weakMember, ShouldWeakPointersBeMarkedStrongly strongify)
+
+    template<typename VisitorDispatcher>
+    static bool traceInCollection(VisitorDispatcher visitor, blink::WeakMember<T>& weakMember, ShouldWeakPointersBeMarkedStrongly strongify)
     {
         if (strongify == WeakPointersActStrong) {
             visitor->trace(weakMember.get()); // Strongified visit.
             return false;
         }
-        return !visitor->isAlive(weakMember);
+        return !visitor->isHeapObjectAlive(weakMember);
     }
 };
 
