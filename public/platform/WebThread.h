@@ -28,6 +28,10 @@
 #include "WebCommon.h"
 #include <stdint.h>
 
+#ifdef INSIDE_BLINK
+#include "wtf/Functional.h"
+#endif
+
 namespace blink {
 class WebTraceLocation;
 
@@ -40,6 +44,14 @@ typedef uintptr_t PlatformThreadId;
 // run.
 class BLINK_PLATFORM_EXPORT WebThread {
 public:
+    // An IdleTask is passed a deadline in CLOCK_MONOTONIC seconds and is
+    // expected to complete before this deadline.
+    class IdleTask {
+    public:
+        virtual ~IdleTask() { }
+        virtual void run(double deadlineSeconds) = 0;
+    };
+
     class BLINK_PLATFORM_EXPORT Task {
     public:
         virtual ~Task() { }
@@ -76,10 +88,11 @@ public:
 
     virtual ~WebThread() { }
 
-    // FIXME: Remove these deprecated entry points once all the clients have
-    // been moved over (http://crbug.com/450977).
-    virtual void postTask(Task*);
-    virtual void postDelayedTask(Task*, long long delayMs);
+#ifdef INSIDE_BLINK
+    // Helpers for posting bound functions as tasks.
+    void postTask(const WebTraceLocation&, PassOwnPtr<Function<void()>>);
+    void postDelayedTask(const WebTraceLocation&, PassOwnPtr<Function<void()>>, long long delayMs);
+#endif
 };
 
 } // namespace blink

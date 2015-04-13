@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2015 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -28,16 +28,19 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebSandboxSupport_h
-#define WebSandboxSupport_h
+#ifndef WebTopControlsState_h
+#define WebTopControlsState_h
 
 namespace blink {
 
-// Empty class, as we need it to compile.
-class WebSandboxSupport {
-public:
+// Represents Top Controls State. Values should be equivalent to
+// Chromium and CC versions namely: |content::TopControlsState|, and
+// |cc::TopControlsState|
+enum WebTopControlsState {
+    WebTopControlsShown = 1,
+    WebTopControlsHidden = 2,
+    WebTopControlsBoth = 3
 };
 
 } // namespace blink
-
 #endif

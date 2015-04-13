@@ -48,12 +48,16 @@
 #include "WebGraphicsContext3D.h"
 #include "WebLocalizedString.h"
 #include "WebPlatformEventType.h"
+#include "WebSize.h"
 #include "WebSpeechSynthesizer.h"
 #include "WebStorageQuotaCallbacks.h"
 #include "WebStorageQuotaType.h"
 #include "WebString.h"
 #include "WebURLError.h"
+#include "WebVR.h"
 #include "WebVector.h"
+
+#include <vector>
 
 class GrContext;
 
@@ -86,6 +90,7 @@ class WebMessagePortChannel;
 class WebMimeRegistry;
 class WebNavigatorConnectProvider;
 class WebNotificationManager;
+class WebPermissionClient;
 class WebPluginListBuilder;
 class WebPrescientNetworking;
 class WebPublicSuffixList;
@@ -96,10 +101,12 @@ class WebSandboxSupport;
 class WebScheduler;
 class WebSecurityOrigin;
 class WebScrollbarBehavior;
+class WebServiceWorkerCacheStorage;
 class WebSocketHandle;
 class WebSpeechSynthesizer;
 class WebSpeechSynthesizerClient;
 class WebStorageNamespace;
+class WebSyncProvider;
 struct WebFloatPoint;
 class WebThemeEngine;
 class WebThread;
@@ -107,7 +114,6 @@ class WebURL;
 class WebURLLoader;
 class WebUnitTestSupport;
 class WebWaitableEvent;
-class WebWorkerRunLoop;
 struct WebLocalizedString;
 struct WebSize;
 
@@ -190,6 +196,9 @@ public:
     // Returns the space available for the given origin
     virtual long long databaseGetSpaceAvailableForOrigin(const WebString& originIdentifier) { return 0; }
 
+    // Set the size of the given database file
+    virtual bool databaseSetFileSize(const WebString& vfsFileName, long long size) { return false; }
+
 
     // DOM Storage --------------------------------------------------
 
@@ -214,10 +223,29 @@ public:
     virtual WebIDBFactory* idbFactory() { return 0; }
 
 
+    // Cache Storage ----------------------------------------------------------
+
+    // The caller is responsible for deleting the returned object.
+    virtual WebServiceWorkerCacheStorage* cacheStorage(const WebString& originIdentifier) { return nullptr; }
+
     // Gamepad -------------------------------------------------------------
 
     virtual void sampleGamepads(WebGamepads& into) { into.length = 0; }
 
+
+    // WebVR -------------------------------------------------------------
+
+    virtual void getVRDevices(WebVector<blink::WebVRDevice>* devices) { };
+
+    virtual void getHMDSensorState(unsigned index, blink::WebHMDSensorState& into) { }
+
+    virtual void resetVRSensor(unsigned index) { }
+
+    virtual void getVRRenderTargetRects(unsigned index,
+        blink::WebVRFieldOfView leftFov,
+        blink::WebVRFieldOfView rightFov,
+        blink::WebVRVector4* leftRect,
+        blink::WebVRVector4* rightRect) { };
 
     // History -------------------------------------------------------------
 
@@ -306,7 +334,7 @@ public:
     virtual WebString userAgent() { return WebString(); }
 
     // A suggestion to cache this metadata in association with this URL.
-    virtual void cacheMetadata(const WebURL&, double responseTime, const char* data, size_t dataSize) { }
+    virtual void cacheMetadata(const WebURL&, int64 responseTime, const char* data, size_t dataSize) { }
 
     // Returns the decoded data url if url had a supported mimetype and parsing was successful.
     virtual WebData parseDataURL(const WebURL&, WebString& mimetype, WebString& charset) { return WebData(); }
@@ -420,9 +448,6 @@ public:
     virtual void setSharedTimerFiredFunction(SharedTimerFunction timerFunction) { }
     virtual void setSharedTimerFireInterval(double) { }
     virtual void stopSharedTimer() { }
-
-    // Callable from a background WebKit thread. Deprecated: use mainThread()->postTask() instead.
-    virtual void callOnMainThread(void (*func)(void*), void* context) { }
 
     // Returns an interface to the main thread. Can be null if blink was initialized on a thread without a message loop.
     BLINK_PLATFORM_EXPORT WebThread* mainThread() const;
@@ -545,7 +570,8 @@ public:
     virtual void histogramEnumeration(const char* name, int sample, int boundaryValue) { }
     // Unlike enumeration histograms, sparse histograms only allocate memory for non-empty buckets.
     virtual void histogramSparse(const char* name, int sample) { }
-
+    // Record to RAPPOR.
+    virtual void recordRappor(const char* metric, const WebString& sample) { }
 
     // GPU ----------------------------------------------------------------
     //
@@ -589,8 +615,8 @@ public:
 
     // WebWorker ----------------------------------------------------------
 
-    virtual void didStartWorkerRunLoop(const WebWorkerRunLoop&) { }
-    virtual void didStopWorkerRunLoop(const WebWorkerRunLoop&) { }
+    virtual void didStartWorkerRunLoop() { }
+    virtual void didStopWorkerRunLoop() { }
 
     // WebCrypto ----------------------------------------------------------
 
@@ -662,6 +688,15 @@ public:
     // navigator.connect --------------------------------------------------
 
     virtual WebNavigatorConnectProvider* navigatorConnectProvider() { return 0; }
+
+    // Permissions --------------------------------------------------------
+
+    virtual WebPermissionClient* permissionClient() { return 0; }
+
+
+    // Background Sync API------------------------------------------------------------
+
+    virtual WebSyncProvider* backgroundSyncProvider() { return 0; }
 
 protected:
     BLINK_PLATFORM_EXPORT Platform();
