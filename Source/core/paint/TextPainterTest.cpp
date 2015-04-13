@@ -9,10 +9,10 @@
 #include "core/CSSValueKeywords.h"
 #include "core/css/CSSPrimitiveValue.h"
 #include "core/frame/Settings.h"
-#include "core/layout/style/ShadowData.h"
-#include "core/layout/style/ShadowList.h"
-#include "core/rendering/RenderText.h"
-#include "core/rendering/RenderingTestHelper.h"
+#include "core/layout/LayoutTestHelper.h"
+#include "core/layout/LayoutText.h"
+#include "core/style/ShadowData.h"
+#include "core/style/ShadowList.h"
 #include <gtest/gtest.h>
 
 namespace blink {
@@ -23,19 +23,19 @@ public:
     TextPainterTest() : m_renderText(nullptr) { }
 
 protected:
-    RenderText* renderText() { return m_renderText; }
+    LayoutText* renderText() { return m_renderText; }
 
 private:
     virtual void SetUp() override
     {
         RenderingTest::SetUp();
         setBodyInnerHTML("Hello world");
-        m_renderText = toRenderText(document().body()->firstChild()->renderer());
+        m_renderText = toLayoutText(document().body()->firstChild()->layoutObject());
         ASSERT_TRUE(m_renderText);
         ASSERT_EQ("Hello world", m_renderText->text());
     }
 
-    RenderText* m_renderText;
+    LayoutText* m_renderText;
 };
 
 TEST_F(TextPainterTest, TextPaintingStyle_Simple)

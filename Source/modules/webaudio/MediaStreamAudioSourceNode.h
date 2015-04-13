@@ -27,10 +27,10 @@
 
 #if ENABLE(WEB_AUDIO)
 
-#include "platform/audio/AudioSourceProvider.h"
-#include "platform/audio/AudioSourceProviderClient.h"
 #include "modules/mediastream/MediaStream.h"
 #include "modules/webaudio/AudioSourceNode.h"
+#include "platform/audio/AudioSourceProvider.h"
+#include "platform/audio/AudioSourceProviderClient.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/Threading.h"
@@ -39,30 +39,27 @@ namespace blink {
 
 class AudioContext;
 
-class MediaStreamAudioSourceNode final : public AudioSourceNode, public AudioSourceProviderClient {
-    DEFINE_WRAPPERTYPEINFO();
-    USING_GARBAGE_COLLECTED_MIXIN(MediaStreamAudioSourceNode);
+class MediaStreamAudioSourceHandler final : public AudioHandler {
 public:
-    static MediaStreamAudioSourceNode* create(AudioContext*, MediaStream*, MediaStreamTrack*, PassOwnPtr<AudioSourceProvider>);
-
-    virtual ~MediaStreamAudioSourceNode();
+    static MediaStreamAudioSourceHandler* create(AudioNode&, MediaStream&, MediaStreamTrack*, PassOwnPtr<AudioSourceProvider>);
+    virtual ~MediaStreamAudioSourceHandler();
 
     MediaStream* mediaStream() { return m_mediaStream.get(); }
 
-    // AudioNode
+    // AudioHandler
     virtual void dispose() override;
     virtual void process(size_t framesToProcess) override;
 
-    // AudioSourceProviderClient
-    virtual void setFormat(size_t numberOfChannels, float sampleRate) override;
+    // A helper for AudioSourceProviderClient implementation of
+    // MediaStreamAudioSourceNode.
+    void setFormat(size_t numberOfChannels, float sampleRate);
 
     AudioSourceProvider* audioSourceProvider() const { return m_audioSourceProvider.get(); }
 
     DECLARE_VIRTUAL_TRACE();
 
 private:
-    MediaStreamAudioSourceNode(AudioContext*, MediaStream*, MediaStreamTrack*, PassOwnPtr<AudioSourceProvider>);
-
+    MediaStreamAudioSourceHandler(AudioNode&, MediaStream&, MediaStreamTrack*, PassOwnPtr<AudioSourceProvider>);
     // As an audio source, we will never propagate silence.
     virtual bool propagatesSilence() const override { return false; }
 
@@ -73,6 +70,23 @@ private:
     Mutex m_processLock;
 
     unsigned m_sourceNumberOfChannels;
+};
+
+class MediaStreamAudioSourceNode final : public AudioSourceNode, public AudioSourceProviderClient {
+    DEFINE_WRAPPERTYPEINFO();
+    USING_GARBAGE_COLLECTED_MIXIN(MediaStreamAudioSourceNode);
+public:
+    static MediaStreamAudioSourceNode* create(AudioContext&, MediaStream&, MediaStreamTrack*, PassOwnPtr<AudioSourceProvider>);
+    DECLARE_VIRTUAL_TRACE();
+    MediaStreamAudioSourceHandler& mediaStreamAudioSourceHandler() const;
+
+    MediaStream* mediaStream() const;
+
+    // AudioSourceProviderClient functions:
+    void setFormat(size_t numberOfChannels, float sampleRate) override;
+
+private:
+    MediaStreamAudioSourceNode(AudioContext&, MediaStream&, MediaStreamTrack*, PassOwnPtr<AudioSourceProvider>);
 };
 
 } // namespace blink

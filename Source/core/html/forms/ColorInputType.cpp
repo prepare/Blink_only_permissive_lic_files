@@ -35,8 +35,8 @@
 #include "bindings/core/v8/ScriptController.h"
 #include "core/CSSPropertyNames.h"
 #include "core/InputTypeNames.h"
-#include "core/events/MouseEvent.h"
 #include "core/dom/shadow/ShadowRoot.h"
+#include "core/events/MouseEvent.h"
 #include "core/html/HTMLDataListElement.h"
 #include "core/html/HTMLDataListOptionsCollection.h"
 #include "core/html/HTMLDivElement.h"
@@ -45,8 +45,8 @@
 #include "core/html/forms/ColorChooser.h"
 #include "core/inspector/ConsoleMessage.h"
 #include "core/layout/LayoutTheme.h"
+#include "core/layout/LayoutView.h"
 #include "core/page/Chrome.h"
-#include "core/rendering/RenderView.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/UserGestureIndicator.h"
 #include "platform/graphics/Color.h"
@@ -85,7 +85,7 @@ ColorInputType::~ColorInputType()
 {
 }
 
-void ColorInputType::trace(Visitor* visitor)
+DEFINE_TRACE(ColorInputType)
 {
     visitor->trace(m_chooser);
     BaseClickableWithKeyInputType::trace(visitor);
@@ -138,7 +138,7 @@ void ColorInputType::createShadowSubtree()
     RefPtrWillBeRawPtr<HTMLDivElement> colorSwatch = HTMLDivElement::create(document);
     colorSwatch->setShadowPseudoId(AtomicString("-webkit-color-swatch", AtomicString::ConstructFromLiteral));
     wrapperElement->appendChild(colorSwatch.release());
-    element().userAgentShadowRoot()->appendChild(wrapperElement.release());
+    element().closedShadowRoot()->appendChild(wrapperElement.release());
 
     element().updateView();
 }
@@ -157,7 +157,7 @@ void ColorInputType::setValue(const String& value, bool valueChanged, TextFieldE
 
 void ColorInputType::handleDOMActivateEvent(Event* event)
 {
-    if (element().isDisabledFormControl() || !element().renderer())
+    if (element().isDisabledFormControl() || !element().layoutObject())
         return;
 
     if (!UserGestureIndicator::processingUserGesture())
@@ -227,7 +227,7 @@ void ColorInputType::updateView()
 
 HTMLElement* ColorInputType::shadowColorSwatch() const
 {
-    ShadowRoot* shadow = element().userAgentShadowRoot();
+    ShadowRoot* shadow = element().closedShadowRoot();
     return shadow ? toHTMLElement(shadow->firstChild()->firstChild()) : 0;
 }
 
@@ -236,9 +236,9 @@ Element& ColorInputType::ownerElement() const
     return element();
 }
 
-IntRect ColorInputType::elementRectRelativeToRootView() const
+IntRect ColorInputType::elementRectRelativeToViewport() const
 {
-    return element().document().view()->contentsToRootView(element().pixelSnappedBoundingBox());
+    return element().document().view()->contentsToViewport(element().pixelSnappedBoundingBox());
 }
 
 Color ColorInputType::currentColor()
@@ -274,7 +274,7 @@ Vector<ColorSuggestion> ColorInputType::suggestions() const
 
 AXObject* ColorInputType::popupRootAXObject()
 {
-    return m_chooser ? m_chooser->rootAXObject() : 0;
+    return m_chooser ? m_chooser->rootAXObject() : nullptr;
 }
 
 ColorChooserClient* ColorInputType::colorChooserClient()

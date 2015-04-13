@@ -46,12 +46,10 @@ public:
         return adoptPtrWillBeNoop(new WorkerConsoleAgent(injectedScriptManager, workerGlobalScope));
     }
     virtual ~WorkerConsoleAgent();
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
     virtual void enable(ErrorString*) override;
     virtual void clearMessages(ErrorString*) override;
-
-    virtual bool isWorkerAgent() override { return true; }
 
 protected:
     virtual ConsoleMessageStorage* messageStorage() override;
@@ -61,7 +59,6 @@ protected:
 
 private:
     WorkerConsoleAgent(InjectedScriptManager*, WorkerGlobalScope*);
-    virtual void addInspectedNode(ErrorString*, int nodeId) override;
 
     RawPtrWillBeMember<WorkerGlobalScope> m_workerGlobalScope;
 };

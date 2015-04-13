@@ -29,8 +29,8 @@
 #include "config.h"
 #include "modules/accessibility/AXImageMapLink.h"
 
+#include "modules/accessibility/AXLayoutObject.h"
 #include "modules/accessibility/AXObjectCacheImpl.h"
-#include "modules/accessibility/AXRenderObject.h"
 
 namespace blink {
 
@@ -64,10 +64,10 @@ AXObject* AXImageMapLink::computeParent() const
     if (m_parent)
         return m_parent;
 
-    if (!m_mapElement.get() || !m_mapElement->renderer())
+    if (!m_mapElement.get() || !m_mapElement->layoutObject())
         return 0;
 
-    return axObjectCache()->getOrCreate(m_mapElement->renderer());
+    return axObjectCache()->getOrCreate(m_mapElement->layoutObject());
 }
 
 AccessibilityRole AXImageMapLink::roleValue() const
@@ -100,7 +100,7 @@ KURL AXImageMapLink::url() const
     return m_areaElement->href();
 }
 
-String AXImageMapLink::accessibilityDescription() const
+String AXImageMapLink::deprecatedAccessibilityDescription() const
 {
     const AtomicString& ariaLabel = getAttribute(aria_labelAttr);
     if (!ariaLabel.isEmpty())
@@ -112,7 +112,7 @@ String AXImageMapLink::accessibilityDescription() const
     return String();
 }
 
-String AXImageMapLink::title(TextUnderElementMode mode) const
+String AXImageMapLink::deprecatedTitle(TextUnderElementMode mode) const
 {
     const AtomicString& title = getAttribute(titleAttr);
     if (!title.isEmpty())
@@ -129,16 +129,16 @@ LayoutRect AXImageMapLink::elementRect() const
     if (!m_mapElement.get() || !m_areaElement.get())
         return LayoutRect();
 
-    LayoutObject* renderer;
-    if (m_parent && m_parent->isAXRenderObject())
-        renderer = toAXRenderObject(m_parent)->renderer();
+    LayoutObject* layoutObject;
+    if (m_parent && m_parent->isAXLayoutObject())
+        layoutObject = toAXLayoutObject(m_parent)->layoutObject();
     else
-        renderer = m_mapElement->renderer();
+        layoutObject = m_mapElement->layoutObject();
 
-    if (!renderer)
+    if (!layoutObject)
         return LayoutRect();
 
-    return m_areaElement->computeRect(renderer);
+    return m_areaElement->computeRect(layoutObject);
 }
 
 } // namespace blink

@@ -32,14 +32,13 @@
 frontend_domain_class = (
 """    class $domainClassName {
     public:
+        static $domainClassName* from(InspectorFrontend* frontend) { return &(frontend->m_$domainFieldName) ;}
         $domainClassName(InspectorFrontendChannel* inspectorFrontendChannel) : m_inspectorFrontendChannel(inspectorFrontendChannel) { }
 ${frontendDomainMethodDeclarations}
         void flush() { m_inspectorFrontendChannel->flush(); }
     private:
         InspectorFrontendChannel* m_inspectorFrontendChannel;
     };
-
-    $domainClassName* $domainFieldName() { return &m_$domainFieldName; }
 
 """)
 
@@ -145,13 +144,13 @@ class InspectorBackendDispatcher: public RefCountedWillBeGarbageCollectedFinaliz
 public:
     static PassRefPtrWillBeRawPtr<InspectorBackendDispatcher> create(InspectorFrontendChannel* inspectorFrontendChannel);
     virtual ~InspectorBackendDispatcher() { }
-    virtual void trace(Visitor*) { }
+    DEFINE_INLINE_VIRTUAL_TRACE() { }
 
     class CallbackBase: public RefCountedWillBeGarbageCollectedFinalized<CallbackBase> {
     public:
         CallbackBase(PassRefPtrWillBeRawPtr<InspectorBackendDispatcherImpl> backendImpl, int id);
         virtual ~CallbackBase();
-        virtual void trace(Visitor*);
+        DECLARE_VIRTUAL_TRACE();
         void sendFailure(const ErrorString&);
         bool isActive();
 
@@ -198,7 +197,7 @@ $methodNamesEnumContent
 
 private:
     static const char commandNames[];
-    static const size_t commandNamesIndex[];
+    static const unsigned short commandNamesIndex[];
 };
 
 } // namespace blink
@@ -225,7 +224,7 @@ const char InspectorBackendDispatcher::commandNames[] = {
 $methodNameDeclarations
 };
 
-const size_t InspectorBackendDispatcher::commandNamesIndex[] = {
+const unsigned short InspectorBackendDispatcher::commandNamesIndex[] = {
 $methodNameDeclarationsIndex
 };
 
@@ -468,7 +467,7 @@ InspectorBackendDispatcher::CallbackBase::CallbackBase(PassRefPtrWillBeRawPtr<In
 
 InspectorBackendDispatcher::CallbackBase::~CallbackBase() {}
 
-void InspectorBackendDispatcher::CallbackBase::trace(Visitor* visitor)
+DEFINE_TRACE(InspectorBackendDispatcher::CallbackBase)
 {
     visitor->trace(m_backendImpl);
 }

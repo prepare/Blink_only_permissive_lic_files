@@ -46,12 +46,15 @@ public:
     String method() const;
     KURL url() const;
     Headers* headers() const { return m_headers; }
+    String context() const;
     String referrer() const;
     String mode() const;
     String credentials() const;
 
     // From Request.idl:
     Request* clone(ExceptionState&) const;
+
+    FetchRequestData* passRequestData();
 
     void populateWebServiceWorkerRequest(WebServiceWorkerRequest&) const;
 
@@ -61,19 +64,16 @@ public:
     DECLARE_VIRTUAL_TRACE();
 
 private:
-    // The 'FetchRequestData' object is shared between requests, as it is
-    // immutable to the user after Request creation. Headers are copied.
-    explicit Request(const Request&);
-
     Request(ExecutionContext*, FetchRequestData*);
     Request(ExecutionContext*, const WebServiceWorkerRequest&);
+    Request(ExecutionContext*, FetchRequestData*, Headers*);
 
     static Request* createRequestWithRequestOrString(ExecutionContext*, Request*, const String&, const RequestInit&, ExceptionState&);
     void clearHeaderList();
 
     PassRefPtr<BlobDataHandle> blobDataHandle() const override;
     BodyStreamBuffer* buffer() const override;
-    String contentTypeForBuffer() const override;
+    String mimeType() const override;
 
     const Member<FetchRequestData> m_request;
     const Member<Headers> m_headers;

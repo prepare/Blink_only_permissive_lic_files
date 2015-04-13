@@ -5,11 +5,11 @@
 #include "config.h"
 #include "core/layout/LayoutTheme.h"
 
-#include "core/dom/NodeLayoutStyle.h"
+#include "core/dom/NodeComputedStyle.h"
 #include "core/frame/FrameView.h"
 #include "core/html/HTMLDocument.h"
 #include "core/html/HTMLElement.h"
-#include "core/layout/style/LayoutStyle.h"
+#include "core/style/ComputedStyle.h"
 #include "core/page/FocusController.h"
 #include "core/page/Page.h"
 #include "core/testing/DummyPageHolder.h"
@@ -47,12 +47,12 @@ void LayoutThemeTest::setHtmlInnerHTML(const char* htmlContent)
 
 inline Color outlineColor(Element* element)
 {
-    return element->layoutStyle()->visitedDependentColor(CSSPropertyOutlineColor);
+    return element->computedStyle()->visitedDependentColor(CSSPropertyOutlineColor);
 }
 
 inline EBorderStyle outlineStyle(Element* element)
 {
-    return element->layoutStyle()->outlineStyle();
+    return element->computedStyle()->outlineStyle();
 }
 
 TEST_F(LayoutThemeTest, ChangeFocusRingColor)
@@ -61,7 +61,7 @@ TEST_F(LayoutThemeTest, ChangeFocusRingColor)
 
     Element* span = document().getElementById(AtomicString("span"));
     EXPECT_NE(nullptr, span);
-    EXPECT_NE(nullptr, span->renderer());
+    EXPECT_NE(nullptr, span->layoutObject());
 
     Color customColor = makeRGB(123, 145, 167);
 

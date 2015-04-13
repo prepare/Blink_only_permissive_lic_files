@@ -26,6 +26,7 @@
 #ifndef AutoscrollController_h
 #define AutoscrollController_h
 
+#include "core/CoreExport.h"
 #include "platform/geometry/IntPoint.h"
 #include "wtf/PassOwnPtr.h"
 
@@ -36,7 +37,7 @@ class FrameView;
 class Node;
 class Page;
 class PlatformMouseEvent;
-class RenderBox;
+class LayoutBox;
 class LayoutObject;
 
 enum AutoscrollType {
@@ -50,13 +51,13 @@ enum AutoscrollType {
 };
 
 // AutscrollController handels autoscroll and pan scroll for EventHandler.
-class AutoscrollController {
+class CORE_EXPORT AutoscrollController {
 public:
     static PassOwnPtr<AutoscrollController> create(Page&);
 
     void animate(double monotonicFrameBeginTime);
     bool autoscrollInProgress() const;
-    bool autoscrollInProgress(const RenderBox*) const;
+    bool autoscrollInProgress(const LayoutBox*) const;
     bool panScrollInProgress() const;
     void startAutoscrollForSelection(LayoutObject*);
     void stopAutoscroll();
@@ -65,7 +66,7 @@ public:
     void updateDragAndDrop(Node* targetNode, const IntPoint& eventPosition, double eventTime);
 #if OS(WIN)
     void handleMouseReleaseForPanScrolling(LocalFrame*, const PlatformMouseEvent&);
-    void startPanScrolling(RenderBox*, const IntPoint&);
+    void startPanScrolling(LayoutBox*, const IntPoint&);
 #endif
 
 private:
@@ -78,7 +79,7 @@ private:
 #endif
 
     Page& m_page;
-    RenderBox* m_autoscrollRenderer;
+    LayoutBox* m_autoscrollRenderer;
     AutoscrollType m_autoscrollType;
     IntPoint m_dragAndDropAutoscrollReferencePosition;
     double m_dragAndDropAutoscrollStartTime;

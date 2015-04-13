@@ -143,7 +143,6 @@ void EventSource::connect()
     resourceLoaderOptions.credentialsRequested = m_withCredentials ? ClientRequestedCredentials : ClientDidNotRequestCredentials;
     resourceLoaderOptions.dataBufferingPolicy = DoNotBufferData;
     resourceLoaderOptions.securityOrigin = origin;
-    resourceLoaderOptions.mixedContentBlockingTreatment = TreatAsActiveContent;
 
     InspectorInstrumentation::willSendEventSourceRequest(&executionContext, this);
     // InspectorInstrumentation::documentThreadableLoaderStartedLoadingForClient will be called synchronously.
@@ -440,7 +439,7 @@ PassRefPtrWillBeRawPtr<MessageEvent> EventSource::createMessageEvent()
     return event.release();
 }
 
-void EventSource::trace(Visitor* visitor)
+DEFINE_TRACE(EventSource)
 {
     EventTargetWithInlineData::trace(visitor);
     ActiveDOMObject::trace(visitor);

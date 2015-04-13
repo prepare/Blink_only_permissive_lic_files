@@ -33,11 +33,12 @@
 #ifndef InputType_h
 #define InputType_h
 
+#include "core/CoreExport.h"
+#include "core/frame/UseCounter.h"
 #include "core/html/HTMLTextFormControlElement.h"
 #include "core/html/forms/ColorChooserClient.h"
 #include "core/html/forms/InputTypeView.h"
 #include "core/html/forms/StepRange.h"
-#include "core/frame/UseCounter.h"
 
 namespace blink {
 
@@ -51,9 +52,9 @@ class FormDataList;
 // Do not expose instances of InputType and classes derived from it to classes
 // other than HTMLInputElement.
 // FIXME: InputType should not inherit InputTypeView. It's conceptually wrong.
-class InputType : public InputTypeView {
+class CORE_EXPORT InputType : public InputTypeView {
     WTF_MAKE_NONCOPYABLE(InputType);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(InputType);
 
 public:
     static PassRefPtrWillBeRawPtr<InputType> create(HTMLInputElement&, const AtomicString&);
@@ -146,7 +147,7 @@ public:
 
     // Miscellaneous functions
 
-    virtual bool rendererIsNeeded();
+    virtual bool layoutObjectIsNeeded();
     virtual void countUsage();
     virtual void sanitizeValueInResponseToMinOrMaxAttributeChange();
     virtual bool shouldRespectAlignAttribute();
@@ -175,6 +176,8 @@ public:
     virtual void handleDOMActivateEvent(Event*);
     virtual bool hasLegalLinkAttribute(const QualifiedName&) const;
     virtual const QualifiedName& subResourceAttributeName() const;
+    virtual bool supportsAutocapitalize() const;
+    virtual const AtomicString& defaultAutocapitalize() const;
 
     // Parses the specified string for the type, and return
     // the Decimal value for the parsing result if the parsing
@@ -203,8 +206,8 @@ public:
     void dispatchSimulatedClickIfActive(KeyboardEvent*) const;
 
     // InputTypeView override
-    virtual bool shouldSubmitImplicitly(Event*) override;
-    virtual bool hasCustomFocusLogic() const override;
+    bool shouldSubmitImplicitly(Event*) override;
+    bool hasCustomFocusLogic() const override;
 
     virtual bool shouldDispatchFormControlChangeEvent(String&, String&);
 

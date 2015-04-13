@@ -78,9 +78,9 @@
 #include "core/html/canvas/WebGLUniformLocation.h"
 #include "core/inspector/ConsoleMessage.h"
 #include "core/inspector/InspectorInstrumentation.h"
+#include "core/layout/LayoutBox.h"
 #include "core/loader/FrameLoader.h"
 #include "core/loader/FrameLoaderClient.h"
-#include "core/rendering/RenderBox.h"
 #include "platform/CheckedInt.h"
 #include "platform/NotImplemented.h"
 #include "platform/RuntimeEnabledFeatures.h"
@@ -102,7 +102,7 @@ const double secondsBetweenRestoreAttempts = 1.0;
 const int maxGLErrorsAllowedToConsole = 256;
 const unsigned maxGLActiveContexts = 16;
 
-} // namesapce
+} // namespace
 
 // FIXME: Oilpan: static vectors to heap allocated WebGLRenderingContextBase objects
 // are kept here. This relies on the WebGLRenderingContextBase finalization to
@@ -243,11 +243,6 @@ namespace {
         DrawingBuffer* m_drawingBuffer;
         RawPtrWillBeMember<WebGLFramebuffer> m_framebufferBinding;
     };
-
-    Platform3DObject objectOrZero(WebGLObject* object)
-    {
-        return object ? object->object() : 0;
-    }
 
     GLint clamp(GLint value, GLint min, GLint max)
     {
@@ -502,7 +497,7 @@ private:
 };
 
 class WebGLRenderingContextLostCallback final : public NoBaseWillBeGarbageCollectedFinalized<WebGLRenderingContextLostCallback>, public blink::WebGraphicsContext3D::WebGraphicsContextLostCallback {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(WebGLRenderingContextLostCallback);
 public:
     static PassOwnPtrWillBeRawPtr<WebGLRenderingContextLostCallback> create(WebGLRenderingContextBase* context)
     {
@@ -513,7 +508,7 @@ public:
 
     virtual void onContextLost() { m_context->forceLostContext(WebGLRenderingContextBase::RealLostContext, WebGLRenderingContextBase::Auto); }
 
-    void trace(Visitor* visitor)
+    DEFINE_INLINE_TRACE()
     {
         visitor->trace(m_context);
     }
@@ -526,7 +521,7 @@ private:
 };
 
 class WebGLRenderingContextErrorMessageCallback final : public NoBaseWillBeGarbageCollectedFinalized<WebGLRenderingContextErrorMessageCallback>, public blink::WebGraphicsContext3D::WebGraphicsErrorMessageCallback {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(WebGLRenderingContextErrorMessageCallback);
 public:
     static PassOwnPtrWillBeRawPtr<WebGLRenderingContextErrorMessageCallback> create(WebGLRenderingContextBase* context)
     {
@@ -542,7 +537,7 @@ public:
         InspectorInstrumentation::didFireWebGLErrorOrWarning(m_context->canvas(), message);
     }
 
-    void trace(Visitor* visitor)
+    DEFINE_INLINE_TRACE()
     {
         visitor->trace(m_context);
     }
@@ -578,15 +573,25 @@ PassOwnPtr<blink::WebGraphicsContext3D> WebGLRenderingContextBase::createWebGrap
         shouldFailContextCreationForTesting = false;
         String statusMessage;
         if (!glInfo.contextInfoCollectionFailure.isEmpty()) {
-            statusMessage.append("Could not create a WebGL context.");
+            statusMessage.append("Could not create a WebGL context. ");
             statusMessage.append(glInfo.contextInfoCollectionFailure);
+            String vendorId = String::number(glInfo.vendorId);
+            String deviceId = String::number(glInfo.deviceId);
+            if (vendorId.isEmpty())
+                statusMessage.append("VendorId = Not Available");
+            else
+                statusMessage.append("VendorId = " + vendorId);
+            if (deviceId.isEmpty())
+                statusMessage.append(", DeviceId = Not Available");
+            else
+                statusMessage.append(", DeviceId = " + deviceId);
         } else {
             statusMessage.append("Could not create a WebGL context");
             if (!glInfo.vendorInfo.isEmpty()) {
-                statusMessage.append(" VendorInfo = ");
+                statusMessage.append(", VendorInfo = ");
                 statusMessage.append(glInfo.vendorInfo);
             } else {
-                statusMessage.append(" VendorInfo = Not Available");
+                statusMessage.append(", VendorInfo = Not Available");
             }
             if (!glInfo.rendererInfo.isEmpty()) {
                 statusMessage.append(", RendererInfo = ");
@@ -616,7 +621,6 @@ void WebGLRenderingContextBase::forceNextWebGLContextCreationToFail()
 
 WebGLRenderingContextBase::WebGLRenderingContextBase(HTMLCanvasElement* passedCanvas, PassOwnPtr<blink::WebGraphicsContext3D> context, const WebGLContextAttributes& requestedAttributes)
     : CanvasRenderingContext(passedCanvas)
-    , ActiveDOMObject(&passedCanvas->document())
     , m_contextLostMode(NotLostContext)
     , m_autoRecoveryMethod(Manual)
     , m_dispatchContextLostEventTimer(this, &WebGLRenderingContextBase::dispatchContextLostEvent)
@@ -650,7 +654,6 @@ WebGLRenderingContextBase::WebGLRenderingContextBase(HTMLCanvasElement* passedCa
 
     drawingBuffer()->bind();
     setupFlags();
-    initializeNewContext();
 }
 
 PassRefPtr<DrawingBuffer> WebGLRenderingContextBase::createDrawingBuffer(PassOwnPtr<blink::WebGraphicsContext3D> context)
@@ -856,11 +859,11 @@ void WebGLRenderingContextBase::markContextChanged(ContentChangeType changeType)
 
     drawingBuffer()->markContentsChanged();
 
-    RenderBox* renderBox = canvas()->renderBox();
-    if (renderBox && renderBox->hasAcceleratedCompositing()) {
+    LayoutBox* layoutBox = canvas()->layoutBox();
+    if (layoutBox && layoutBox->hasAcceleratedCompositing()) {
         m_markedCanvasDirty = true;
         canvas()->clearCopiedImage();
-        renderBox->contentChanged(changeType);
+        layoutBox->contentChanged(changeType);
     } else {
         if (!m_markedCanvasDirty) {
             m_markedCanvasDirty = true;
@@ -1114,8 +1117,30 @@ bool WebGLRenderingContextBase::checkObjectToBeBound(const char* functionName, W
             synthesizeGLError(GL_INVALID_OPERATION, functionName, "object not from this context");
             return false;
         }
-        deleted = !object->object();
+        deleted = !object->hasObject();
     }
+    return true;
+}
+
+bool WebGLRenderingContextBase::validateAndUpdateBufferBindTarget(const char* functionName, GLenum target, WebGLBuffer* buffer)
+{
+    if (buffer && buffer->getTarget() && buffer->getTarget() != target) {
+        synthesizeGLError(GL_INVALID_OPERATION, functionName, "buffers can not be used with multiple targets");
+        return false;
+    }
+
+    switch (target) {
+    case GL_ARRAY_BUFFER:
+        m_boundArrayBuffer = buffer;
+        break;
+    case GL_ELEMENT_ARRAY_BUFFER:
+        m_boundVertexArrayObject->setElementArrayBuffer(buffer);
+        break;
+    default:
+        synthesizeGLError(GL_INVALID_ENUM, functionName, "invalid target");
+        return false;
+    }
+
     return true;
 }
 
@@ -1126,18 +1151,8 @@ void WebGLRenderingContextBase::bindBuffer(GLenum target, WebGLBuffer* buffer)
         return;
     if (deleted)
         buffer = 0;
-    if (buffer && buffer->getTarget() && buffer->getTarget() != target) {
-        synthesizeGLError(GL_INVALID_OPERATION, "bindBuffer", "buffers can not be used with multiple targets");
+    if (!validateAndUpdateBufferBindTarget("bindBuffer", target, buffer))
         return;
-    }
-    if (target == GL_ARRAY_BUFFER)
-        m_boundArrayBuffer = buffer;
-    else if (target == GL_ELEMENT_ARRAY_BUFFER)
-        m_boundVertexArrayObject->setElementArrayBuffer(buffer);
-    else {
-        synthesizeGLError(GL_INVALID_ENUM, "bindBuffer", "invalid target");
-        return;
-    }
 
     webContext()->bindBuffer(target, objectOrZero(buffer));
     if (buffer)
@@ -1149,23 +1164,16 @@ void WebGLRenderingContextBase::bindFramebuffer(GLenum target, WebGLFramebuffer*
     bool deleted;
     if (!checkObjectToBeBound("bindFramebuffer", buffer, deleted))
         return;
+
     if (deleted)
         buffer = 0;
+
     if (target != GL_FRAMEBUFFER) {
         synthesizeGLError(GL_INVALID_ENUM, "bindFramebuffer", "invalid target");
         return;
     }
-    m_framebufferBinding = buffer;
-    drawingBuffer()->setFramebufferBinding(objectOrZero(m_framebufferBinding.get()));
-    if (!m_framebufferBinding) {
-        // Instead of binding fb 0, bind the drawing buffer.
-        drawingBuffer()->bind();
-    } else {
-        webContext()->bindFramebuffer(target, objectOrZero(buffer));
-    }
-    if (buffer)
-        buffer->setHasEverBeenBound();
-    applyStencilTest();
+
+    setFramebuffer(target, buffer);
 }
 
 void WebGLRenderingContextBase::bindRenderbuffer(GLenum target, WebGLRenderbuffer* renderBuffer)
@@ -1687,7 +1695,7 @@ bool WebGLRenderingContextBase::deleteObject(WebGLObject* object)
         synthesizeGLError(GL_INVALID_OPERATION, "delete", "object does not belong to this context");
         return false;
     }
-    if (object->object()) {
+    if (object->hasObject()) {
         // We need to pass in context here because we want
         // things in this context unbound.
         object->deleteObject(webContext());
@@ -1849,7 +1857,7 @@ bool WebGLRenderingContextBase::validateRenderingState(const char* functionName)
 
 bool WebGLRenderingContextBase::validateWebGLObject(const char* functionName, WebGLObject* object)
 {
-    if (!object || !object->object()) {
+    if (!object || !object->hasObject()) {
         synthesizeGLError(GL_INVALID_VALUE, functionName, "no object or object deleted");
         return false;
     }
@@ -2148,25 +2156,45 @@ GLint WebGLRenderingContextBase::getAttribLocation(WebGLProgram* program, const 
     return webContext()->getAttribLocation(objectOrZero(program), name.utf8().data());
 }
 
+bool WebGLRenderingContextBase::validateBufferTarget(const char* functionName, GLenum target)
+{
+    switch (target) {
+    case GL_ARRAY_BUFFER:
+    case GL_ELEMENT_ARRAY_BUFFER:
+        return true;
+    default:
+        synthesizeGLError(GL_INVALID_ENUM, functionName, "invalid target");
+        return false;
+    }
+}
+
 ScriptValue WebGLRenderingContextBase::getBufferParameter(ScriptState* scriptState, GLenum target, GLenum pname)
 {
-    if (isContextLost())
+    if (isContextLost() || !validateBufferTarget("getBufferParameter", target))
         return ScriptValue::createNull(scriptState);
-    if (target != GL_ARRAY_BUFFER && target != GL_ELEMENT_ARRAY_BUFFER) {
-        synthesizeGLError(GL_INVALID_ENUM, "getBufferParameter", "invalid target");
-        return ScriptValue::createNull(scriptState);
-    }
 
-    if (pname != GL_BUFFER_SIZE && pname != GL_BUFFER_USAGE) {
+    switch (pname) {
+    case GL_BUFFER_USAGE:
+        {
+            GLint value = 0;
+            webContext()->getBufferParameteriv(target, pname, &value);
+            return WebGLAny(scriptState, static_cast<unsigned>(value));
+        }
+    case GL_BUFFER_SIZE:
+        if (!isWebGL2OrHigher()) {
+            GLint value = 0;
+            webContext()->getBufferParameteriv(target, pname, &value);
+            return WebGLAny(scriptState, value);
+        }
+        {
+            GLint64 value = 0;
+            webContext()->getBufferParameteri64v(target, pname, &value);
+            return WebGLAny(scriptState, static_cast<GLint64>(value));
+        }
+    default:
         synthesizeGLError(GL_INVALID_ENUM, "getBufferParameter", "invalid parameter name");
         return ScriptValue::createNull(scriptState);
     }
-
-    GLint value = 0;
-    webContext()->getBufferParameteriv(target, pname, &value);
-    if (pname == GL_BUFFER_SIZE)
-        return WebGLAny(scriptState, value);
-    return WebGLAny(scriptState, static_cast<unsigned>(value));
 }
 
 void WebGLRenderingContextBase::getContextAttributes(Nullable<WebGLContextAttributes>& result)
@@ -2281,7 +2309,7 @@ ScriptValue WebGLRenderingContextBase::getFramebufferAttachmentParameter(ScriptS
                 return WebGLAny(scriptState, value);
             }
         case GL_FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING_EXT:
-            if (extensionEnabled(EXTsRGBName)) {
+            if (extensionEnabled(EXTsRGBName) || isWebGL2OrHigher()) {
                 GLint value = 0;
                 webContext()->getFramebufferAttachmentParameteriv(target, attachment, pname, &value);
                 return WebGLAny(scriptState, value);
@@ -2299,7 +2327,7 @@ ScriptValue WebGLRenderingContextBase::getFramebufferAttachmentParameter(ScriptS
         case GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME:
             return WebGLAny(scriptState, PassRefPtrWillBeRawPtr<WebGLObject>(object));
         case GL_FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING_EXT:
-            if (extensionEnabled(EXTsRGBName)) {
+            if (extensionEnabled(EXTsRGBName) || isWebGL2OrHigher()) {
                 GLint value = 0;
                 webContext()->getFramebufferAttachmentParameteriv(target, attachment, pname, &value);
                 return WebGLAny(scriptState, value);
@@ -2524,7 +2552,7 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* scriptState, GL
         synthesizeGLError(GL_INVALID_ENUM, "getParameter", "invalid parameter name, OES_vertex_array_object not enabled");
         return ScriptValue::createNull(scriptState);
     case GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT: // EXT_texture_filter_anisotropic
-        if (extensionEnabled(EXTTextureFilterAnisotropicName) || isWebGL2OrHigher())
+        if (extensionEnabled(EXTTextureFilterAnisotropicName))
             return getUnsignedIntParameter(scriptState, GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT);
         synthesizeGLError(GL_INVALID_ENUM, "getParameter", "invalid parameter name, EXT_texture_filter_anisotropic not enabled");
         return ScriptValue::createNull(scriptState);
@@ -2568,11 +2596,22 @@ ScriptValue WebGLRenderingContextBase::getProgramParameter(ScriptState* scriptSt
         return WebGLAny(scriptState, static_cast<bool>(value));
     case GL_LINK_STATUS:
         return WebGLAny(scriptState, program->linkStatus());
+    case GL_ACTIVE_UNIFORM_BLOCKS:
+    case GL_TRANSFORM_FEEDBACK_VARYINGS:
+        if (!isWebGL2OrHigher()) {
+            synthesizeGLError(GL_INVALID_ENUM, "getProgramParameter", "invalid parameter name");
+            return ScriptValue::createNull(scriptState);
+        }
     case GL_ATTACHED_SHADERS:
     case GL_ACTIVE_ATTRIBUTES:
     case GL_ACTIVE_UNIFORMS:
         webContext()->getProgramiv(objectOrZero(program), pname, &value);
         return WebGLAny(scriptState, value);
+    case GL_TRANSFORM_FEEDBACK_BUFFER_MODE:
+        if (isWebGL2OrHigher()) {
+            webContext()->getProgramiv(objectOrZero(program), pname, &value);
+            return WebGLAny(scriptState, static_cast<unsigned>(value));
+        }
     default:
         synthesizeGLError(GL_INVALID_ENUM, "getProgramParameter", "invalid parameter name");
         return ScriptValue::createNull(scriptState);
@@ -2601,6 +2640,11 @@ ScriptValue WebGLRenderingContextBase::getRenderbufferParameter(ScriptState* scr
 
     GLint value = 0;
     switch (pname) {
+    case GL_RENDERBUFFER_SAMPLES:
+        if (!isWebGL2OrHigher()) {
+            synthesizeGLError(GL_INVALID_ENUM, "getRenderbufferParameter", "invalid parameter name");
+            return ScriptValue::createNull(scriptState);
+        }
     case GL_RENDERBUFFER_WIDTH:
     case GL_RENDERBUFFER_HEIGHT:
     case GL_RENDERBUFFER_RED_SIZE:
@@ -2731,7 +2775,7 @@ ScriptValue WebGLRenderingContextBase::getTexParameter(ScriptState* scriptState,
             return WebGLAny(scriptState, static_cast<unsigned>(value));
         }
     case GL_TEXTURE_MAX_ANISOTROPY_EXT: // EXT_texture_filter_anisotropic
-        if (extensionEnabled(EXTTextureFilterAnisotropicName) || isWebGL2OrHigher()) {
+        if (extensionEnabled(EXTTextureFilterAnisotropicName)) {
             GLfloat value = 0.f;
             webContext()->getTexParameterfv(target, pname, &value);
             return WebGLAny(scriptState, value);
@@ -2939,7 +2983,28 @@ ScriptValue WebGLRenderingContextBase::getVertexAttrib(ScriptState* scriptState,
     case GL_VERTEX_ATTRIB_ARRAY_TYPE:
         return WebGLAny(scriptState, state.type);
     case GL_CURRENT_VERTEX_ATTRIB:
-        return WebGLAny(scriptState, DOMFloat32Array::create(m_vertexAttribValue[index].value, 4));
+        {
+            VertexAttribValue& attribValue = m_vertexAttribValue[index];
+            switch (attribValue.type) {
+            case Float32ArrayType:
+                return WebGLAny(scriptState, DOMFloat32Array::create(attribValue.value.floatValue, 4));
+            case Int32ArrayType:
+                return WebGLAny(scriptState, DOMInt32Array::create(attribValue.value.intValue, 4));
+            case Uint32ArrayType:
+                return WebGLAny(scriptState, DOMUint32Array::create(attribValue.value.uintValue, 4));
+            default:
+                ASSERT_NOT_REACHED();
+                break;
+            }
+            return ScriptValue::createNull(scriptState);
+        }
+    case GL_VERTEX_ATTRIB_ARRAY_INTEGER:
+        if (isWebGL2OrHigher()) {
+            GLint value = 0;
+            webContext()->getVertexAttribiv(index, pname, &value);
+            return WebGLAny(scriptState, static_cast<bool>(value));
+        }
+        // fall through to default error case
     default:
         synthesizeGLError(GL_INVALID_ENUM, "getVertexAttrib", "invalid parameter name");
         return ScriptValue::createNull(scriptState);
@@ -3242,7 +3307,7 @@ void WebGLRenderingContextBase::renderbufferStorage(GLenum target, GLenum intern
         m_renderbufferBinding->deleteEmulatedStencilBuffer(webContext());
         break;
     case GL_SRGB8_ALPHA8_EXT:
-        if (!extensionEnabled(EXTsRGBName)) {
+        if (!(extensionEnabled(EXTsRGBName) || isWebGL2OrHigher())) {
             synthesizeGLError(GL_INVALID_ENUM, "renderbufferStorage", "sRGB not enabled");
             return;
         }
@@ -3631,7 +3696,7 @@ void WebGLRenderingContextBase::texImage2D(GLenum target, GLint level, GLenum in
     if (isContextLost() || !validateHTMLImageElement("texImage2D", image, exceptionState))
         return;
 
-    RefPtr<Image> imageForRender = image->cachedImage()->imageForRenderer(image->renderer());
+    RefPtr<Image> imageForRender = image->cachedImage()->imageForLayoutObject(image->layoutObject());
     if (imageForRender->isSVGImage())
         imageForRender = drawImageIntoBuffer(imageForRender.get(), image->width(), image->height(), "texImage2D");
 
@@ -3802,7 +3867,7 @@ void WebGLRenderingContextBase::texParameter(GLenum target, GLenum pname, GLfloa
         }
         break;
     case GL_TEXTURE_MAX_ANISOTROPY_EXT: // EXT_texture_filter_anisotropic
-        if (!extensionEnabled(EXTTextureFilterAnisotropicName) || isWebGL2OrHigher()) {
+        if (!extensionEnabled(EXTTextureFilterAnisotropicName)) {
             synthesizeGLError(GL_INVALID_ENUM, "texParameter", "invalid parameter, EXT_texture_filter_anisotropic not enabled");
             return;
         }
@@ -3939,7 +4004,7 @@ void WebGLRenderingContextBase::texSubImage2D(GLenum target, GLint level, GLint 
     if (isContextLost() || !validateHTMLImageElement("texSubImage2D", image, exceptionState))
         return;
 
-    RefPtr<Image> imageForRender = image->cachedImage()->imageForRenderer(image->renderer());
+    RefPtr<Image> imageForRender = image->cachedImage()->imageForLayoutObject(image->layoutObject());
     if (imageForRender->isSVGImage())
         imageForRender = drawImageIntoBuffer(imageForRender.get(), image->width(), image->height(), "texSubImage2D");
 
@@ -4492,10 +4557,10 @@ blink::WebLayer* WebGLRenderingContextBase::platformLayer() const
     return isContextLost() ? 0 : drawingBuffer()->platformLayer();
 }
 
-void WebGLRenderingContextBase::setFilterLevel(SkPaint::FilterLevel filterLevel)
+void WebGLRenderingContextBase::setFilterQuality(SkFilterQuality filterQuality)
 {
     if (!isContextLost() && drawingBuffer()) {
-        drawingBuffer()->setFilterLevel(filterLevel);
+        drawingBuffer()->setFilterQuality(filterQuality);
     }
 }
 
@@ -4535,11 +4600,6 @@ void WebGLRenderingContextBase::detachAndRemoveAllObjects()
         WillBeHeapHashSet<RawPtrWillBeWeakMember<WebGLContextObject>>::iterator it = m_contextObjects.begin();
         (*it)->detachContext();
     }
-}
-
-bool WebGLRenderingContextBase::hasPendingActivity() const
-{
-    return false;
 }
 
 void WebGLRenderingContextBase::stop()
@@ -4643,7 +4703,7 @@ void WebGLRenderingContextBase::handleTextureCompleteness(const char* functionNa
 {
     // All calling functions check isContextLost, so a duplicate check is not needed here.
     bool resetActiveUnit = false;
-    WebGLTexture::TextureExtensionFlag flag = static_cast<WebGLTexture::TextureExtensionFlag>(((extensionEnabled(OESTextureFloatLinearName) || isWebGL2OrHigher()) ? WebGLTexture::TextureFloatLinearExtensionEnabled : 0)
+    WebGLTexture::TextureExtensionFlag flag = static_cast<WebGLTexture::TextureExtensionFlag>((extensionEnabled(OESTextureFloatLinearName) ? WebGLTexture::TextureFloatLinearExtensionEnabled : 0)
         | ((extensionEnabled(OESTextureHalfFloatLinearName) || isWebGL2OrHigher()) ? WebGLTexture::TextureHalfFloatLinearExtensionEnabled : 0));
     for (unsigned ii = 0; ii < m_onePlusMaxNonDefaultTextureUnit; ++ii) {
         if ((m_textureUnits[ii].m_texture2DBinding.get() && m_textureUnits[ii].m_texture2DBinding->needToUseBlackTexture(flag))
@@ -4802,7 +4862,7 @@ bool WebGLRenderingContextBase::validateTexFuncFormatAndType(const char* functio
         return false;
     case GL_SRGB_EXT:
     case GL_SRGB_ALPHA_EXT:
-        if (extensionEnabled(EXTsRGBName))
+        if (extensionEnabled(EXTsRGBName) || isWebGL2OrHigher())
             break;
         synthesizeGLError(GL_INVALID_ENUM, functionName, "sRGB texture formats not enabled");
         return false;
@@ -5625,10 +5685,11 @@ void WebGLRenderingContextBase::vertexAttribfImpl(const char* functionName, GLui
         break;
     }
     VertexAttribValue& attribValue = m_vertexAttribValue[index];
-    attribValue.value[0] = v0;
-    attribValue.value[1] = v1;
-    attribValue.value[2] = v2;
-    attribValue.value[3] = v3;
+    attribValue.type = Float32ArrayType;
+    attribValue.value.floatValue[0] = v0;
+    attribValue.value.floatValue[1] = v1;
+    attribValue.value.floatValue[2] = v2;
+    attribValue.value.floatValue[3] = v3;
 }
 
 void WebGLRenderingContextBase::vertexAttribfvImpl(const char* functionName, GLuint index, DOMFloat32Array* v, GLsizei expectedSize)
@@ -5675,8 +5736,9 @@ void WebGLRenderingContextBase::vertexAttribfvImpl(const char* functionName, GLu
     }
     VertexAttribValue& attribValue = m_vertexAttribValue[index];
     attribValue.initValue();
+    attribValue.type = Float32ArrayType;
     for (int ii = 0; ii < expectedSize; ++ii)
-        attribValue.value[ii] = v[ii];
+        attribValue.value.floatValue[ii] = v[ii];
 }
 
 void WebGLRenderingContextBase::dispatchContextLostEvent(Timer<WebGLRenderingContextBase>*)
@@ -5911,6 +5973,28 @@ void WebGLRenderingContextBase::setBackDrawBuffer(GLenum buf)
     m_backDrawBuffer = buf;
 }
 
+void WebGLRenderingContextBase::setFramebuffer(GLenum target, WebGLFramebuffer* buffer)
+{
+    if (buffer)
+        buffer->setHasEverBeenBound();
+
+    if (target == GL_FRAMEBUFFER || target == GL_DRAW_FRAMEBUFFER) {
+        m_framebufferBinding = buffer;
+        drawingBuffer()->setFramebufferBinding(objectOrZero(m_framebufferBinding.get()));
+
+        if (!m_framebufferBinding) {
+            // Instead of binding fb 0, bind the drawing buffer.
+            drawingBuffer()->bind();
+        } else {
+            webContext()->bindFramebuffer(target, objectOrZero(buffer));
+        }
+
+        applyStencilTest();
+    } else {
+        webContext()->bindFramebuffer(target, objectOrZero(buffer));
+    }
+}
+
 void WebGLRenderingContextBase::restoreCurrentFramebuffer()
 {
     bindFramebuffer(GL_FRAMEBUFFER, m_framebufferBinding.get());
@@ -5943,13 +6027,13 @@ void WebGLRenderingContextBase::findNewMaxNonDefaultTextureUnit()
     m_onePlusMaxNonDefaultTextureUnit = 0;
 }
 
-void WebGLRenderingContextBase::TextureUnitState::trace(Visitor* visitor)
+DEFINE_TRACE(WebGLRenderingContextBase::TextureUnitState)
 {
     visitor->trace(m_texture2DBinding);
     visitor->trace(m_textureCubeMapBinding);
 }
 
-void WebGLRenderingContextBase::trace(Visitor* visitor)
+DEFINE_TRACE(WebGLRenderingContextBase)
 {
 #if ENABLE(OILPAN)
     visitor->trace(m_contextObjects);
@@ -5970,7 +6054,6 @@ void WebGLRenderingContextBase::trace(Visitor* visitor)
     visitor->trace(m_requestedAttributes);
     visitor->trace(m_extensions);
     CanvasRenderingContext::trace(visitor);
-    ActiveDOMObject::trace(visitor);
 }
 
 int WebGLRenderingContextBase::externallyAllocatedBytesPerPixel()

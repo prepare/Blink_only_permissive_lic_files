@@ -23,16 +23,14 @@
  */
 
 #include "config.h"
-
 #if ENABLE(WEB_AUDIO)
-
 #include "modules/webaudio/OscillatorNode.h"
 
-#include "platform/audio/AudioUtilities.h"
-#include "platform/audio/VectorMath.h"
 #include "modules/webaudio/AudioContext.h"
 #include "modules/webaudio/AudioNodeOutput.h"
 #include "modules/webaudio/PeriodicWave.h"
+#include "platform/audio/AudioUtilities.h"
+#include "platform/audio/VectorMath.h"
 #include "wtf/MathExtras.h"
 #include "wtf/StdLibExtras.h"
 #include <algorithm>
@@ -41,45 +39,42 @@ namespace blink {
 
 using namespace VectorMath;
 
-OscillatorNode* OscillatorNode::create(AudioContext* context, float sampleRate)
-{
-    return new OscillatorNode(context, sampleRate);
-}
-
-OscillatorNode::OscillatorNode(AudioContext* context, float sampleRate)
-    : AudioScheduledSourceNode(NodeTypeOscillator, context, sampleRate)
+OscillatorHandler::OscillatorHandler(AudioNode& node, float sampleRate, AudioParamHandler& frequency, AudioParamHandler& detune)
+    : AudioScheduledSourceHandler(NodeTypeOscillator, node, sampleRate)
     , m_type(SINE)
+    , m_frequency(frequency)
+    , m_detune(detune)
     , m_firstRender(true)
     , m_virtualReadIndex(0)
-    , m_phaseIncrements(AudioNode::ProcessingSizeInFrames)
-    , m_detuneValues(AudioNode::ProcessingSizeInFrames)
+    , m_phaseIncrements(ProcessingSizeInFrames)
+    , m_detuneValues(ProcessingSizeInFrames)
 {
-    // Use musical pitch standard A440 as a default.
-    m_frequency = AudioParam::create(context, 440);
-    // Default to no detuning.
-    m_detune = AudioParam::create(context, 0);
-
     // Sets up default wavetable.
     setType(m_type);
 
     // An oscillator is always mono.
-    addOutput(AudioNodeOutput::create(this, 1));
+    addOutput(1);
 
     initialize();
 }
 
-OscillatorNode::~OscillatorNode()
+OscillatorHandler* OscillatorHandler::create(AudioNode& node, float sampleRate, AudioParamHandler& frequency, AudioParamHandler& detune)
+{
+    return new OscillatorHandler(node, sampleRate, frequency, detune);
+}
+
+OscillatorHandler::~OscillatorHandler()
 {
     ASSERT(!isInitialized());
 }
 
-void OscillatorNode::dispose()
+void OscillatorHandler::dispose()
 {
     uninitialize();
-    AudioScheduledSourceNode::dispose();
+    AudioScheduledSourceHandler::dispose();
 }
 
-String OscillatorNode::type() const
+String OscillatorHandler::type() const
 {
     switch (m_type) {
     case SINE:
@@ -98,7 +93,7 @@ String OscillatorNode::type() const
     }
 }
 
-void OscillatorNode::setType(const String& type)
+void OscillatorHandler::setType(const String& type)
 {
     if (type == "sine")
         setType(SINE);
@@ -110,9 +105,9 @@ void OscillatorNode::setType(const String& type)
         setType(TRIANGLE);
 }
 
-bool OscillatorNode::setType(unsigned type)
+bool OscillatorHandler::setType(unsigned type)
 {
-    PeriodicWave* periodicWave = 0;
+    PeriodicWave* periodicWave = nullptr;
     float sampleRate = this->sampleRate();
 
     switch (type) {
@@ -148,7 +143,7 @@ bool OscillatorNode::setType(unsigned type)
     return true;
 }
 
-bool OscillatorNode::calculateSampleAccuratePhaseIncrements(size_t framesToProcess)
+bool OscillatorHandler::calculateSampleAccuratePhaseIncrements(size_t framesToProcess)
 {
     bool isGood = framesToProcess <= m_phaseIncrements.size() && framesToProcess <= m_detuneValues.size();
     ASSERT(isGood);
@@ -214,7 +209,7 @@ bool OscillatorNode::calculateSampleAccuratePhaseIncrements(size_t framesToProce
     return hasSampleAccurateValues;
 }
 
-void OscillatorNode::process(size_t framesToProcess)
+void OscillatorHandler::process(size_t framesToProcess)
 {
     AudioBus* outputBus = output(0)->bus();
 
@@ -327,7 +322,7 @@ void OscillatorNode::process(size_t framesToProcess)
     outputBus->clearSilentFlag();
 }
 
-void OscillatorNode::setPeriodicWave(PeriodicWave* periodicWave)
+void OscillatorHandler::setPeriodicWave(PeriodicWave* periodicWave)
 {
     ASSERT(isMainThread());
 
@@ -337,17 +332,69 @@ void OscillatorNode::setPeriodicWave(PeriodicWave* periodicWave)
     m_type = CUSTOM;
 }
 
-bool OscillatorNode::propagatesSilence() const
+bool OscillatorHandler::propagatesSilence() const
 {
     return !isPlayingOrScheduled() || hasFinished() || !m_periodicWave.get();
+}
+
+DEFINE_TRACE(OscillatorHandler)
+{
+    visitor->trace(m_periodicWave);
+    AudioScheduledSourceHandler::trace(visitor);
+}
+
+// ----------------------------------------------------------------
+
+OscillatorNode::OscillatorNode(AudioContext& context, float sampleRate)
+    : AudioScheduledSourceNode(context)
+    // Use musical pitch standard A440 as a default.
+    , m_frequency(AudioParam::create(context, 440))
+    // Default to no detuning.
+    , m_detune(AudioParam::create(context, 0))
+{
+    setHandler(OscillatorHandler::create(*this, sampleRate, m_frequency->handler(), m_detune->handler()));
+}
+
+OscillatorNode* OscillatorNode::create(AudioContext& context, float sampleRate)
+{
+    return new OscillatorNode(context, sampleRate);
 }
 
 DEFINE_TRACE(OscillatorNode)
 {
     visitor->trace(m_frequency);
     visitor->trace(m_detune);
-    visitor->trace(m_periodicWave);
     AudioScheduledSourceNode::trace(visitor);
+}
+
+OscillatorHandler& OscillatorNode::oscillatorHandler() const
+{
+    return static_cast<OscillatorHandler&>(handler());
+}
+
+String OscillatorNode::type() const
+{
+    return oscillatorHandler().type();
+}
+
+void OscillatorNode::setType(const String& type)
+{
+    oscillatorHandler().setType(type);
+}
+
+AudioParam* OscillatorNode::frequency()
+{
+    return m_frequency;
+}
+
+AudioParam* OscillatorNode::detune()
+{
+    return m_detune;
+}
+
+void OscillatorNode::setPeriodicWave(PeriodicWave* wave)
+{
+    oscillatorHandler().setPeriodicWave(wave);
 }
 
 } // namespace blink

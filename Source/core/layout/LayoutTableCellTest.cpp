@@ -26,7 +26,7 @@
 #include "config.h"
 #include "core/layout/LayoutTableCell.h"
 
-#include "core/rendering/RenderingTestHelper.h"
+#include "core/layout/LayoutTestHelper.h"
 
 namespace blink {
 
@@ -83,7 +83,7 @@ TEST_F(LayoutTableCellTest, ResetColspanIfTooBig)
 {
     setBodyInnerHTML("<table><td colspan='14000'></td></table>");
 
-    LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->renderer());
+    LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->layoutObject());
     ASSERT_EQ(cell->colSpan(), 8190U);
 }
 
@@ -91,7 +91,7 @@ TEST_F(LayoutTableCellTest, DoNotResetColspanJustBelowBoundary)
 {
     setBodyInnerHTML("<table><td colspan='8190'></td></table>");
 
-    LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->renderer());
+    LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->layoutObject());
     ASSERT_EQ(cell->colSpan(), 8190U);
 }
 
@@ -99,7 +99,7 @@ TEST_F(LayoutTableCellTest, ResetRowspanIfTooBig)
 {
     setBodyInnerHTML("<table><td rowspan='14000'></td></table>");
 
-    LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->renderer());
+    LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->layoutObject());
     ASSERT_EQ(cell->rowSpan(), 8190U);
 }
 
@@ -107,7 +107,7 @@ TEST_F(LayoutTableCellTest, DoNotResetRowspanJustBelowBoundary)
 {
     setBodyInnerHTML("<table><td rowspan='8190'></td></table>");
 
-    LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->renderer());
+    LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->layoutObject());
     ASSERT_EQ(cell->rowSpan(), 8190U);
 }
 

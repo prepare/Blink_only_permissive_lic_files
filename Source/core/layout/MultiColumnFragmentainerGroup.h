@@ -60,7 +60,8 @@ public:
 
     LayoutSize flowThreadTranslationAtOffset(LayoutUnit offsetInFlowThread) const;
     LayoutUnit columnLogicalTopForOffset(LayoutUnit offsetInFlowThread) const;
-    void collectLayerFragments(LayerFragments&, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect) const;
+    LayoutPoint visualPointToFlowThreadPoint(const LayoutPoint& visualPoint) const;
+    void collectLayerFragments(DeprecatedPaintLayerFragments&, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect) const;
     LayoutRect calculateOverflow() const;
 
     // The "CSS actual" value of column-count. This includes overflowing columns, if any.
@@ -83,6 +84,7 @@ private:
     LayoutUnit calculateColumnHeight(BalancedColumnHeightCalculation) const;
 
     LayoutRect columnRectAt(unsigned columnIndex) const;
+    LayoutUnit logicalTopInFlowThreadAt(unsigned columnIndex) const { return m_logicalTopInFlowThread + columnIndex * m_columnHeight; }
     LayoutRect flowThreadPortionRectAt(unsigned columnIndex) const;
     LayoutRect flowThreadPortionOverflowRect(const LayoutRect& flowThreadPortion, unsigned columnIndex, unsigned columnCount, LayoutUnit columnGap) const;
 
@@ -91,6 +93,11 @@ private:
         AssumeNewColumns // Allow column indices outside the range of already existing columns.
     };
     unsigned columnIndexAtOffset(LayoutUnit offsetInFlowThread, ColumnIndexCalculationMode = ClampToExistingColumns) const;
+
+    // Return the column that the specified visual point belongs to. Only the coordinate on the
+    // column progression axis is relevant. Every point belongs to a column, even if said point is
+    // not inside any of the columns.
+    unsigned columnIndexAtVisualPoint(const LayoutPoint& visualPoint) const;
 
     LayoutMultiColumnSet& m_columnSet;
 
@@ -136,7 +143,7 @@ private:
 // List of all fragmentainer groups within a column set. There will always be at least one
 // group. Deleting the one group is not allowed (or possible). There will be more than one group if
 // the owning column set lives in multiple outer fragmentainers (e.g. multicol inside paged media).
-class MultiColumnFragmentainerGroupList : public Vector<MultiColumnFragmentainerGroup, 1> {
+class MultiColumnFragmentainerGroupList {
 public:
     MultiColumnFragmentainerGroupList(LayoutMultiColumnSet&);
 
@@ -146,8 +153,27 @@ public:
     // Remove all fragmentainer groups but the first one.
     void deleteExtraGroups();
 
+    MultiColumnFragmentainerGroup& first() { return m_groups.first(); }
+    const MultiColumnFragmentainerGroup& first() const { return m_groups.first(); }
+    MultiColumnFragmentainerGroup& last() { return m_groups.last(); }
+    const MultiColumnFragmentainerGroup& last() const { return m_groups.last(); }
+
+    typedef Vector<MultiColumnFragmentainerGroup, 1>::iterator iterator;
+    typedef Vector<MultiColumnFragmentainerGroup, 1>::const_iterator const_iterator;
+
+    iterator begin() { return m_groups.begin(); }
+    const_iterator begin() const { return m_groups.begin(); }
+    iterator end() { return m_groups.end(); }
+    const_iterator end() const { return m_groups.end(); }
+
+    void append(const MultiColumnFragmentainerGroup& group) { m_groups.append(group); }
+
+    void shrink(size_t size) { m_groups.shrink(size); }
+
 private:
     LayoutMultiColumnSet& m_columnSet;
+
+    Vector<MultiColumnFragmentainerGroup, 1> m_groups;
 };
 
 } // namespace blink

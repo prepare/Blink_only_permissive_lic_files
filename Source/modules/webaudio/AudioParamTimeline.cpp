@@ -24,15 +24,13 @@
  */
 
 #include "config.h"
-
 #if ENABLE(WEB_AUDIO)
-
 #include "modules/webaudio/AudioParamTimeline.h"
 
 #include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/ExceptionCode.h"
-#include "platform/audio/AudioUtilities.h"
 #include "platform/FloatConversion.h"
+#include "platform/audio/AudioUtilities.h"
 #include "wtf/MathExtras.h"
 #include <algorithm>
 
@@ -43,9 +41,18 @@ static bool isPositiveAudioParamValue(float value, ExceptionState& exceptionStat
     if (value > 0)
         return true;
 
+    // Use denorm_min() in error message to make it clear what the mininum positive value is. The
+    // Javascript API uses doubles, which gets converted to floats, sometimes causing an underflow.
+    // This is confusing if the user specified a small non-zero (double) value that underflowed to
+    // 0.
     exceptionState.throwDOMException(
         InvalidAccessError,
-        "Target value must be a finite positive number: " + String::number(value));
+        ExceptionMessages::indexOutsideRange("float target value",
+            value,
+            std::numeric_limits<float>::denorm_min(),
+            ExceptionMessages::InclusiveBound,
+            std::numeric_limits<float>::infinity(),
+            ExceptionMessages::ExclusiveBound));
     return false;
 }
 
@@ -189,7 +196,7 @@ float AudioParamTimeline::valueForContextTime(AudioContext* context, float defau
     double sampleRate = context->sampleRate();
     double startTime = context->currentTime();
     double endTime = startTime + 1.1 / sampleRate; // time just beyond one sample-frame
-    double controlRate = sampleRate / AudioNode::ProcessingSizeInFrames; // one parameter change per render quantum
+    double controlRate = sampleRate / AudioHandler::ProcessingSizeInFrames; // one parameter change per render quantum
     value = valuesForTimeRange(startTime, endTime, defaultValue, &value, 1, sampleRate, controlRate);
 
     hasValue = true;
@@ -215,9 +222,7 @@ float AudioParamTimeline::valuesForTimeRange(
         return defaultValue;
     }
 
-    float value = valuesForTimeRangeImpl(startTime, endTime, defaultValue, values, numberOfValues, sampleRate, controlRate);
-
-    return value;
+    return valuesForTimeRangeImpl(startTime, endTime, defaultValue, values, numberOfValues, sampleRate, controlRate);
 }
 
 float AudioParamTimeline::valuesForTimeRangeImpl(
@@ -310,7 +315,7 @@ float AudioParamTimeline::valuesForTimeRangeImpl(
                 // AudioUtilities::timeToSampleFrame(currentTime - time1, sampleRate), but is more
                 // accurate, especially if multiplier is close to 1.
                 value = value1 * powf(value2 / value1,
-                                      AudioUtilities::timeToSampleFrame(currentTime - time1, sampleRate) / numSampleFrames);
+                    AudioUtilities::timeToSampleFrame(currentTime - time1, sampleRate) / numSampleFrames);
 
                 for (; writeIndex < fillToFrame; ++writeIndex) {
                     values[writeIndex] = value;

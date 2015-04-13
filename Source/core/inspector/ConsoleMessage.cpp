@@ -192,10 +192,11 @@ void ConsoleMessage::collectCallStack()
         return;
     }
 
-    m_callStack.clear();
+    if (m_callStack && !m_callStack->size())
+        m_callStack.clear();
 }
 
-void ConsoleMessage::trace(Visitor* visitor)
+DEFINE_TRACE(ConsoleMessage)
 {
     visitor->trace(m_callStack);
     visitor->trace(m_scriptArguments);

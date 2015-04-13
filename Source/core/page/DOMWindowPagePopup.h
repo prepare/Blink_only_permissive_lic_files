@@ -31,6 +31,7 @@
 #ifndef DOMWindowPagePopup_h
 #define DOMWindowPagePopup_h
 
+#include "core/CoreExport.h"
 #include "core/frame/LocalDOMWindow.h"
 #include "platform/Supplementable.h"
 #include "platform/heap/Handle.h"
@@ -40,7 +41,7 @@ namespace blink {
 class PagePopupClient;
 class PagePopupController;
 
-class DOMWindowPagePopup final : public NoBaseWillBeGarbageCollected<DOMWindowPagePopup>, public WillBeHeapSupplement<LocalDOMWindow> {
+class CORE_EXPORT DOMWindowPagePopup final : public NoBaseWillBeGarbageCollected<DOMWindowPagePopup>, public WillBeHeapSupplement<LocalDOMWindow> {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(DOMWindowPagePopup);
 public:
     static PagePopupController* pagePopupController(DOMWindow&);
@@ -48,7 +49,7 @@ public:
     static void uninstall(LocalDOMWindow&);
     DECLARE_EMPTY_VIRTUAL_DESTRUCTOR_WILL_BE_REMOVED(DOMWindowPagePopup);
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 private:
     explicit DOMWindowPagePopup(PagePopupClient*);

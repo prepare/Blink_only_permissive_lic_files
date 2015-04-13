@@ -8,7 +8,7 @@
 
 #include "core/layout/LayoutMultiColumnFlowThread.h"
 #include "core/layout/LayoutMultiColumnSet.h"
-#include "core/rendering/RenderingTestHelper.h"
+#include "core/layout/LayoutTestHelper.h"
 
 #include <gtest/gtest.h>
 
@@ -36,7 +36,7 @@ private:
 void MultiColumnFragmentainerGroupTest::SetUp()
 {
     RenderingTest::SetUp();
-    RefPtr<LayoutStyle> style = LayoutStyle::create();
+    RefPtr<ComputedStyle> style = ComputedStyle::create();
     m_flowThread = LayoutMultiColumnFlowThread::createAnonymous(document(), *style.get());
     m_columnSet = LayoutMultiColumnSet::createAnonymous(*m_flowThread, *m_flowThread->style());
 }

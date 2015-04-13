@@ -43,50 +43,50 @@ static inline String queryString(WebLocalizedString::Name name)
     return Locale::defaultLocale().queryString(name);
 }
 
-AccessibilityMediaControl::AccessibilityMediaControl(LayoutObject* renderer, AXObjectCacheImpl* axObjectCache)
-    : AXRenderObject(renderer, axObjectCache)
+AccessibilityMediaControl::AccessibilityMediaControl(LayoutObject* layoutObject, AXObjectCacheImpl* axObjectCache)
+    : AXLayoutObject(layoutObject, axObjectCache)
 {
 }
 
-PassRefPtr<AXObject> AccessibilityMediaControl::create(LayoutObject* renderer, AXObjectCacheImpl* axObjectCache)
+PassRefPtr<AXObject> AccessibilityMediaControl::create(LayoutObject* layoutObject, AXObjectCacheImpl* axObjectCache)
 {
-    ASSERT(renderer->node());
+    ASSERT(layoutObject->node());
 
-    switch (mediaControlElementType(renderer->node())) {
+    switch (mediaControlElementType(layoutObject->node())) {
     case MediaSlider:
-        return AccessibilityMediaTimeline::create(renderer, axObjectCache);
+        return AccessibilityMediaTimeline::create(layoutObject, axObjectCache);
 
     case MediaCurrentTimeDisplay:
     case MediaTimeRemainingDisplay:
-        return AccessibilityMediaTimeDisplay::create(renderer, axObjectCache);
+        return AccessibilityMediaTimeDisplay::create(layoutObject, axObjectCache);
 
     case MediaControlsPanel:
-        return AXMediaControlsContainer::create(renderer, axObjectCache);
+        return AXMediaControlsContainer::create(layoutObject, axObjectCache);
 
     default:
-        return adoptRef(new AccessibilityMediaControl(renderer, axObjectCache));
+        return adoptRef(new AccessibilityMediaControl(layoutObject, axObjectCache));
     }
 }
 
 MediaControlElementType AccessibilityMediaControl::controlType() const
 {
-    if (!renderer() || !renderer()->node())
+    if (!layoutObject() || !layoutObject()->node())
         return MediaTimelineContainer; // Timeline container is not accessible.
 
-    return mediaControlElementType(renderer()->node());
+    return mediaControlElementType(layoutObject()->node());
 }
 
-String AccessibilityMediaControl::title(TextUnderElementMode mode) const
+String AccessibilityMediaControl::deprecatedTitle(TextUnderElementMode mode) const
 {
     // FIXME: the ControlsPanel container should never be visible in the
     // accessibility hierarchy.
     if (controlType() == MediaControlsPanel)
         return queryString(WebLocalizedString::AXMediaDefault);
 
-    return AXRenderObject::title(mode);
+    return AXLayoutObject::deprecatedTitle(mode);
 }
 
-String AccessibilityMediaControl::accessibilityDescription() const
+String AccessibilityMediaControl::deprecatedAccessibilityDescription() const
 {
     switch (controlType()) {
     case MediaEnterFullscreenButton:
@@ -101,8 +101,6 @@ String AccessibilityMediaControl::accessibilityDescription() const
         return queryString(WebLocalizedString::AXMediaUnMuteButton);
     case MediaPauseButton:
         return queryString(WebLocalizedString::AXMediaPauseButton);
-    case MediaStatusDisplay:
-        return queryString(WebLocalizedString::AXMediaStatusDisplay);
     case MediaCurrentTimeDisplay:
         return queryString(WebLocalizedString::AXMediaCurrentTimeDisplay);
     case MediaTimeRemainingDisplay:
@@ -120,7 +118,7 @@ String AccessibilityMediaControl::accessibilityDescription() const
     }
 }
 
-String AccessibilityMediaControl::helpText() const
+String AccessibilityMediaControl::deprecatedHelpText() const
 {
     switch (controlType()) {
     case MediaEnterFullscreenButton:
@@ -135,8 +133,6 @@ String AccessibilityMediaControl::helpText() const
         return queryString(WebLocalizedString::AXMediaUnMuteButtonHelp);
     case MediaPauseButton:
         return queryString(WebLocalizedString::AXMediaPauseButtonHelp);
-    case MediaStatusDisplay:
-        return queryString(WebLocalizedString::AXMediaStatusDisplayHelp);
     case MediaCurrentTimeDisplay:
         return queryString(WebLocalizedString::AXMediaCurrentTimeDisplayHelp);
     case MediaTimeRemainingDisplay:
@@ -156,7 +152,7 @@ String AccessibilityMediaControl::helpText() const
 
 bool AccessibilityMediaControl::computeAccessibilityIsIgnored() const
 {
-    if (!m_renderer || !m_renderer->style() || m_renderer->style()->visibility() != VISIBLE || controlType() == MediaTimelineContainer)
+    if (!m_layoutObject || !m_layoutObject->style() || m_layoutObject->style()->visibility() != VISIBLE || controlType() == MediaTimelineContainer)
         return true;
 
     return accessibilityIsIgnoredByDefault();
@@ -175,9 +171,6 @@ AccessibilityRole AccessibilityMediaControl::roleValue() const
     case MediaHideClosedCaptionsButton:
         return ButtonRole;
 
-    case MediaStatusDisplay:
-        return StaticTextRole;
-
     case MediaTimelineContainer:
         return GroupRole;
 
@@ -193,22 +186,22 @@ AccessibilityRole AccessibilityMediaControl::roleValue() const
 //
 // AXMediaControlsContainer
 
-AXMediaControlsContainer::AXMediaControlsContainer(LayoutObject* renderer, AXObjectCacheImpl* axObjectCache)
-    : AccessibilityMediaControl(renderer, axObjectCache)
+AXMediaControlsContainer::AXMediaControlsContainer(LayoutObject* layoutObject, AXObjectCacheImpl* axObjectCache)
+    : AccessibilityMediaControl(layoutObject, axObjectCache)
 {
 }
 
-PassRefPtr<AXObject> AXMediaControlsContainer::create(LayoutObject* renderer, AXObjectCacheImpl* axObjectCache)
+PassRefPtr<AXObject> AXMediaControlsContainer::create(LayoutObject* layoutObject, AXObjectCacheImpl* axObjectCache)
 {
-    return adoptRef(new AXMediaControlsContainer(renderer, axObjectCache));
+    return adoptRef(new AXMediaControlsContainer(layoutObject, axObjectCache));
 }
 
-String AXMediaControlsContainer::accessibilityDescription() const
+String AXMediaControlsContainer::deprecatedAccessibilityDescription() const
 {
     return queryString(isControllingVideoElement() ? WebLocalizedString::AXMediaVideoElement : WebLocalizedString::AXMediaAudioElement);
 }
 
-String AXMediaControlsContainer::helpText() const
+String AXMediaControlsContainer::deprecatedHelpText() const
 {
     return queryString(isControllingVideoElement() ? WebLocalizedString::AXMediaVideoElementHelp : WebLocalizedString::AXMediaAudioElementHelp);
 }
@@ -228,26 +221,26 @@ static String localizedMediaTimeDescription(float /*time*/)
     return String();
 }
 
-AccessibilityMediaTimeline::AccessibilityMediaTimeline(LayoutObject* renderer, AXObjectCacheImpl* axObjectCache)
-    : AXSlider(renderer, axObjectCache)
+AccessibilityMediaTimeline::AccessibilityMediaTimeline(LayoutObject* layoutObject, AXObjectCacheImpl* axObjectCache)
+    : AXSlider(layoutObject, axObjectCache)
 {
 }
 
-PassRefPtr<AXObject> AccessibilityMediaTimeline::create(LayoutObject* renderer, AXObjectCacheImpl* axObjectCache)
+PassRefPtr<AXObject> AccessibilityMediaTimeline::create(LayoutObject* layoutObject, AXObjectCacheImpl* axObjectCache)
 {
-    return adoptRef(new AccessibilityMediaTimeline(renderer, axObjectCache));
+    return adoptRef(new AccessibilityMediaTimeline(layoutObject, axObjectCache));
 }
 
 String AccessibilityMediaTimeline::valueDescription() const
 {
-    Node* node = m_renderer->node();
+    Node* node = m_layoutObject->node();
     if (!isHTMLInputElement(node))
         return String();
 
     return localizedMediaTimeDescription(toHTMLInputElement(node)->value().toFloat());
 }
 
-String AccessibilityMediaTimeline::helpText() const
+String AccessibilityMediaTimeline::deprecatedHelpText() const
 {
     return queryString(isControllingVideoElement() ? WebLocalizedString::AXMediaVideoSliderHelp : WebLocalizedString::AXMediaAudioSliderHelp);
 }
@@ -256,28 +249,28 @@ String AccessibilityMediaTimeline::helpText() const
 //
 // AccessibilityMediaTimeDisplay
 
-AccessibilityMediaTimeDisplay::AccessibilityMediaTimeDisplay(LayoutObject* renderer, AXObjectCacheImpl* axObjectCache)
-    : AccessibilityMediaControl(renderer, axObjectCache)
+AccessibilityMediaTimeDisplay::AccessibilityMediaTimeDisplay(LayoutObject* layoutObject, AXObjectCacheImpl* axObjectCache)
+    : AccessibilityMediaControl(layoutObject, axObjectCache)
 {
 }
 
-PassRefPtr<AXObject> AccessibilityMediaTimeDisplay::create(LayoutObject* renderer, AXObjectCacheImpl* axObjectCache)
+PassRefPtr<AXObject> AccessibilityMediaTimeDisplay::create(LayoutObject* layoutObject, AXObjectCacheImpl* axObjectCache)
 {
-    return adoptRef(new AccessibilityMediaTimeDisplay(renderer, axObjectCache));
+    return adoptRef(new AccessibilityMediaTimeDisplay(layoutObject, axObjectCache));
 }
 
 bool AccessibilityMediaTimeDisplay::computeAccessibilityIsIgnored() const
 {
-    if (!m_renderer || !m_renderer->style() || m_renderer->style()->visibility() != VISIBLE)
+    if (!m_layoutObject || !m_layoutObject->style() || m_layoutObject->style()->visibility() != VISIBLE)
         return true;
 
-    if (!m_renderer->style()->width().value())
+    if (!m_layoutObject->style()->width().value())
         return true;
 
     return accessibilityIsIgnoredByDefault();
 }
 
-String AccessibilityMediaTimeDisplay::accessibilityDescription() const
+String AccessibilityMediaTimeDisplay::deprecatedAccessibilityDescription() const
 {
     if (controlType() == MediaCurrentTimeDisplay)
         return queryString(WebLocalizedString::AXMediaCurrentTimeDisplay);
@@ -286,10 +279,10 @@ String AccessibilityMediaTimeDisplay::accessibilityDescription() const
 
 String AccessibilityMediaTimeDisplay::stringValue() const
 {
-    if (!m_renderer || !m_renderer->node())
+    if (!m_layoutObject || !m_layoutObject->node())
         return String();
 
-    MediaControlTimeDisplayElement* element = static_cast<MediaControlTimeDisplayElement*>(m_renderer->node());
+    MediaControlTimeDisplayElement* element = static_cast<MediaControlTimeDisplayElement*>(m_layoutObject->node());
     float time = element->currentValue();
     return localizedMediaTimeDescription(fabsf(time));
 }

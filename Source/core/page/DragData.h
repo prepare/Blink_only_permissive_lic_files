@@ -26,6 +26,7 @@
 #ifndef DragData_h
 #define DragData_h
 
+#include "core/CoreExport.h"
 #include "core/page/DragActions.h"
 #include "platform/geometry/IntPoint.h"
 #include "platform/heap/Handle.h"
@@ -48,7 +49,7 @@ enum DragApplicationFlags {
     DragApplicationIsCopyKeyDown = 8
 };
 
-class DragData {
+class CORE_EXPORT DragData {
 public:
     enum FilenameConversionPolicy { DoNotConvertFilenames, ConvertFilenames };
 
@@ -68,7 +69,7 @@ public:
     PassRefPtrWillBeRawPtr<DocumentFragment> asFragment(LocalFrame*, PassRefPtrWillBeRawPtr<Range> context, bool allowPlainText, bool& chosePlainText) const;
     bool canSmartReplace() const;
     bool containsFiles() const;
-    int modifierKeyState() const;
+    int modifiers() const;
 
     String droppedFileSystemId() const;
 

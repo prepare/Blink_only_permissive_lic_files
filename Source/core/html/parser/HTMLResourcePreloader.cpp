@@ -60,6 +60,7 @@ FetchRequest PreloadRequest::resourceRequest(Document* document)
         request.setCrossOriginAccessControl(document->securityOrigin(), m_allowCredentials);
 
     request.setDefer(m_defer);
+    request.setResourceWidth(m_resourceWidth);
 
     return request;
 }
@@ -74,7 +75,7 @@ PassOwnPtrWillBeRawPtr<HTMLResourcePreloader> HTMLResourcePreloader::create(Docu
     return adoptPtrWillBeNoop(new HTMLResourcePreloader(document));
 }
 
-void HTMLResourcePreloader::trace(Visitor* visitor)
+DEFINE_TRACE(HTMLResourcePreloader)
 {
     visitor->trace(m_document);
 }

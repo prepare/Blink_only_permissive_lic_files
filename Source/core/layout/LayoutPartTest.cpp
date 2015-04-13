@@ -7,7 +7,7 @@
 
 #include "core/html/HTMLElement.h"
 #include "core/layout/ImageQualityController.h"
-#include "core/rendering/RenderingTestHelper.h"
+#include "core/layout/LayoutTestHelper.h"
 #include <gtest/gtest.h>
 
 namespace blink {
@@ -19,8 +19,7 @@ class OverriddenLayoutPart : public LayoutPart {
 public:
     explicit OverriddenLayoutPart(Element* element) : LayoutPart(element) { }
 
-private:
-    virtual const char* renderName() const override { return "OverriddenLayoutPart"; }
+    virtual const char* name() const override { return "OverriddenLayoutPart"; }
 };
 
 TEST_F(LayoutPartTest, DestroyUpdatesImageQualityController)

@@ -63,14 +63,15 @@ public:
     virtual void didSendDOMContentLoadedForPrerender() override;
 
     void released();
-    bool loadLink(const LinkRelAttribute&, const AtomicString& crossOriginMode, const String& type, const KURL&, Document&);
+    bool loadLink(const LinkRelAttribute&, const AtomicString& crossOriginMode, const String& type, const String& as, const KURL&, Document&);
     static bool loadLinkFromHeader(const String& headerValue, Document*);
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 private:
     void linkLoadTimerFired(Timer<LinkLoader>*);
     void linkLoadingErrorTimerFired(Timer<LinkLoader>*);
+    void preloadIfNeeded(const LinkRelAttribute&, const KURL& href, Document&, const String& as);
 
     LinkLoaderClient* m_client;
 

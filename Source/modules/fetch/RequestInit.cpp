@@ -38,20 +38,20 @@ RequestInit::RequestInit(ExecutionContext* context, const Dictionary& options, E
     OwnPtr<BlobData> blobData = BlobData::create();
     v8::Isolate* isolate = toIsolate(context);
     if (body->IsArrayBuffer()) {
-        DOMArrayBuffer* arrayBuffer = V8ArrayBuffer::toImpl(v8::Handle<v8::Object>::Cast(body));
+        DOMArrayBuffer* arrayBuffer = V8ArrayBuffer::toImpl(v8::Local<v8::Object>::Cast(body));
         ASSERT(arrayBuffer);
         blobData->appendBytes(arrayBuffer->data(), arrayBuffer->byteLength());
     } else if (body->IsArrayBufferView()) {
-        DOMArrayBufferView* arrayBufferView = V8ArrayBufferView::toImpl(v8::Handle<v8::Object>::Cast(body));
+        DOMArrayBufferView* arrayBufferView = V8ArrayBufferView::toImpl(v8::Local<v8::Object>::Cast(body));
         ASSERT(arrayBufferView);
         blobData->appendBytes(arrayBufferView->baseAddress(), arrayBufferView->byteLength());
     } else if (V8Blob::hasInstance(body, isolate)) {
-        Blob* blob = V8Blob::toImpl(v8::Handle<v8::Object>::Cast(body));
+        Blob* blob = V8Blob::toImpl(v8::Local<v8::Object>::Cast(body));
         ASSERT(blob);
         blob->appendTo(*blobData);
         blobData->setContentType(blob->type());
     } else if (V8FormData::hasInstance(body, isolate)) {
-        DOMFormData* domFormData = V8FormData::toImpl(v8::Handle<v8::Object>::Cast(body));
+        DOMFormData* domFormData = V8FormData::toImpl(v8::Local<v8::Object>::Cast(body));
         ASSERT(domFormData);
         RefPtr<FormData> httpBody = domFormData->createMultiPartFormData();
         for (size_t i = 0; i < httpBody->elements().size(); ++i) {
@@ -77,7 +77,7 @@ RequestInit::RequestInit(ExecutionContext* context, const Dictionary& options, E
         }
         blobData->setContentType(AtomicString("multipart/form-data; boundary=", AtomicString::ConstructFromLiteral) + httpBody->boundary().data());
     } else if (body->IsString()) {
-        String stringValue(toUSVString(body, exceptionState));
+        String stringValue(toUSVString(isolate, body, exceptionState));
         blobData->appendText(stringValue, false);
         blobData->setContentType("text/plain;charset=UTF-8");
     } else {

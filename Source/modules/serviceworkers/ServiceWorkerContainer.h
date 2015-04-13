@@ -76,9 +76,7 @@ public:
 
     // WebServiceWorkerProviderClient overrides.
     virtual void setController(WebServiceWorker*, bool shouldNotifyControllerChange) override;
-    virtual void setReadyRegistration(WebServiceWorkerRegistration*) override;
     virtual void dispatchMessageEvent(const WebString& message, const WebMessagePortChannelArray&) override;
-    virtual bool getClientInfo(WebServiceWorkerClientInfo*);
 
     // EventTarget overrides.
     virtual ExecutionContext* executionContext() const override { return ContextLifecycleObserver::executionContext(); }
@@ -89,12 +87,12 @@ public:
 private:
     explicit ServiceWorkerContainer(ExecutionContext*);
 
+    class GetRegistrationForReadyCallback;
     typedef ScriptPromiseProperty<Member<ServiceWorkerContainer>, Member<ServiceWorkerRegistration>, Member<ServiceWorkerRegistration>> ReadyProperty;
     ReadyProperty* createReadyProperty();
 
     WebServiceWorkerProvider* m_provider;
     RefPtrWillBeMember<ServiceWorker> m_controller;
-    Member<ServiceWorkerRegistration> m_readyRegistration;
     Member<ReadyProperty> m_ready;
 };
 

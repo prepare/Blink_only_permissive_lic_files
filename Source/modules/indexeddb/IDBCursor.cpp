@@ -28,7 +28,8 @@
 
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/ScriptState.h"
-#include "bindings/modules/v8/IDBBindingUtilities.h"
+#include "bindings/modules/v8/ToV8ForModules.h"
+#include "bindings/modules/v8/V8BindingForModules.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/inspector/ScriptCallStack.h"
 #include "modules/IndexedDBNames.h"
@@ -148,7 +149,7 @@ void IDBCursor::advance(unsigned count, ExceptionState& exceptionState)
 void IDBCursor::continueFunction(ScriptState* scriptState, const ScriptValue& keyValue, ExceptionState& exceptionState)
 {
     IDB_TRACE("IDBCursor::continue");
-    IDBKey* key = keyValue.isUndefined() || keyValue.isNull() ? nullptr : scriptValueToIDBKey(scriptState->isolate(), keyValue);
+    IDBKey* key = keyValue.isUndefined() || keyValue.isNull() ? nullptr : ScriptValue::to<IDBKey*>(scriptState->isolate(), keyValue, exceptionState);
     if (key && !key->isValid()) {
         exceptionState.throwDOMException(DataError, IDBDatabase::notValidKeyErrorMessage);
         return;
@@ -159,8 +160,8 @@ void IDBCursor::continueFunction(ScriptState* scriptState, const ScriptValue& ke
 void IDBCursor::continuePrimaryKey(ScriptState* scriptState, const ScriptValue& keyValue, const ScriptValue& primaryKeyValue, ExceptionState& exceptionState)
 {
     IDB_TRACE("IDBCursor::continuePrimaryKey");
-    IDBKey* key = scriptValueToIDBKey(scriptState->isolate(), keyValue);
-    IDBKey* primaryKey = scriptValueToIDBKey(scriptState->isolate(), primaryKeyValue);
+    IDBKey* key = ScriptValue::to<IDBKey*>(scriptState->isolate(), keyValue, exceptionState);
+    IDBKey* primaryKey = ScriptValue::to<IDBKey*>(scriptState->isolate(), primaryKeyValue, exceptionState);
     if (!key->isValid() || !primaryKey->isValid()) {
         exceptionState.throwDOMException(DataError, IDBDatabase::notValidKeyErrorMessage);
         return;
@@ -267,7 +268,7 @@ void IDBCursor::postSuccessHandlerCallback()
 
 void IDBCursor::close()
 {
-    m_blobs.clear();
+    m_value.clear();
     m_request.clear();
     m_backend.clear();
 }
@@ -275,13 +276,13 @@ void IDBCursor::close()
 ScriptValue IDBCursor::key(ScriptState* scriptState)
 {
     m_keyDirty = false;
-    return idbKeyToScriptValue(scriptState, m_key);
+    return ScriptValue::from(scriptState, m_key);
 }
 
 ScriptValue IDBCursor::primaryKey(ScriptState* scriptState)
 {
     m_primaryKeyDirty = false;
-    return idbKeyToScriptValue(scriptState, m_primaryKey);
+    return ScriptValue::from(scriptState, m_primaryKey);
 }
 
 ScriptValue IDBCursor::value(ScriptState* scriptState)
@@ -292,25 +293,26 @@ ScriptValue IDBCursor::value(ScriptState* scriptState)
     const IDBObjectStoreMetadata& metadata = objectStore->metadata();
     IDBAny* value;
     if (metadata.autoIncrement && !metadata.keyPath.isNull()) {
-        value = IDBAny::create(m_value, m_blobs->getInfo(), m_primaryKey, metadata.keyPath);
+        RefPtr<IDBValue> idbValue = IDBValue::create(m_value.get(), m_primaryKey, metadata.keyPath);
 #if ENABLE(ASSERT)
-        assertPrimaryKeyValidOrInjectable(scriptState, m_value, m_blobs->getInfo(), m_primaryKey, metadata.keyPath);
+        assertPrimaryKeyValidOrInjectable(scriptState, idbValue.get());
 #endif
+        value = IDBAny::create(idbValue.release());
     } else {
-        value = IDBAny::create(m_value, m_blobs->getInfo());
+        value = IDBAny::create(m_value);
     }
 
     m_valueDirty = false;
-    ScriptValue scriptValue = idbAnyToScriptValue(scriptState, value);
+    ScriptValue scriptValue = ScriptValue::from(scriptState, value);
     return scriptValue;
 }
 
 ScriptValue IDBCursor::source(ScriptState* scriptState) const
 {
-    return idbAnyToScriptValue(scriptState, m_source);
+    return ScriptValue::from(scriptState, m_source);
 }
 
-void IDBCursor::setValueReady(IDBKey* key, IDBKey* primaryKey, PassRefPtr<SharedBuffer> value, PassOwnPtr<IDBRequest::IDBBlobHolder> blobs)
+void IDBCursor::setValueReady(IDBKey* key, IDBKey* primaryKey, PassRefPtr<IDBValue> value)
 {
     m_key = key;
     m_keyDirty = true;
@@ -320,7 +322,6 @@ void IDBCursor::setValueReady(IDBKey* key, IDBKey* primaryKey, PassRefPtr<Shared
 
     if (isCursorWithValue()) {
         m_value = value;
-        m_blobs = blobs;
         m_valueDirty = true;
     }
 

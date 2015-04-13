@@ -57,7 +57,7 @@ namespace blink {
 
 class AsyncCallTracker::ExecutionContextData final : public NoBaseWillBeGarbageCollectedFinalized<ExecutionContextData>, public ContextLifecycleObserver {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(AsyncCallTracker::ExecutionContextData);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(AsyncCallTracker::ExecutionContextData);
 public:
     ExecutionContextData(AsyncCallTracker* tracker, ExecutionContext* executionContext)
         : ContextLifecycleObserver(executionContext)
@@ -87,7 +87,7 @@ public:
         dispose();
     }
 
-    virtual void trace(Visitor* visitor) override
+    DEFINE_INLINE_VIRTUAL_TRACE()
     {
         visitor->trace(m_tracker);
 #if ENABLE(OILPAN)
@@ -421,7 +421,7 @@ AsyncCallTracker::ExecutionContextData* AsyncCallTracker::createContextDataIfNee
     return data;
 }
 
-void AsyncCallTracker::trace(Visitor* visitor)
+DEFINE_TRACE(AsyncCallTracker)
 {
 #if ENABLE(OILPAN)
     visitor->trace(m_executionContextDataMap);

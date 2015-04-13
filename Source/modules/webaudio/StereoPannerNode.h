@@ -14,38 +14,40 @@ namespace blink {
 
 // StereoPannerNode is an AudioNode with one input and one output. It is
 // specifically designed for equal-power stereo panning.
-class StereoPannerNode final : public AudioNode {
-    DEFINE_WRAPPERTYPEINFO();
+class StereoPannerHandler final : public AudioHandler {
 public:
-    static StereoPannerNode* create(AudioContext* context, float sampleRate)
-    {
-        return new StereoPannerNode(context, sampleRate);
-    }
-
-    virtual ~StereoPannerNode();
+    static StereoPannerHandler* create(AudioNode&, float sampleRate, AudioParamHandler& pan);
+    virtual ~StereoPannerHandler();
 
     virtual void dispose() override;
     virtual void process(size_t framesToProcess) override;
     virtual void initialize() override;
     virtual void uninitialize() override;
 
-    virtual double tailTime() const override { return 0; }
-    virtual double latencyTime() const override { return 0; }
-
     virtual void setChannelCount(unsigned long, ExceptionState&) final;
     virtual void setChannelCountMode(const String&, ExceptionState&) final;
 
-    DECLARE_VIRTUAL_TRACE();
-
-    AudioParam* pan() { return m_pan.get(); }
-
 private:
-    StereoPannerNode(AudioContext*, float sampleRate);
+    StereoPannerHandler(AudioNode&, float sampleRate, AudioParamHandler& pan);
 
-    Member<Spatializer> m_stereoPanner;
-    Member<AudioParam> m_pan;
+    OwnPtr<Spatializer> m_stereoPanner;
+    RefPtr<AudioParamHandler> m_pan;
 
     AudioFloatArray m_sampleAccuratePanValues;
+};
+
+class StereoPannerNode final : public AudioNode {
+    DEFINE_WRAPPERTYPEINFO();
+public:
+    static StereoPannerNode* create(AudioContext&, float sampleRate);
+    DECLARE_VIRTUAL_TRACE();
+
+    AudioParam* pan() const;
+
+private:
+    StereoPannerNode(AudioContext&, float sampleRate);
+
+    Member<AudioParam> m_pan;
 };
 
 } // namespace blink

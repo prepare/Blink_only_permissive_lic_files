@@ -79,7 +79,7 @@ public:
         return promiseDetails.release();
     }
 
-    void trace(Visitor* visitor)
+    DEFINE_INLINE_TRACE()
     {
         visitor->trace(m_creationStack);
         visitor->trace(m_settlementStack);
@@ -144,9 +144,9 @@ public:
     }
 
 #if ENABLE(OILPAN)
-    static void didRemovePromise(const v8::WeakCallbackData<v8::Object, Persistent<PromiseDataWrapper> >& data)
+    static void didRemovePromise(const v8::WeakCallbackInfo<Persistent<PromiseDataWrapper>>& data)
 #else
-    static void didRemovePromise(const v8::WeakCallbackData<v8::Object, PromiseDataWrapper>& data)
+    static void didRemovePromise(const v8::WeakCallbackInfo<PromiseDataWrapper>& data)
 #endif
     {
 #if ENABLE(OILPAN)
@@ -156,8 +156,11 @@ public:
         OwnPtr<PromiseDataWrapper> wrapper = adoptPtr(data.GetParameter());
 #endif
         WeakPtrWillBeRawPtr<PromiseTracker::PromiseData> promiseData = wrapper->m_data;
-        if (!promiseData || !wrapper->m_tracker)
+        if (!promiseData || !wrapper->m_tracker) {
+            // Hitting this would mean the v8 object can't be disposed.
+            ASSERT_NOT_REACHED();
             return;
+        }
 
         PromiseTracker::Listener* listener = wrapper->m_tracker->listener();
         if (listener)
@@ -188,7 +191,7 @@ public:
             map.remove(promiseHash);
     }
 
-    void trace(Visitor* visitor)
+    DEFINE_INLINE_TRACE()
     {
 #if ENABLE(OILPAN)
         visitor->trace(m_data);
@@ -219,7 +222,7 @@ PromiseTracker::PromiseTracker(Listener* listener)
 
 DEFINE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(PromiseTracker);
 
-void PromiseTracker::trace(Visitor* visitor)
+DEFINE_TRACE(PromiseTracker)
 {
 #if ENABLE(OILPAN)
     visitor->trace(m_promiseDataMap);

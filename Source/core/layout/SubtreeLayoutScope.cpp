@@ -47,21 +47,21 @@ SubtreeLayoutScope::~SubtreeLayoutScope()
     RELEASE_ASSERT(!m_root.needsLayout());
 
 #if ENABLE(ASSERT)
-    for (HashSet<LayoutObject*>::iterator it = m_renderersToLayout.begin(); it != m_renderersToLayout.end(); ++it)
-        (*it)->assertRendererLaidOut();
+    for (auto* renderer : m_renderersToLayout)
+        renderer->assertRendererLaidOut();
 #endif
 }
 
-void SubtreeLayoutScope::setNeedsLayout(LayoutObject* descendant)
+void SubtreeLayoutScope::setNeedsLayout(LayoutObject* descendant, LayoutInvalidationReasonForTracing reason)
 {
     ASSERT(descendant->isDescendantOf(&m_root));
-    descendant->setNeedsLayout(MarkContainingBlockChain, this);
+    descendant->setNeedsLayout(reason, MarkContainerChain, this);
 }
 
 void SubtreeLayoutScope::setChildNeedsLayout(LayoutObject* descendant)
 {
     ASSERT(descendant->isDescendantOf(&m_root));
-    descendant->setChildNeedsLayout(MarkContainingBlockChain, this);
+    descendant->setChildNeedsLayout(MarkContainerChain, this);
 }
 
 void SubtreeLayoutScope::addRendererToLayout(LayoutObject* renderer)

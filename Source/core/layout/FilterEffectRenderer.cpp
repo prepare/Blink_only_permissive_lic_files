@@ -39,7 +39,6 @@
 #include "platform/FloatConversion.h"
 #include "platform/LengthFunctions.h"
 #include "platform/graphics/ColorSpace.h"
-#include "platform/graphics/ImageFilter.h"
 #include "platform/graphics/UnacceleratedImageBufferSurface.h"
 #include "platform/graphics/filters/FEColorMatrix.h"
 #include "platform/graphics/filters/FEComponentTransfer.h"
@@ -74,7 +73,7 @@ FilterEffectRenderer::~FilterEffectRenderer()
 {
 }
 
-void FilterEffectRenderer::trace(Visitor* visitor)
+DEFINE_TRACE(FilterEffectRenderer)
 {
     visitor->trace(m_lastEffect);
     visitor->trace(m_referenceFilters);
@@ -82,7 +81,7 @@ void FilterEffectRenderer::trace(Visitor* visitor)
 
 bool FilterEffectRenderer::build(LayoutObject* renderer, const FilterOperations& operations)
 {
-    const LayoutStyle* style = renderer->style();
+    const ComputedStyle* style = renderer->style();
     float zoom = style ? style->effectiveZoom() : 1.0f;
 
     // Create a parent filter for shorthand filters. These have already been scaled by the CSS code for page zoom, so scale is 1.0 here.

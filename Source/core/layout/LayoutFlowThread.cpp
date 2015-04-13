@@ -32,12 +32,12 @@
 #include "core/layout/LayoutFlowThread.h"
 
 #include "core/layout/LayoutMultiColumnSet.h"
-#include "core/rendering/RenderView.h"
+#include "core/layout/LayoutView.h"
 
 namespace blink {
 
 LayoutFlowThread::LayoutFlowThread()
-    : RenderBlockFlow(0)
+    : LayoutBlockFlow(0)
     , m_regionsInvalidated(false)
     , m_regionsHaveUniformLogicalHeight(true)
     , m_pageLogicalSizeChanged(false)
@@ -58,7 +58,7 @@ void LayoutFlowThread::invalidateRegions()
         return;
     }
 
-    setNeedsLayoutAndFullPaintInvalidation();
+    setNeedsLayoutAndFullPaintInvalidation(LayoutInvalidationReason::ColumnsChanged);
 
     m_regionsInvalidated = true;
 }
@@ -73,8 +73,7 @@ void LayoutFlowThread::validateRegions()
             LayoutUnit previousRegionLogicalHeight = 0;
             bool firstRegionVisited = false;
 
-            for (LayoutMultiColumnSetList::iterator iter = m_multiColumnSetList.begin(); iter != m_multiColumnSetList.end(); ++iter) {
-                LayoutMultiColumnSet* columnSet = *iter;
+            for (auto* columnSet : m_multiColumnSetList) {
                 LayoutUnit regionLogicalHeight = columnSet->pageLogicalHeight();
 
                 if (!firstRegionVisited) {
@@ -93,17 +92,22 @@ void LayoutFlowThread::validateRegions()
     generateColumnSetIntervalTree();
 }
 
-void LayoutFlowThread::mapRectToPaintInvalidationBacking(const LayoutLayerModelObject* paintInvalidationContainer, LayoutRect& rect, const PaintInvalidationState* paintInvalidationState) const
+void LayoutFlowThread::mapRectToPaintInvalidationBacking(const LayoutBoxModelObject* paintInvalidationContainer, LayoutRect& rect, const PaintInvalidationState* paintInvalidationState) const
 {
     ASSERT(paintInvalidationContainer != this); // A flow thread should never be an invalidation container.
+    // |rect| is a layout rectangle, where the block direction coordinate is flipped for writing
+    // mode. fragmentsBoundingBox(), on the other hand, works on physical rectangles, so we need to
+    // flip the rectangle before and after calling it.
+    flipForWritingMode(rect);
     rect = fragmentsBoundingBox(rect);
-    RenderBlockFlow::mapRectToPaintInvalidationBacking(paintInvalidationContainer, rect, paintInvalidationState);
+    flipForWritingMode(rect);
+    LayoutBlockFlow::mapRectToPaintInvalidationBacking(paintInvalidationContainer, rect, paintInvalidationState);
 }
 
 void LayoutFlowThread::layout()
 {
     m_pageLogicalSizeChanged = m_regionsInvalidated && everHadLayout();
-    RenderBlockFlow::layout();
+    LayoutBlockFlow::layout();
     m_pageLogicalSizeChanged = false;
 }
 
@@ -118,11 +122,11 @@ void LayoutFlowThread::computeLogicalHeight(LayoutUnit, LayoutUnit logicalTop, L
     }
 }
 
-bool LayoutFlowThread::nodeAtPoint(const HitTestRequest& request, HitTestResult& result, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction hitTestAction)
+bool LayoutFlowThread::nodeAtPoint(HitTestResult& result, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction hitTestAction)
 {
     if (hitTestAction == HitTestBlockBackground)
         return false;
-    return RenderBlockFlow::nodeAtPoint(request, result, locationInContainer, accumulatedOffset, hitTestAction);
+    return LayoutBlockFlow::nodeAtPoint(result, locationInContainer, accumulatedOffset, hitTestAction);
 }
 
 LayoutUnit LayoutFlowThread::pageLogicalHeightForOffset(LayoutUnit offset)
@@ -175,7 +179,7 @@ void LayoutFlowThread::generateColumnSetIntervalTree()
         m_multiColumnSetIntervalTree.add(MultiColumnSetIntervalTree::createInterval(columnSet->logicalTopInFlowThread(), columnSet->logicalBottomInFlowThread(), columnSet));
 }
 
-void LayoutFlowThread::collectLayerFragments(LayerFragments& layerFragments, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect)
+void LayoutFlowThread::collectLayerFragments(DeprecatedPaintLayerFragments& layerFragments, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect)
 {
     ASSERT(!m_regionsInvalidated);
 
@@ -190,12 +194,10 @@ LayoutRect LayoutFlowThread::fragmentsBoundingBox(const LayoutRect& layerBoundin
     ASSERT(!m_regionsInvalidated);
 
     LayoutRect result;
-    for (LayoutMultiColumnSetList::const_iterator iter = m_multiColumnSetList.begin(); iter != m_multiColumnSetList.end(); ++iter) {
-        LayoutMultiColumnSet* columnSet = *iter;
-        LayerFragments fragments;
-        columnSet->collectLayerFragments(fragments, layerBoundingBox, LayoutRect::infiniteIntRect());
-        for (size_t i = 0; i < fragments.size(); ++i) {
-            const LayerFragment& fragment = fragments.at(i);
+    for (auto* columnSet : m_multiColumnSetList) {
+        DeprecatedPaintLayerFragments fragments;
+        columnSet->collectLayerFragments(fragments, layerBoundingBox, LayoutRect(LayoutRect::infiniteIntRect()));
+        for (const auto& fragment : fragments) {
             LayoutRect fragmentRect(layerBoundingBox);
             fragmentRect.intersect(fragment.paginationClip);
             fragmentRect.moveBy(fragment.paginationOffset);

@@ -118,12 +118,14 @@ static LocalFrame* createWindow(LocalFrame& openerFrame, LocalFrame& lookupFrame
     host->chrome().setWindowRect(newWindowRect);
     host->chrome().show(policy);
 
+    frame.loader().forceSandboxFlags(openerFrame.document()->sandboxFlags());
+
     created = true;
     return &frame;
 }
 
 LocalFrame* createWindow(const String& urlString, const AtomicString& frameName, const WindowFeatures& windowFeatures,
-    LocalDOMWindow& callingWindow, LocalFrame& firstFrame, LocalFrame& openerFrame, LocalDOMWindow::PrepareDialogFunction function, void* functionContext)
+    LocalDOMWindow& callingWindow, LocalFrame& firstFrame, LocalFrame& openerFrame)
 {
     LocalFrame* activeFrame = callingWindow.frame();
     ASSERT(activeFrame);
@@ -151,16 +153,10 @@ LocalFrame* createWindow(const String& urlString, const AtomicString& frameName,
     if (!newFrame)
         return nullptr;
 
-    if (newFrame != &openerFrame && newFrame != openerFrame.tree().top())
-        newFrame->loader().forceSandboxFlags(openerFrame.document()->sandboxFlags());
-
     newFrame->loader().setOpener(&openerFrame);
 
     if (newFrame->localDOMWindow()->isInsecureScriptAccess(callingWindow, completedURL))
         return newFrame;
-
-    if (function)
-        function(newFrame->localDOMWindow(), functionContext);
 
     if (created)
         newFrame->loader().load(FrameLoadRequest(callingWindow.document(), completedURL));

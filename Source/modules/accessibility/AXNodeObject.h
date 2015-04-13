@@ -29,6 +29,7 @@
 #ifndef AXNodeObject_h
 #define AXNodeObject_h
 
+#include "modules/ModulesExport.h"
 #include "modules/accessibility/AXObject.h"
 #include "wtf/Forward.h"
 
@@ -40,7 +41,7 @@ class HTMLLabelElement;
 class LayoutRect;
 class Node;
 
-class AXNodeObject : public AXObject {
+class MODULES_EXPORT AXNodeObject : public AXObject {
 protected:
     AXNodeObject(Node*, AXObjectCacheImpl*);
 
@@ -57,6 +58,7 @@ protected:
 #endif
 
     virtual bool computeAccessibilityIsIgnored() const override;
+    virtual bool computeHasInheritedPresentationalRole() const override;
     virtual AccessibilityRole determineAccessibilityRole();
     AccessibilityRole determineAccessibilityRoleUtil();
     String accessibilityDescriptionForElements(WillBeHeapVector<RawPtrWillBeMember<Element>> &elements) const;
@@ -74,7 +76,7 @@ protected:
     AXObject* menuButtonForMenu() const;
     Element* menuItemElementForMenu() const;
     Element* mouseButtonListener() const;
-    String placeholder() const;
+    String deprecatedPlaceholder() const;
     AccessibilityRole remapAriaRoleDueToParent(AccessibilityRole) const;
     bool isNativeCheckboxOrRadio() const;
     void setNode(Node*);
@@ -129,11 +131,11 @@ protected:
 
     // Properties of static elements.
     virtual bool canvasHasFallbackContent() const override final;
-    virtual bool exposesTitleUIElement() const override;
+    virtual bool deprecatedExposesTitleUIElement() const override;
     virtual int headingLevel() const override final;
     virtual unsigned hierarchicalLevel() const override final;
     virtual String text() const override;
-    virtual AXObject* titleUIElement() const override;
+    virtual AXObject* deprecatedTitleUIElement() const override;
 
     // Properties of interactive elements.
     virtual AccessibilityButtonState checkboxOrRadioValue() const override final;
@@ -156,10 +158,10 @@ protected:
     virtual AccessibilityOptionalBool isAriaGrabbed() const override final;
 
     // Accessibility Text.
-    virtual String textUnderElement(TextUnderElementMode) const override;
-    virtual String accessibilityDescription() const override;
-    virtual String title(TextUnderElementMode) const override;
-    virtual String helpText() const override;
+    virtual String deprecatedTextUnderElement(TextUnderElementMode) const override;
+    virtual String deprecatedAccessibilityDescription() const override;
+    virtual String deprecatedTitle(TextUnderElementMode) const override;
+    virtual String deprecatedHelpText() const override;
     virtual String computedName() const override;
 
     // Location and click point in frame-relative coordinates.
@@ -203,6 +205,7 @@ private:
     void changeValueByPercent(float percentChange);
     float stepValueForRange() const;
     AXObject* findChildWithTagName(const HTMLQualifiedName&) const;
+    bool isDescendantOfElementType(const HTMLQualifiedName& tagName) const;
 };
 
 DEFINE_AX_OBJECT_TYPE_CASTS(AXNodeObject, isAXNodeObject());

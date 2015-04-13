@@ -26,7 +26,7 @@ FetchRequestData* createCopyOfFetchRequestDataForFetch(ExecutionContext* context
     FetchRequestData* request = FetchRequestData::create();
     request->setURL(original->url());
     request->setMethod(original->method());
-    request->setHeaderList(original->headerList()->createCopy());
+    request->setHeaderList(original->headerList()->clone());
     request->setUnsafeRequestFlag(true);
     request->setBlobDataHandle(original->blobDataHandle());
     // FIXME: Set client.
@@ -34,7 +34,6 @@ FetchRequestData* createCopyOfFetchRequestDataForFetch(ExecutionContext* context
     // FIXME: Set ForceOriginHeaderFlag.
     request->setSameOriginDataURLFlag(true);
     request->mutableReferrer()->setClient();
-    request->setContext(WebURLRequest::RequestContextFetch);
     request->setMode(original->mode());
     request->setCredentials(original->credentials());
     // FIXME: Set cache mode.
@@ -51,7 +50,7 @@ Request* Request::createRequestWithRequestOrString(ExecutionContext* context, Re
             return 0;
         }
         // "2. Set input's used flag."
-        inputRequest->setBodyUsed();
+        inputRequest->lockBody(PassBody);
     }
 
     // "2. Let |request| be |input|'s associated request, if |input| is a
@@ -64,6 +63,17 @@ Request* Request::createRequestWithRequestOrString(ExecutionContext* context, Re
     // context is fetch, mode is |request|'s mode, credentials mode is
     // |request|'s credentials mode, and cache mode is |request|'s cache mode."
     FetchRequestData* request = createCopyOfFetchRequestDataForFetch(context, inputRequest ? inputRequest->request() : FetchRequestData::create());
+
+    if (inputRequest && inputRequest->blobDataHandle() && inputRequest->isBodyConsumed()) {
+        // Currently the only methods that can consume body data without
+        // setting 'body passed' flag consume entire body (e.g. text()). Thus
+        // we can set an empty blob to the new request instead of creating a
+        // draining stream.
+        // TODO(yhirano): Fix this once Request.body is introduced.
+        OwnPtr<BlobData> blobData = BlobData::create();
+        blobData->setContentType(inputRequest->blobDataHandle()->type());
+        request->setBlobDataHandle(BlobDataHandle::create(blobData.release(), 0));
+    }
 
     // "4. Let |fallbackMode| be null."
     // "5. Let |fallbackCredentials| be null."
@@ -124,7 +134,7 @@ Request* Request::createRequestWithRequestOrString(ExecutionContext* context, Re
 
     // "14. If |init|'s method member is present, let |method| be it and run
     // these substeps:"
-    if (!init.method.isEmpty()) {
+    if (!init.method.isNull()) {
         // "1. If |method| is not a method or method is a forbidden method,
         // throw a TypeError."
         if (!isValidHTTPToken(init.method)) {
@@ -149,7 +159,7 @@ Request* Request::createRequestWithRequestOrString(ExecutionContext* context, Re
     // is present.
     Headers* headers = 0;
     if (!init.headers && init.headersDictionary.isUndefinedOrNull()) {
-        headers = r->headers()->createCopy();
+        headers = r->headers()->clone();
     }
     // "18. Empty |r|'s request's header list."
     r->clearHeaderList();
@@ -200,7 +210,7 @@ Request* Request::createRequestWithRequestOrString(ExecutionContext* context, Re
     }
     // "22. Set |r|'s MIME type to the result of extracting a MIME type from
     // |r|'s request's header list."
-    // FIXME: We don't have MIME type in Request object yet.
+    r->m_request->setMIMEType(r->m_request->headerList()->extractMIMEType());
 
     // "23. Return |r|."
     return r;
@@ -249,6 +259,9 @@ Request::Request(ExecutionContext* context, FetchRequestData* request)
     m_headers->setGuard(Headers::RequestGuard);
 }
 
+Request::Request(ExecutionContext* context, FetchRequestData* request, Headers* headers)
+    : Body(context) , m_request(request) , m_headers(headers) { }
+
 Request* Request::create(ExecutionContext* context, const WebServiceWorkerRequest& webRequest)
 {
     Request* r = new Request(context, webRequest);
@@ -262,13 +275,6 @@ Request::Request(ExecutionContext* context, const WebServiceWorkerRequest& webRe
     , m_headers(Headers::create(m_request->headerList()))
 {
     m_headers->setGuard(Headers::RequestGuard);
-}
-
-Request::Request(const Request& cloneFrom)
-    : Body(cloneFrom)
-    , m_request(cloneFrom.m_request->createCopy())
-    , m_headers(Headers::create(m_request->headerList()))
-{
 }
 
 String Request::method() const
@@ -285,6 +291,83 @@ KURL Request::url() const
     KURL url(m_request->url());
     url.removeFragmentIdentifier();
     return url;
+}
+
+String Request::context() const
+{
+    // "The context attribute's getter must return request's context"
+    switch (m_request->context()) {
+    case WebURLRequest::RequestContextUnspecified:
+        return "";
+    case WebURLRequest::RequestContextAudio:
+        return "audio";
+    case WebURLRequest::RequestContextBeacon:
+        return "beacon";
+    case WebURLRequest::RequestContextCSPReport:
+        return "cspreport";
+    case WebURLRequest::RequestContextDownload:
+        return "download";
+    case WebURLRequest::RequestContextEmbed:
+        return "embed";
+    case WebURLRequest::RequestContextEventSource:
+        return "eventsource";
+    case WebURLRequest::RequestContextFavicon:
+        return "favicon";
+    case WebURLRequest::RequestContextFetch:
+        return "fetch";
+    case WebURLRequest::RequestContextFont:
+        return "font";
+    case WebURLRequest::RequestContextForm:
+        return "form";
+    case WebURLRequest::RequestContextFrame:
+        return "frame";
+    case WebURLRequest::RequestContextHyperlink:
+        return "hyperlink";
+    case WebURLRequest::RequestContextIframe:
+        return "iframe";
+    case WebURLRequest::RequestContextImage:
+        return "image";
+    case WebURLRequest::RequestContextImageSet:
+        return "imageset";
+    case WebURLRequest::RequestContextImport:
+        return "import";
+    case WebURLRequest::RequestContextInternal:
+        return "internal";
+    case WebURLRequest::RequestContextLocation:
+        return "location";
+    case WebURLRequest::RequestContextManifest:
+        return "manifest";
+    case WebURLRequest::RequestContextObject:
+        return "object";
+    case WebURLRequest::RequestContextPing:
+        return "ping";
+    case WebURLRequest::RequestContextPlugin:
+        return "plugin";
+    case WebURLRequest::RequestContextPrefetch:
+        return "prefetch";
+    case WebURLRequest::RequestContextScript:
+        return "script";
+    case WebURLRequest::RequestContextServiceWorker:
+        return "serviceworker";
+    case WebURLRequest::RequestContextSharedWorker:
+        return "sharedworker";
+    case WebURLRequest::RequestContextSubresource:
+        return "subresource";
+    case WebURLRequest::RequestContextStyle:
+        return "style";
+    case WebURLRequest::RequestContextTrack:
+        return "track";
+    case WebURLRequest::RequestContextVideo:
+        return "video";
+    case WebURLRequest::RequestContextWorker:
+        return "worker";
+    case WebURLRequest::RequestContextXMLHttpRequest:
+        return "xmlhttprequest";
+    case WebURLRequest::RequestContextXSLT:
+        return "xslt";
+    }
+    ASSERT_NOT_REACHED();
+    return "";
 }
 
 String Request::referrer() const
@@ -339,18 +422,37 @@ Request* Request::clone(ExceptionState& exceptionState) const
         exceptionState.throwTypeError("Request body is already used");
         return nullptr;
     }
-    // FIXME: We throw an error while cloning the Response which body was
-    // partially read. But in Request case, we don't. When the behavior of the
-    // partially read streams will be well defined in the spec, we have to
-    // implement the behavior correctly.
-    Request* r = new Request(*this);
+
+    FetchRequestData* request = m_request->clone();
+    if (blobDataHandle() && isBodyConsumed()) {
+        // Currently the only methods that can consume body data without
+        // setting 'body passed' flag consume entire body (e.g. text()). Thus
+        // we can set an empty blob to the new request instead of creating a
+        // draining stream.
+        // TODO(yhirano): Fix this once Request.body is introduced.
+        OwnPtr<BlobData> blobData = BlobData::create();
+        blobData->setContentType(blobDataHandle()->type());
+        request->setBlobDataHandle(BlobDataHandle::create(blobData.release(), 0));
+    }
+
+    Headers* headers = Headers::create(request->headerList());
+    headers->setGuard(m_headers->guard());
+    Request* r = new Request(executionContext(), request, headers);
     r->suspendIfNeeded();
     return r;
+}
+
+FetchRequestData* Request::passRequestData()
+{
+    ASSERT(!bodyUsed());
+    lockBody(PassBody);
+    return m_request->pass();
 }
 
 void Request::populateWebServiceWorkerRequest(WebServiceWorkerRequest& webRequest) const
 {
     webRequest.setMethod(method());
+    webRequest.setRequestContext(m_request->context());
     // This strips off the fragment part.
     webRequest.setURL(url());
 
@@ -382,14 +484,13 @@ PassRefPtr<BlobDataHandle> Request::blobDataHandle() const
 
 BodyStreamBuffer* Request::buffer() const
 {
+    // We don't support BodyStreamBuffer for Request yet.
     return nullptr;
 }
 
-String Request::contentTypeForBuffer() const
+String Request::mimeType() const
 {
-    // We don't support BodyStreamBuffer for Request yet.
-    ASSERT_NOT_REACHED();
-    return String();
+    return m_request->mimeType();
 }
 
 DEFINE_TRACE(Request)

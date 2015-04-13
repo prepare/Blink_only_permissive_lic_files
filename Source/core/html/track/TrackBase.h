@@ -26,6 +26,7 @@
 #ifndef TrackBase_h
 #define TrackBase_h
 
+#include "core/CoreExport.h"
 #include "platform/heap/Handle.h"
 #include "public/platform/WebMediaPlayer.h"
 #include "wtf/RefCounted.h"
@@ -35,7 +36,7 @@ namespace blink {
 
 class HTMLMediaElement;
 
-class TrackBase : public WillBeGarbageCollectedMixin, public RefCountedWillBeNoBase<TrackBase> {
+class CORE_EXPORT TrackBase : public WillBeGarbageCollectedMixin, public RefCountedWillBeNoBase<TrackBase> {
 public:
     virtual ~TrackBase();
 
@@ -60,7 +61,7 @@ public:
     HTMLMediaElement* mediaElement() const { return m_mediaElement; }
     Node* owner() const;
 
-    virtual void trace(Visitor*);
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     TrackBase(Type, const AtomicString& label, const AtomicString& language, const String& id);

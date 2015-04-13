@@ -40,22 +40,30 @@ namespace blink {
 
 class InjectedScript;
 class InjectedScriptHost;
+class InjectedScriptNative;
 class ScriptValue;
 
 class InjectedScriptManager : public NoBaseWillBeGarbageCollectedFinalized<InjectedScriptManager> {
     WTF_MAKE_NONCOPYABLE(InjectedScriptManager);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(InjectedScriptManager);
 public:
-    struct CallbackData {
+    class CallbackData final : public NoBaseWillBeGarbageCollectedFinalized<CallbackData> {
+    public:
+        static PassOwnPtrWillBeRawPtr<CallbackData> create(InjectedScriptManager*);
+        void dispose();
+        DECLARE_TRACE();
+
         ScopedPersistent<v8::Object> handle;
-        RefPtrWillBePersistent<InjectedScriptHost> host;
-        InjectedScriptManager* injectedScriptManager;
+        RefPtrWillBeMember<InjectedScriptHost> host;
+        RawPtrWillBeMember<InjectedScriptManager> injectedScriptManager;
+    private:
+        explicit CallbackData(InjectedScriptManager*);
     };
 
     static PassOwnPtrWillBeRawPtr<InjectedScriptManager> createForPage();
     static PassOwnPtrWillBeRawPtr<InjectedScriptManager> createForWorker();
     ~InjectedScriptManager();
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     void disconnect();
 
@@ -72,7 +80,7 @@ public:
     typedef bool (*InspectedStateAccessCheck)(ScriptState*);
     InspectedStateAccessCheck inspectedStateAccessCheck() const { return m_inspectedStateAccessCheck; }
 
-    static void setWeakCallback(const v8::WeakCallbackData<v8::Object, CallbackData>&);
+    static void setWeakCallback(const v8::WeakCallbackInfo<CallbackData>&);
     CallbackData* createCallbackData(InjectedScriptManager*);
     void removeCallbackData(CallbackData*);
     void setCustomObjectFormatterEnabled(bool);
@@ -81,7 +89,7 @@ private:
     explicit InjectedScriptManager(InspectedStateAccessCheck);
 
     String injectedScriptSource();
-    ScriptValue createInjectedScript(const String& source, ScriptState*, int id);
+    ScriptValue createInjectedScript(const String& source, ScriptState*, int id, InjectedScriptNative*);
 
     static bool canAccessInspectedWindow(ScriptState*);
     static bool canAccessInspectedWorkerGlobalScope(ScriptState*);
@@ -93,7 +101,7 @@ private:
     InspectedStateAccessCheck m_inspectedStateAccessCheck;
     typedef HashMap<RefPtr<ScriptState>, int> ScriptStateToId;
     ScriptStateToId m_scriptStateToId;
-    HashSet<OwnPtr<CallbackData> > m_callbackDataSet;
+    WillBeHeapHashSet<OwnPtrWillBeMember<CallbackData>> m_callbackDataSet;
     bool m_customObjectFormatterEnabled;
 };
 

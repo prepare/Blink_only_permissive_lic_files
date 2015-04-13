@@ -5,10 +5,11 @@
 #include "config.h"
 #include "core/inspector/InspectorResourceContentLoader.h"
 
-#include "core/FetchInitiatorTypeNames.h"
 #include "core/css/CSSStyleSheet.h"
 #include "core/css/StyleSheetContents.h"
+#include "core/dom/Document.h"
 #include "core/fetch/CSSStyleSheetResource.h"
+#include "core/fetch/FetchInitiatorTypeNames.h"
 #include "core/fetch/RawResource.h"
 #include "core/fetch/Resource.h"
 #include "core/fetch/ResourceFetcher.h"
@@ -156,7 +157,7 @@ InspectorResourceContentLoader::~InspectorResourceContentLoader()
     ASSERT(m_resources.isEmpty());
 }
 
-void InspectorResourceContentLoader::trace(Visitor* visitor)
+DEFINE_TRACE(InspectorResourceContentLoader)
 {
     visitor->trace(m_callbacks);
     visitor->trace(m_inspectedFrame);

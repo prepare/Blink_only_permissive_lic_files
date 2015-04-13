@@ -23,9 +23,7 @@
  */
 
 #include "config.h"
-
 #if ENABLE(WEB_AUDIO)
-
 #include "modules/webaudio/MediaElementAudioSourceNode.h"
 
 #include "core/html/HTMLMediaElement.h"
@@ -36,40 +34,44 @@
 #include "platform/graphics/media/MediaPlayer.h"
 #include "platform/weborigin/SecurityOrigin.h"
 #include "wtf/Locker.h"
+#include "wtf/MainThread.h"
 
 namespace blink {
 
-MediaElementAudioSourceNode* MediaElementAudioSourceNode::create(AudioContext* context, HTMLMediaElement* mediaElement)
-{
-    return new MediaElementAudioSourceNode(context, mediaElement);
-}
-
-MediaElementAudioSourceNode::MediaElementAudioSourceNode(AudioContext* context, HTMLMediaElement* mediaElement)
-    : AudioSourceNode(NodeTypeMediaElementAudioSource, context, context->sampleRate())
+MediaElementAudioSourceHandler::MediaElementAudioSourceHandler(AudioNode& node, HTMLMediaElement& mediaElement)
+    : AudioHandler(NodeTypeMediaElementAudioSource, node, node.context()->sampleRate())
     , m_mediaElement(mediaElement)
     , m_sourceNumberOfChannels(0)
     , m_sourceSampleRate(0)
+    , m_passesCurrentSrcCORSAccessCheck(passesCurrentSrcCORSAccessCheck(mediaElement.currentSrc()))
 {
+    ASSERT(isMainThread());
     // Default to stereo. This could change depending on what the media element
     // .src is set to.
-    addOutput(AudioNodeOutput::create(this, 2));
+    addOutput(2);
 
     initialize();
 }
 
-MediaElementAudioSourceNode::~MediaElementAudioSourceNode()
+MediaElementAudioSourceHandler* MediaElementAudioSourceHandler::create(AudioNode& node, HTMLMediaElement& mediaElement)
+{
+    return new MediaElementAudioSourceHandler(node, mediaElement);
+}
+
+MediaElementAudioSourceHandler::~MediaElementAudioSourceHandler()
 {
     ASSERT(!isInitialized());
+    ASSERT(isMainThread());
 }
 
-void MediaElementAudioSourceNode::dispose()
+void MediaElementAudioSourceHandler::dispose()
 {
-    m_mediaElement->setAudioSourceNode(0);
+    m_mediaElement->setAudioSourceNode(nullptr);
     uninitialize();
-    AudioSourceNode::dispose();
+    AudioHandler::dispose();
 }
 
-void MediaElementAudioSourceNode::setFormat(size_t numberOfChannels, float sourceSampleRate)
+void MediaElementAudioSourceHandler::setFormat(size_t numberOfChannels, float sourceSampleRate)
 {
     if (numberOfChannels != m_sourceNumberOfChannels || sourceSampleRate != m_sourceSampleRate) {
         if (!numberOfChannels || numberOfChannels > AudioContext::maxNumberOfChannels() || !AudioUtilities::isValidAudioBufferSampleRate(sourceSampleRate)) {
@@ -84,7 +86,7 @@ void MediaElementAudioSourceNode::setFormat(size_t numberOfChannels, float sourc
         m_sourceSampleRate = sourceSampleRate;
 
         // Synchronize with process().
-        Locker<MediaElementAudioSourceNode> locker(*this);
+        Locker<MediaElementAudioSourceHandler> locker(*this);
 
         if (sourceSampleRate != sampleRate()) {
             double scaleFactor = sourceSampleRate / sampleRate();
@@ -104,7 +106,31 @@ void MediaElementAudioSourceNode::setFormat(size_t numberOfChannels, float sourc
     }
 }
 
-void MediaElementAudioSourceNode::process(size_t numberOfFrames)
+bool MediaElementAudioSourceHandler::passesCORSAccessCheck()
+{
+    ASSERT(mediaElement());
+
+    return (mediaElement()->webMediaPlayer() && mediaElement()->webMediaPlayer()->didPassCORSAccessCheck())
+        || m_passesCurrentSrcCORSAccessCheck;
+}
+
+void MediaElementAudioSourceHandler::onCurrentSrcChanged(const KURL& currentSrc)
+{
+    ASSERT(isMainThread());
+
+    // Synchronize with process().
+    Locker<MediaElementAudioSourceHandler> locker(*this);
+
+    m_passesCurrentSrcCORSAccessCheck = passesCurrentSrcCORSAccessCheck(currentSrc);
+}
+
+bool MediaElementAudioSourceHandler::passesCurrentSrcCORSAccessCheck(const KURL& currentSrc)
+{
+    ASSERT(isMainThread());
+    return context()->securityOrigin() && context()->securityOrigin()->canRequest(currentSrc);
+}
+
+void MediaElementAudioSourceHandler::process(size_t numberOfFrames)
 {
     AudioBus* outputBus = output(0)->bus();
 
@@ -130,8 +156,7 @@ void MediaElementAudioSourceNode::process(size_t numberOfFrames)
                 provider->provideInput(outputBus, numberOfFrames);
             }
             // Output silence if we don't have access to the element.
-            if (!((mediaElement()->webMediaPlayer() && mediaElement()->webMediaPlayer()->didPassCORSAccessCheck())
-                || context()->securityOrigin()->canRequest(mediaElement()->currentSrc()))) {
+            if (!passesCORSAccessCheck()) {
                 outputBus->zero();
             }
         } else {
@@ -145,21 +170,69 @@ void MediaElementAudioSourceNode::process(size_t numberOfFrames)
     }
 }
 
-void MediaElementAudioSourceNode::lock()
+void MediaElementAudioSourceHandler::lock()
 {
     m_processLock.lock();
 }
 
-void MediaElementAudioSourceNode::unlock()
+void MediaElementAudioSourceHandler::unlock()
 {
     m_processLock.unlock();
 }
 
-DEFINE_TRACE(MediaElementAudioSourceNode)
+DEFINE_TRACE(MediaElementAudioSourceHandler)
 {
     visitor->trace(m_mediaElement);
-    AudioSourceNode::trace(visitor);
+    AudioHandler::trace(visitor);
+}
+
+// ----------------------------------------------------------------
+
+MediaElementAudioSourceNode::MediaElementAudioSourceNode(AudioContext& context, HTMLMediaElement& mediaElement)
+    : AudioSourceNode(context)
+{
+    setHandler(MediaElementAudioSourceHandler::create(*this, mediaElement));
+}
+
+MediaElementAudioSourceNode* MediaElementAudioSourceNode::create(AudioContext& context, HTMLMediaElement& mediaElement)
+{
+    return new MediaElementAudioSourceNode(context, mediaElement);
+}
+
+DEFINE_TRACE(MediaElementAudioSourceNode)
+{
     AudioSourceProviderClient::trace(visitor);
+    AudioSourceNode::trace(visitor);
+}
+
+MediaElementAudioSourceHandler& MediaElementAudioSourceNode::mediaElementAudioSourceHandler() const
+{
+    return static_cast<MediaElementAudioSourceHandler&>(handler());
+}
+
+HTMLMediaElement* MediaElementAudioSourceNode::mediaElement() const
+{
+    return mediaElementAudioSourceHandler().mediaElement();
+}
+
+void MediaElementAudioSourceNode::setFormat(size_t numberOfChannels, float sampleRate)
+{
+    mediaElementAudioSourceHandler().setFormat(numberOfChannels, sampleRate);
+}
+
+void MediaElementAudioSourceNode::onCurrentSrcChanged(const KURL& currentSrc)
+{
+    mediaElementAudioSourceHandler().onCurrentSrcChanged(currentSrc);
+}
+
+void MediaElementAudioSourceNode::lock()
+{
+    mediaElementAudioSourceHandler().lock();
+}
+
+void MediaElementAudioSourceNode::unlock()
+{
+    mediaElementAudioSourceHandler().unlock();
 }
 
 } // namespace blink

@@ -33,6 +33,7 @@
 #ifndef InputTypeView_h
 #define InputTypeView_h
 
+#include "core/CoreExport.h"
 #include "platform/heap/Handle.h"
 #include "public/platform/WebFocusType.h"
 #include "wtf/FastAllocBase.h"
@@ -52,14 +53,14 @@ class HTMLInputElement;
 class KeyboardEvent;
 class MouseEvent;
 class LayoutObject;
-class LayoutStyle;
+class ComputedStyle;
 class TouchEvent;
 
 struct ClickHandlingState final : public NoBaseWillBeGarbageCollected<ClickHandlingState> {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(ClickHandlingState);
 
 public:
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     bool checked;
     bool indeterminate;
@@ -69,14 +70,14 @@ public:
 // An InputTypeView object represents the UI-specific part of an
 // HTMLInputElement. Do not expose instances of InputTypeView and classes
 // derived from it to classes other than HTMLInputElement.
-class InputTypeView : public RefCountedWillBeGarbageCollectedFinalized<InputTypeView> {
+class CORE_EXPORT InputTypeView : public RefCountedWillBeGarbageCollectedFinalized<InputTypeView> {
     WTF_MAKE_NONCOPYABLE(InputTypeView);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(InputTypeView);
 
 public:
     static PassRefPtrWillBeRawPtr<InputTypeView> create(HTMLInputElement&);
     virtual ~InputTypeView();
-    virtual void trace(Visitor*);
+    DECLARE_VIRTUAL_TRACE();
 
     virtual bool sizeShouldIncludeDecoration(int defaultSize, int& preferredSize) const;
     virtual void handleClickEvent(MouseEvent*);
@@ -98,8 +99,8 @@ public:
     virtual void subtreeHasChanged();
     virtual bool hasTouchEventHandler() const;
     virtual void blur();
-    virtual LayoutObject* createRenderer(const LayoutStyle&) const;
-    virtual PassRefPtr<LayoutStyle> customStyleForRenderer(PassRefPtr<LayoutStyle>);
+    virtual LayoutObject* createLayoutObject(const ComputedStyle&) const;
+    virtual PassRefPtr<ComputedStyle> customStyleForLayoutObject(PassRefPtr<ComputedStyle>);
     virtual void startResourceLoading();
     virtual void closePopupView();
     virtual void createShadowSubtree();

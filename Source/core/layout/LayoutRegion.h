@@ -30,17 +30,18 @@
 #ifndef LayoutRegion_h
 #define LayoutRegion_h
 
-#include "core/rendering/RenderBlockFlow.h"
+#include "core/CoreExport.h"
+#include "core/layout/LayoutBlockFlow.h"
 
 namespace blink {
 
 class LayoutFlowThread;
 
-class LayoutRegion : public RenderBlockFlow {
+class CORE_EXPORT LayoutRegion : public LayoutBlockFlow {
 public:
     explicit LayoutRegion(Element*, LayoutFlowThread*);
 
-    virtual bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectLayoutRegion || RenderBlockFlow::isOfType(type); }
+    virtual bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectLayoutRegion || LayoutBlockFlow::isOfType(type); }
 
     virtual LayoutRect flowThreadPortionRect() const = 0;
     LayoutRect flowThreadPortionOverflowRect() const;
@@ -62,9 +63,8 @@ public:
     virtual LayoutUnit pageLogicalHeight() const;
 
     virtual bool canHaveChildren() const override final { return false; }
-    virtual bool canHaveGeneratedChildren() const override final { return true; }
 
-    virtual const char* renderName() const override { return "LayoutRegion"; }
+    virtual const char* name() const override { return "LayoutRegion"; }
 
 protected:
     virtual void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override final;

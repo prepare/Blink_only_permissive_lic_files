@@ -7,6 +7,7 @@
 
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/V8Binding.h"
+#include "bindings/core/v8/V8BindingForTesting.h"
 #include "core/dom/DOMTypedArray.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
@@ -189,14 +190,14 @@ TEST_F(DOMWebSocketTest, invalidSubprotocols)
     EXPECT_EQ(DOMWebSocket::CLOSED, m_websocket->readyState());
 }
 
-TEST_F(DOMWebSocketTest, insecureContentUpgrade)
+TEST_F(DOMWebSocketTest, insecureRequestsUpgrade)
 {
     {
         InSequence s;
         EXPECT_CALL(channel(), connect(KURL(KURL(), "wss://example.com/endpoint"), String())).WillOnce(Return(true));
     }
 
-    m_pageHolder->document().setInsecureContentPolicy(SecurityContext::InsecureContentUpgrade);
+    m_pageHolder->document().setInsecureRequestsPolicy(SecurityContext::InsecureRequestsUpgrade);
     m_websocket->connect("ws://example.com/endpoint", Vector<String>(), m_exceptionState);
 
     EXPECT_FALSE(m_exceptionState.hadException());
@@ -204,29 +205,14 @@ TEST_F(DOMWebSocketTest, insecureContentUpgrade)
     EXPECT_EQ(KURL(KURL(), "wss://example.com/endpoint"), m_websocket->url());
 }
 
-TEST_F(DOMWebSocketTest, insecureContentDoNotUpgrade)
+TEST_F(DOMWebSocketTest, insecureRequestsDoNotUpgrade)
 {
     {
         InSequence s;
         EXPECT_CALL(channel(), connect(KURL(KURL(), "ws://example.com/endpoint"), String())).WillOnce(Return(true));
     }
 
-    m_pageHolder->document().setInsecureContentPolicy(SecurityContext::InsecureContentDoNotUpgrade);
-    m_websocket->connect("ws://example.com/endpoint", Vector<String>(), m_exceptionState);
-
-    EXPECT_FALSE(m_exceptionState.hadException());
-    EXPECT_EQ(DOMWebSocket::CONNECTING, m_websocket->readyState());
-    EXPECT_EQ(KURL(KURL(), "ws://example.com/endpoint"), m_websocket->url());
-}
-
-TEST_F(DOMWebSocketTest, insecureContentMonitor)
-{
-    {
-        InSequence s;
-        EXPECT_CALL(channel(), connect(KURL(KURL(), "ws://example.com/endpoint"), String())).WillOnce(Return(true));
-    }
-
-    m_pageHolder->document().setInsecureContentPolicy(SecurityContext::InsecureContentMonitor);
+    m_pageHolder->document().setInsecureRequestsPolicy(SecurityContext::InsecureRequestsDoNotUpgrade);
     m_websocket->connect("ws://example.com/endpoint", Vector<String>(), m_exceptionState);
 
     EXPECT_FALSE(m_exceptionState.hadException());
@@ -680,15 +666,7 @@ TEST_F(DOMWebSocketTest, binaryType)
 {
     EXPECT_EQ("blob", m_websocket->binaryType());
 
-    m_websocket->setBinaryType("hoge");
-
-    EXPECT_EQ("blob", m_websocket->binaryType());
-
     m_websocket->setBinaryType("arraybuffer");
-
-    EXPECT_EQ("arraybuffer", m_websocket->binaryType());
-
-    m_websocket->setBinaryType("fuga");
 
     EXPECT_EQ("arraybuffer", m_websocket->binaryType());
 

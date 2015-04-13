@@ -168,7 +168,12 @@ public:
             return nullptr;
 
         TextPosition position = TextPosition(source.currentLine(), source.currentColumn());
-        OwnPtr<PreloadRequest> request = PreloadRequest::create(initiatorFor(m_tagImpl), position, m_urlToLoad, predictedBaseURL, resourceType());
+        FetchRequest::ResourceWidth resourceWidth;
+        if (m_sourceSizeSet) {
+            resourceWidth.width = m_sourceSize;
+            resourceWidth.isSet = true;
+        }
+        OwnPtr<PreloadRequest> request = PreloadRequest::create(initiatorFor(m_tagImpl), position, m_urlToLoad, predictedBaseURL, resourceType(), resourceWidth);
         if (isCORSEnabled())
             request->setCrossOriginEnabled(allowStoredCredentials());
         request->setCharset(charset());
@@ -371,7 +376,7 @@ private:
     bool m_inputIsImage;
     String m_imgSrcUrl;
     String m_srcsetAttributeValue;
-    unsigned m_sourceSize;
+    float m_sourceSize;
     bool m_sourceSizeSet;
     bool m_isCORSEnabled;
     FetchRequest::DeferOption m_defer;
@@ -515,8 +520,10 @@ template<typename Token>
 void TokenPreloadScanner::updatePredictedBaseURL(const Token& token)
 {
     ASSERT(m_predictedBaseElementURL.isEmpty());
-    if (const typename Token::Attribute* hrefAttribute = token.getAttributeItem(hrefAttr))
-        m_predictedBaseElementURL = KURL(m_documentURL, stripLeadingAndTrailingHTMLSpaces(hrefAttribute->value)).copy();
+    if (const typename Token::Attribute* hrefAttribute = token.getAttributeItem(hrefAttr)) {
+        KURL url(m_documentURL, stripLeadingAndTrailingHTMLSpaces(hrefAttribute->value));
+        m_predictedBaseElementURL = url.isValid() ? url.copy() : KURL();
+    }
 }
 
 HTMLPreloadScanner::HTMLPreloadScanner(const HTMLParserOptions& options, const KURL& documentURL, PassRefPtr<MediaValues> mediaValues)

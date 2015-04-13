@@ -31,6 +31,7 @@
 #ifndef InputMethodContext_h
 #define InputMethodContext_h
 
+#include "core/CoreExport.h"
 #include "core/editing/CompositionUnderline.h"
 #include "core/events/EventTarget.h"
 #include "core/html/HTMLElement.h"
@@ -44,7 +45,7 @@ namespace blink {
 class ExecutionContext;
 class InputMethodController;
 
-class InputMethodContext final : public EventTargetWithInlineData {
+class CORE_EXPORT InputMethodContext final : public EventTargetWithInlineData {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static PassOwnPtrWillBeRawPtr<InputMethodContext> create(HTMLElement*);
@@ -77,7 +78,7 @@ public:
     void dispatchCandidateWindowUpdateEvent();
     void dispatchCandidateWindowHideEvent();
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     InputMethodContext(HTMLElement*);

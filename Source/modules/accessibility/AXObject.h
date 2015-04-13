@@ -31,6 +31,7 @@
 #define AXObject_h
 
 #include "core/editing/VisiblePosition.h"
+#include "modules/ModulesExport.h"
 #include "platform/geometry/FloatQuad.h"
 #include "platform/geometry/LayoutRect.h"
 #include "wtf/Forward.h"
@@ -143,6 +144,7 @@ enum AccessibilityRole {
     ScrollBarRole,
     SeamlessWebAreaRole, // No mapping to ARIA role
     SearchRole,
+    SearchBoxRole,
     SliderRole,
     SliderThumbRole, // No mapping to ARIA role
     SpinButtonPartRole, // No mapping to ARIA role
@@ -150,13 +152,13 @@ enum AccessibilityRole {
     SplitterRole,
     StaticTextRole, // No mapping to ARIA role
     StatusRole,
+    SwitchRole,
     TabGroupRole, // No mapping to ARIA role
     TabListRole,
     TabPanelRole,
     TabRole,
     TableHeaderContainerRole, // No mapping to ARIA role
     TableRole,
-    TextAreaRole,
     TextFieldRole,
     TimeRole, // No mapping to ARIA role
     TimerRole,
@@ -195,6 +197,7 @@ enum AccessibilityState {
     AXIndeterminateState,
     AXInvisibleState,
     AXLinkedState,
+    AXMultilineState,
     AXMultiselectableState,
     AXOffscreenState,
     AXPressedState,
@@ -283,7 +286,25 @@ enum TextUnderElementMode {
     TextUnderElementAny // If the text is unimportant, just whether or not it's present
 };
 
-class AXObject : public RefCounted<AXObject> {
+// The source of the accessible name of an element. This is needed
+// because on some platforms this determines how the accessible name
+// is exposed.
+enum AXNameFrom {
+    AXNameFromAttribute = 0,
+    AXNameFromContents,
+    AXNameFromPlaceholder,
+    AXNameFromRelatedElement,
+};
+
+// The source of the accessible description of an element. This is needed
+// because on some platforms this determines how the accessible description
+// is exposed.
+enum AXDescriptionFrom {
+    AXDescriptionFromPlaceholder,
+    AXDescriptionFromRelatedElement
+};
+
+class MODULES_EXPORT AXObject : public RefCounted<AXObject> {
 public:
     typedef Vector<RefPtr<AXObject>> AccessibilityChildrenVector;
 
@@ -332,7 +353,9 @@ public:
 
     // Determine subclass type.
     virtual bool isAXNodeObject() const { return false; }
-    virtual bool isAXRenderObject() const { return false; }
+    virtual bool isAXLayoutObject() const { return false; }
+    virtual bool isAXListBox() const { return false; }
+    virtual bool isAXListBoxOption() const { return false; }
     virtual bool isAXScrollbar() const { return false; }
     virtual bool isAXScrollView() const { return false; }
     virtual bool isAXSVGRoot() const { return false; }
@@ -362,7 +385,6 @@ public:
     virtual bool isLink() const { return false; }
     virtual bool isList() const { return false; }
     bool isListItem() const { return roleValue() == ListItemRole; }
-    virtual bool isListBoxOption() const { return false; }
     virtual bool isMenu() const { return false; }
     virtual bool isMenuButton() const { return false; }
     virtual bool isMenuList() const { return false; }
@@ -376,6 +398,7 @@ public:
     virtual bool isNonNativeTextControl() const { return false; } // contenteditable or role=textbox
     virtual bool isPasswordField() const { return false; }
     virtual bool isPasswordFieldAndShouldHideValue() const;
+    bool isPresentational() const { return roleValue() == NoneRole || roleValue() == PresentationalRole; }
     virtual bool isProgressIndicator() const { return false; }
     bool isRadioButton() const { return roleValue() == RadioButtonRole; }
     bool isScrollbar() const { return roleValue() == ScrollBarRole; }
@@ -423,23 +446,65 @@ public:
     AXObjectInclusion accessibilityPlatformIncludesObject() const;
     virtual AXObjectInclusion defaultObjectInclusion() const;
     bool isInertOrAriaHidden() const;
+    const AXObject* ariaHiddenRoot() const;
     bool computeIsInertOrAriaHidden() const;
     bool isDescendantOfBarrenParent() const;
     bool computeIsDescendantOfBarrenParent() const;
+    bool isDescendantOfDisabledNode() const;
+    bool computeIsDescendantOfDisabledNode() const;
     bool lastKnownIsIgnoredValue();
     void setLastKnownIsIgnoredValue(bool);
 
+    //
+    // Deprecated text alternative calculation API. All of these will be replaced
+    // with the new API, below (under "New text alternative calculation API".
+    //
+
+    virtual bool deprecatedExposesTitleUIElement() const { return true; }
+    virtual AXObject* deprecatedTitleUIElement() const { return 0; }
+    virtual String deprecatedPlaceholder() const { return String(); }
+    virtual void deprecatedAriaDescribedbyElements(AccessibilityChildrenVector& describedby) const { };
+    virtual void deprecatedAriaLabelledbyElements(AccessibilityChildrenVector& labelledby) const { };
+    virtual String deprecatedAccessibilityDescription() const { return String(); }
+    virtual String deprecatedTitle(TextUnderElementMode mode = TextUnderElementAll) const { return String(); }
+    virtual String deprecatedHelpText() const { return String(); }
+    virtual String deprecatedTextUnderElement(TextUnderElementMode mode = TextUnderElementAll) const { return String(); }
+
+    //
+    // New text alternative calculation API (under development).
+    //
+
+    // Retrieves the accessible name of the object, an enum indicating where the name
+    // was derived from, and a list of objects that were used to derive the name, if any.
+    virtual String name(AXNameFrom&, Vector<AXObject*>& nameObjects) { return String(); }
+
+    // Takes the result of nameFrom from calling |name|, above, and retrieves the
+    // accessible description of the object, which is secondary to |name|, an enum indicating
+    // where the description was derived from, and a list of objects that were used to
+    // derive the description, if any.
+    virtual String description(AXNameFrom, AXDescriptionFrom&, Vector<AXObject*>& descriptionObjects) { return String(); }
+
+    // Takes the result of nameFrom and descriptionFrom from calling |name| and |description|,
+    // above, and retrieves the placeholder of the object, if present and if it wasn't already
+    // exposed by one of the two functions above.
+    virtual String placeholder(AXNameFrom, AXDescriptionFrom) { return String(); }
+
+    // Returns result of Accessible Name Calculation algorithm.
+    // This is a simpler high-level interface to |name| used by Inspector.
+    virtual String computedName() const { return String(); }
+
+    //
     // Properties of static elements.
+    //
+
     virtual const AtomicString& accessKey() const { return nullAtom; }
     virtual bool canvasHasFallbackContent() const { return false; }
-    virtual bool exposesTitleUIElement() const { return true; }
     virtual int headingLevel() const { return 0; }
     // 1-based, to match the aria-level spec.
     virtual unsigned hierarchicalLevel() const { return 0; }
     virtual AccessibilityOrientation orientation() const;
     virtual String text() const { return String(); }
     virtual int textLength() const { return 0; }
-    virtual AXObject* titleUIElement() const { return 0; }
     virtual KURL url() const { return KURL(); }
 
     // Load inline text boxes for just this node, even if
@@ -464,7 +529,6 @@ public:
     virtual float valueForRange() const { return 0.0f; }
     virtual float maxValueForRange() const { return 0.0f; }
     virtual float minValueForRange() const { return 0.0f; }
-    virtual String placeholder() const { return String(); }
     virtual String stringValue() const { return String(); }
     virtual const AtomicString& textInputType() const { return nullAtom; }
 
@@ -475,11 +539,9 @@ public:
     virtual const AtomicString& ariaDropEffect() const { return nullAtom; }
     virtual void ariaFlowToElements(AccessibilityChildrenVector&) const { }
     virtual void ariaControlsElements(AccessibilityChildrenVector&) const { }
-    virtual void ariaDescribedbyElements(AccessibilityChildrenVector& describedby) const { };
-    virtual void ariaLabelledbyElements(AccessibilityChildrenVector& labelledby) const { };
     virtual void ariaOwnsElements(AccessibilityChildrenVector& owns) const { };
     virtual bool ariaHasPopup() const { return false; }
-    bool ariaIsMultiline() const;
+    bool isMultiline() const;
     virtual String ariaLabeledByAttribute() const { return String(); }
     bool ariaPressedIsPresent() const;
     virtual AccessibilityRole ariaRoleAttribute() const { return UnknownRole; }
@@ -512,15 +574,6 @@ public:
     bool containerLiveRegionAtomic() const;
     bool containerLiveRegionBusy() const;
 
-    // Accessibility Text.
-    virtual String textUnderElement(TextUnderElementMode mode = TextUnderElementAll) const { return String(); }
-    virtual String accessibilityDescription() const { return String(); }
-    virtual String title(TextUnderElementMode mode = TextUnderElementAll) const { return String(); }
-    virtual String helpText() const { return String(); }
-    // Returns result of Accessible Name Calculation algorithm
-    // TODO(aboxhall): ensure above and replace title() with this logic
-    virtual String computedName() const { return String(); }
-
     // Location and click point in frame-relative coordinates.
     virtual LayoutRect elementRect() const { return m_explicitElementRect; }
     void setElementRect(LayoutRect r) { m_explicitElementRect = r; }
@@ -530,7 +583,7 @@ public:
     // Hit testing.
     // Called on the root AX object to return the deepest available element.
     virtual AXObject* accessibilityHitTest(const IntPoint&) const { return 0; }
-    // Called on the AX object after the render tree determines which is the right AXRenderObject.
+    // Called on the AX object after the layout tree determines which is the right AXLayoutObject.
     virtual AXObject* elementAccessibilityHitTest(const IntPoint&) const;
 
     // High-level accessibility tree access. Other modules should only use these functions.
@@ -554,16 +607,15 @@ public:
     virtual void setNeedsToUpdateChildren() { }
     virtual void clearChildren();
     virtual void detachFromParent() { m_parent = 0; }
-    virtual AXObject* observableObject() const { return 0; }
     virtual AXObject* scrollBar(AccessibilityOrientation) { return 0; }
 
     // Properties of the object's owning document or page.
     virtual double estimatedLoadingProgress() const { return 0; }
     AXObject* focusedUIElement() const;
 
-    // DOM and Render tree access.
+    // DOM and layout tree access.
     virtual Node* node() const { return 0; }
-    virtual LayoutObject* renderer() const { return 0; }
+    virtual LayoutObject* layoutObject() const { return 0; }
     virtual Document* document() const;
     virtual FrameView* documentFrameView() const;
     virtual Element* anchorElement() const { return 0; }
@@ -615,6 +667,10 @@ public:
     static AccessibilityRole ariaRoleToWebCoreRole(const String&);
     static IntRect boundingBoxForQuads(LayoutObject*, const Vector<FloatQuad>&);
     static const AtomicString& roleName(AccessibilityRole);
+    static const AtomicString& internalRoleName(AccessibilityRole);
+    static bool isInsideFocusableElementOrARIAWidget(const Node&);
+
+    bool hasInheritedPresentationalRole() const { return m_cachedHasInheritedPresentationalRole; }
 
 protected:
     AXID m_id;
@@ -625,6 +681,7 @@ protected:
     LayoutRect m_explicitElementRect;
 
     virtual bool computeAccessibilityIsIgnored() const { return true; }
+    virtual bool computeHasInheritedPresentationalRole() const { return false; }
 
     // If this object itself scrolls, return its ScrollableArea.
     virtual ScrollableArea* getScrollableAreaIfScrollable() const { return 0; }
@@ -645,6 +702,8 @@ protected:
     mutable bool m_cachedIsIgnored : 1;
     mutable bool m_cachedIsInertOrAriaHidden : 1;
     mutable bool m_cachedIsDescendantOfBarrenParent : 1;
+    mutable bool m_cachedIsDescendantOfDisabledNode : 1;
+    mutable bool m_cachedHasInheritedPresentationalRole : 1;
     mutable const AXObject* m_cachedLiveRegionRoot;
 
     AXObjectCacheImpl* m_axObjectCache;
@@ -652,6 +711,10 @@ protected:
     // Updates the cached attribute values. This may be recursive, so to prevent deadlocks,
     // functions called here may only search up the tree (ancestors), not down.
     void updateCachedAttributeValuesIfNeeded() const;
+
+private:
+    static bool includesARIAWidgetRole(const String&);
+    static bool hasInteractiveARIAAttribute(const Element&);
 };
 
 #define DEFINE_AX_OBJECT_TYPE_CASTS(thisType, predicate) \

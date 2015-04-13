@@ -129,27 +129,27 @@ bool DateTimeFormatValidator::validateFormat(const String& format, const BaseMul
 
 DateTimeEditElement* BaseMultipleFieldsDateAndTimeInputType::dateTimeEditElement() const
 {
-    return toDateTimeEditElement(element().userAgentShadowRoot()->getElementById(ShadowElementNames::dateTimeEdit()));
+    return toDateTimeEditElement(element().closedShadowRoot()->getElementById(ShadowElementNames::dateTimeEdit()));
 }
 
 SpinButtonElement* BaseMultipleFieldsDateAndTimeInputType::spinButtonElement() const
 {
-    return toSpinButtonElement(element().userAgentShadowRoot()->getElementById(ShadowElementNames::spinButton()));
+    return toSpinButtonElement(element().closedShadowRoot()->getElementById(ShadowElementNames::spinButton()));
 }
 
 ClearButtonElement* BaseMultipleFieldsDateAndTimeInputType::clearButtonElement() const
 {
-    return toClearButtonElement(element().userAgentShadowRoot()->getElementById(ShadowElementNames::clearButton()));
+    return toClearButtonElement(element().closedShadowRoot()->getElementById(ShadowElementNames::clearButton()));
 }
 
 PickerIndicatorElement* BaseMultipleFieldsDateAndTimeInputType::pickerIndicatorElement() const
 {
-    return toPickerIndicatorElement(element().userAgentShadowRoot()->getElementById(ShadowElementNames::pickerIndicator()));
+    return toPickerIndicatorElement(element().closedShadowRoot()->getElementById(ShadowElementNames::pickerIndicator()));
 }
 
 inline bool BaseMultipleFieldsDateAndTimeInputType::containsFocusedShadowElement() const
 {
-    return element().userAgentShadowRoot()->contains(element().document().focusedElement());
+    return element().closedShadowRoot()->contains(element().document().focusedElement());
 }
 
 void BaseMultipleFieldsDateAndTimeInputType::didBlurFromControl()
@@ -324,7 +324,7 @@ void BaseMultipleFieldsDateAndTimeInputType::blur()
         edit->blurByOwner();
 }
 
-PassRefPtr<LayoutStyle> BaseMultipleFieldsDateAndTimeInputType::customStyleForRenderer(PassRefPtr<LayoutStyle> originalStyle)
+PassRefPtr<ComputedStyle> BaseMultipleFieldsDateAndTimeInputType::customStyleForLayoutObject(PassRefPtr<ComputedStyle> originalStyle)
 {
     EDisplay originalDisplay = originalStyle->display();
     EDisplay newDisplay = originalDisplay;
@@ -336,7 +336,7 @@ PassRefPtr<LayoutStyle> BaseMultipleFieldsDateAndTimeInputType::customStyleForRe
     if (originalStyle->direction() == contentDirection && originalDisplay == newDisplay)
         return originalStyle;
 
-    RefPtr<LayoutStyle> style = LayoutStyle::clone(*originalStyle);
+    RefPtr<ComputedStyle> style = ComputedStyle::clone(*originalStyle);
     style->setDirection(contentDirection);
     style->setDisplay(newDisplay);
     style->setUnique();
@@ -348,13 +348,13 @@ void BaseMultipleFieldsDateAndTimeInputType::createShadowSubtree()
     ASSERT(element().shadow());
 
     // Element must not have a renderer here, because if it did
-    // DateTimeEditElement::customStyleForRenderer() is called in appendChild()
+    // DateTimeEditElement::customStyleForLayoutObject() is called in appendChild()
     // before the field wrapper element is created.
     // FIXME: This code should not depend on such craziness.
-    ASSERT(!element().renderer());
+    ASSERT(!element().layoutObject());
 
     Document& document = element().document();
-    ContainerNode* container = element().userAgentShadowRoot();
+    ContainerNode* container = element().closedShadowRoot();
 
     container->appendChild(DateTimeEditElement::create(document, *this));
     element().updateView();
@@ -578,14 +578,6 @@ void BaseMultipleFieldsDateAndTimeInputType::showPickerIndicator()
     m_pickerIndicatorIsVisible = true;
     ASSERT(pickerIndicatorElement());
     pickerIndicatorElement()->removeInlineStyleProperty(CSSPropertyDisplay);
-}
-
-bool BaseMultipleFieldsDateAndTimeInputType::shouldHaveSecondField(const DateComponents& date) const
-{
-    StepRange stepRange = createStepRange(AnyIsDefaultStep);
-    return date.second() || date.millisecond()
-        || !stepRange.minimum().remainder(static_cast<int>(msPerMinute)).isZero()
-        || !stepRange.step().remainder(static_cast<int>(msPerMinute)).isZero();
 }
 
 void BaseMultipleFieldsDateAndTimeInputType::focusAndSelectClearButtonOwner()

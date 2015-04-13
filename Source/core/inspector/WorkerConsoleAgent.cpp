@@ -49,7 +49,7 @@ WorkerConsoleAgent::~WorkerConsoleAgent()
 {
 }
 
-void WorkerConsoleAgent::trace(Visitor* visitor)
+DEFINE_TRACE(WorkerConsoleAgent)
 {
     visitor->trace(m_workerGlobalScope);
     InspectorConsoleAgent::trace(visitor);
@@ -79,11 +79,6 @@ void WorkerConsoleAgent::enableStackCapturingIfNeeded()
 void WorkerConsoleAgent::disableStackCapturingIfNeeded()
 {
     ScriptController::setCaptureCallStackForUncaughtExceptions(false);
-}
-
-void WorkerConsoleAgent::addInspectedNode(ErrorString* error, int)
-{
-    *error = "addInspectedNode is not supported for workers";
 }
 
 } // namespace blink
