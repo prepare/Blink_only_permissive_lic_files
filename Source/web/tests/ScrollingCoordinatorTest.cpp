@@ -27,12 +27,12 @@
 #include "core/page/scrolling/ScrollingCoordinator.h"
 
 #include "core/layout/LayoutPart.h"
-#include "core/layout/compositing/CompositedLayerMapping.h"
-#include "core/layout/compositing/LayerCompositor.h"
+#include "core/layout/LayoutView.h"
+#include "core/layout/compositing/CompositedDeprecatedPaintLayerMapping.h"
+#include "core/layout/compositing/DeprecatedPaintLayerCompositor.h"
 #include "core/page/Page.h"
-#include "core/rendering/RenderView.h"
-#include "core/testing/URLTestHelpers.h"
 #include "platform/graphics/GraphicsLayer.h"
+#include "platform/testing/URLTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebLayer.h"
 #include "public/platform/WebLayerPositionConstraint.h"
@@ -56,6 +56,12 @@ public:
     {
         m_helper.initialize(true, 0, &m_mockWebViewClient, &configureSettings);
         webViewImpl()->resize(IntSize(320, 240));
+
+        // OSX attaches main frame scrollbars to the PinchViewport so the PinchViewport layers need
+        // to be initialized.
+        webViewImpl()->layout();
+        webViewImpl()->setRootGraphicsLayer(
+            webViewImpl()->mainFrameImpl()->frame()->view()->layoutView()->compositor()->rootGraphicsLayer());
     }
 
     virtual ~ScrollingCoordinatorTest()
@@ -80,7 +86,7 @@ public:
 
     WebLayer* getRootScrollLayer()
     {
-        LayerCompositor* compositor = frame()->contentRenderer()->compositor();
+        DeprecatedPaintLayerCompositor* compositor = frame()->contentRenderer()->compositor();
         ASSERT(compositor);
         ASSERT(compositor->scrollLayer());
 
@@ -163,14 +169,14 @@ TEST_F(ScrollingCoordinatorTest, fastFractionalScrollingDiv)
     scrollableElement->setScrollLeft(1.2);
     forceFullCompositingUpdate();
 
-    LayoutObject* renderer = scrollableElement->renderer();
+    LayoutObject* renderer = scrollableElement->layoutObject();
     ASSERT_TRUE(renderer->isBox());
-    RenderBox* box = toRenderBox(renderer);
+    LayoutBox* box = toLayoutBox(renderer);
     ASSERT_TRUE(box->usesCompositedScrolling());
-    CompositedLayerMapping* compositedLayerMapping = box->layer()->compositedLayerMapping();
-    ASSERT_TRUE(compositedLayerMapping->hasScrollingLayer());
-    ASSERT(compositedLayerMapping->scrollingContentsLayer());
-    WebLayer* webScrollLayer = compositedLayerMapping->scrollingContentsLayer()->platformLayer();
+    CompositedDeprecatedPaintLayerMapping* compositedDeprecatedPaintLayerMapping = box->layer()->compositedDeprecatedPaintLayerMapping();
+    ASSERT_TRUE(compositedDeprecatedPaintLayerMapping->hasScrollingLayer());
+    ASSERT(compositedDeprecatedPaintLayerMapping->scrollingContentsLayer());
+    WebLayer* webScrollLayer = compositedDeprecatedPaintLayerMapping->scrollingContentsLayer()->platformLayer();
     ASSERT_TRUE(webScrollLayer);
     ASSERT_NEAR(1.2, webScrollLayer->scrollPositionDouble().x, 0.01);
     ASSERT_NEAR(1.2, webScrollLayer->scrollPositionDouble().y, 0.01);
@@ -180,16 +186,16 @@ static WebLayer* webLayerFromElement(Element* element)
 {
     if (!element)
         return 0;
-    LayoutObject* renderer = element->renderer();
+    LayoutObject* renderer = element->layoutObject();
     if (!renderer || !renderer->isBoxModelObject())
         return 0;
-    Layer* layer = toRenderBoxModelObject(renderer)->layer();
+    DeprecatedPaintLayer* layer = toLayoutBoxModelObject(renderer)->layer();
     if (!layer)
         return 0;
-    if (!layer->hasCompositedLayerMapping())
+    if (!layer->hasCompositedDeprecatedPaintLayerMapping())
         return 0;
-    CompositedLayerMapping* compositedLayerMapping = layer->compositedLayerMapping();
-    GraphicsLayer* graphicsLayer = compositedLayerMapping->mainGraphicsLayer();
+    CompositedDeprecatedPaintLayerMapping* compositedDeprecatedPaintLayerMapping = layer->compositedDeprecatedPaintLayerMapping();
+    GraphicsLayer* graphicsLayer = compositedDeprecatedPaintLayerMapping->mainGraphicsLayer();
     if (!graphicsLayer)
         return 0;
     return graphicsLayer->platformLayer();
@@ -329,7 +335,7 @@ TEST_F(ScrollingCoordinatorTest, updateEventHandlersDuringTeardown)
 
     // Simulate detaching the document from its DOM window. This should not
     // cause a crash when the WebViewImpl is closed by the test runner.
-    frame()->document()->prepareForDestruction();
+    frame()->document()->detach();
 }
 
 TEST_F(ScrollingCoordinatorTest, clippedBodyTest)
@@ -353,32 +359,32 @@ TEST_F(ScrollingCoordinatorTest, overflowScrolling)
     Element* scrollableElement = frame()->document()->getElementById("scrollable");
     ASSERT(scrollableElement);
 
-    LayoutObject* renderer = scrollableElement->renderer();
+    LayoutObject* renderer = scrollableElement->layoutObject();
     ASSERT_TRUE(renderer->isBox());
     ASSERT_TRUE(renderer->hasLayer());
 
-    RenderBox* box = toRenderBox(renderer);
+    LayoutBox* box = toLayoutBox(renderer);
     ASSERT_TRUE(box->usesCompositedScrolling());
     ASSERT_EQ(PaintsIntoOwnBacking, box->layer()->compositingState());
 
-    CompositedLayerMapping* compositedLayerMapping = box->layer()->compositedLayerMapping();
-    ASSERT_TRUE(compositedLayerMapping->hasScrollingLayer());
-    ASSERT(compositedLayerMapping->scrollingContentsLayer());
+    CompositedDeprecatedPaintLayerMapping* compositedDeprecatedPaintLayerMapping = box->layer()->compositedDeprecatedPaintLayerMapping();
+    ASSERT_TRUE(compositedDeprecatedPaintLayerMapping->hasScrollingLayer());
+    ASSERT(compositedDeprecatedPaintLayerMapping->scrollingContentsLayer());
 
-    GraphicsLayer* graphicsLayer = compositedLayerMapping->scrollingContentsLayer();
+    GraphicsLayer* graphicsLayer = compositedDeprecatedPaintLayerMapping->scrollingContentsLayer();
     ASSERT_EQ(box->layer()->scrollableArea(), graphicsLayer->scrollableArea());
 
-    WebLayer* webScrollLayer = compositedLayerMapping->scrollingContentsLayer()->platformLayer();
+    WebLayer* webScrollLayer = compositedDeprecatedPaintLayerMapping->scrollingContentsLayer()->platformLayer();
     ASSERT_TRUE(webScrollLayer->scrollable());
     ASSERT_TRUE(webScrollLayer->userScrollableHorizontal());
     ASSERT_TRUE(webScrollLayer->userScrollableVertical());
 
 #if OS(ANDROID)
     // Now verify we've attached impl-side scrollbars onto the scrollbar layers
-    ASSERT_TRUE(compositedLayerMapping->layerForHorizontalScrollbar());
-    ASSERT_TRUE(compositedLayerMapping->layerForHorizontalScrollbar()->hasContentsLayer());
-    ASSERT_TRUE(compositedLayerMapping->layerForVerticalScrollbar());
-    ASSERT_TRUE(compositedLayerMapping->layerForVerticalScrollbar()->hasContentsLayer());
+    ASSERT_TRUE(compositedDeprecatedPaintLayerMapping->layerForHorizontalScrollbar());
+    ASSERT_TRUE(compositedDeprecatedPaintLayerMapping->layerForHorizontalScrollbar()->hasContentsLayer());
+    ASSERT_TRUE(compositedDeprecatedPaintLayerMapping->layerForVerticalScrollbar());
+    ASSERT_TRUE(compositedDeprecatedPaintLayerMapping->layerForVerticalScrollbar()->hasContentsLayer());
 #endif
 }
 
@@ -393,22 +399,22 @@ TEST_F(ScrollingCoordinatorTest, overflowHidden)
     Element* overflowElement = frame()->document()->getElementById("unscrollable-y");
     ASSERT(overflowElement);
 
-    LayoutObject* renderer = overflowElement->renderer();
+    LayoutObject* renderer = overflowElement->layoutObject();
     ASSERT_TRUE(renderer->isBox());
     ASSERT_TRUE(renderer->hasLayer());
 
-    RenderBox* box = toRenderBox(renderer);
+    LayoutBox* box = toLayoutBox(renderer);
     ASSERT_TRUE(box->usesCompositedScrolling());
     ASSERT_EQ(PaintsIntoOwnBacking, box->layer()->compositingState());
 
-    CompositedLayerMapping* compositedLayerMapping = box->layer()->compositedLayerMapping();
-    ASSERT_TRUE(compositedLayerMapping->hasScrollingLayer());
-    ASSERT(compositedLayerMapping->scrollingContentsLayer());
+    CompositedDeprecatedPaintLayerMapping* compositedDeprecatedPaintLayerMapping = box->layer()->compositedDeprecatedPaintLayerMapping();
+    ASSERT_TRUE(compositedDeprecatedPaintLayerMapping->hasScrollingLayer());
+    ASSERT(compositedDeprecatedPaintLayerMapping->scrollingContentsLayer());
 
-    GraphicsLayer* graphicsLayer = compositedLayerMapping->scrollingContentsLayer();
+    GraphicsLayer* graphicsLayer = compositedDeprecatedPaintLayerMapping->scrollingContentsLayer();
     ASSERT_EQ(box->layer()->scrollableArea(), graphicsLayer->scrollableArea());
 
-    WebLayer* webScrollLayer = compositedLayerMapping->scrollingContentsLayer()->platformLayer();
+    WebLayer* webScrollLayer = compositedDeprecatedPaintLayerMapping->scrollingContentsLayer()->platformLayer();
     ASSERT_TRUE(webScrollLayer->scrollable());
     ASSERT_TRUE(webScrollLayer->userScrollableHorizontal());
     ASSERT_FALSE(webScrollLayer->userScrollableVertical());
@@ -416,22 +422,22 @@ TEST_F(ScrollingCoordinatorTest, overflowHidden)
     overflowElement = frame()->document()->getElementById("unscrollable-x");
     ASSERT(overflowElement);
 
-    renderer = overflowElement->renderer();
+    renderer = overflowElement->layoutObject();
     ASSERT_TRUE(renderer->isBox());
     ASSERT_TRUE(renderer->hasLayer());
 
-    box = toRenderBox(renderer);
+    box = toLayoutBox(renderer);
     ASSERT_TRUE(box->scrollableArea()->usesCompositedScrolling());
     ASSERT_EQ(PaintsIntoOwnBacking, box->layer()->compositingState());
 
-    compositedLayerMapping = box->layer()->compositedLayerMapping();
-    ASSERT_TRUE(compositedLayerMapping->hasScrollingLayer());
-    ASSERT(compositedLayerMapping->scrollingContentsLayer());
+    compositedDeprecatedPaintLayerMapping = box->layer()->compositedDeprecatedPaintLayerMapping();
+    ASSERT_TRUE(compositedDeprecatedPaintLayerMapping->hasScrollingLayer());
+    ASSERT(compositedDeprecatedPaintLayerMapping->scrollingContentsLayer());
 
-    graphicsLayer = compositedLayerMapping->scrollingContentsLayer();
+    graphicsLayer = compositedDeprecatedPaintLayerMapping->scrollingContentsLayer();
     ASSERT_EQ(box->layer()->scrollableArea(), graphicsLayer->scrollableArea());
 
-    webScrollLayer = compositedLayerMapping->scrollingContentsLayer()->platformLayer();
+    webScrollLayer = compositedDeprecatedPaintLayerMapping->scrollingContentsLayer()->platformLayer();
     ASSERT_TRUE(webScrollLayer->scrollable());
     ASSERT_FALSE(webScrollLayer->userScrollableHorizontal());
     ASSERT_TRUE(webScrollLayer->userScrollableVertical());
@@ -449,7 +455,7 @@ TEST_F(ScrollingCoordinatorTest, iframeScrolling)
     Element* scrollableFrame = frame()->document()->getElementById("scrollable");
     ASSERT_TRUE(scrollableFrame);
 
-    LayoutObject* renderer = scrollableFrame->renderer();
+    LayoutObject* renderer = scrollableFrame->layoutObject();
     ASSERT_TRUE(renderer);
     ASSERT_TRUE(renderer->isLayoutPart());
 
@@ -459,10 +465,10 @@ TEST_F(ScrollingCoordinatorTest, iframeScrolling)
     ASSERT_TRUE(layoutPart->widget()->isFrameView());
 
     FrameView* innerFrameView = toFrameView(layoutPart->widget());
-    RenderView* innerRenderView = innerFrameView->renderView();
-    ASSERT_TRUE(innerRenderView);
+    LayoutView* innerLayoutView = innerFrameView->layoutView();
+    ASSERT_TRUE(innerLayoutView);
 
-    LayerCompositor* innerCompositor = innerRenderView->compositor();
+    DeprecatedPaintLayerCompositor* innerCompositor = innerLayoutView->compositor();
     ASSERT_TRUE(innerCompositor->inCompositingMode());
     ASSERT_TRUE(innerCompositor->scrollLayer());
 
@@ -493,7 +499,7 @@ TEST_F(ScrollingCoordinatorTest, rtlIframe)
     Element* scrollableFrame = frame()->document()->getElementById("scrollable");
     ASSERT_TRUE(scrollableFrame);
 
-    LayoutObject* renderer = scrollableFrame->renderer();
+    LayoutObject* renderer = scrollableFrame->layoutObject();
     ASSERT_TRUE(renderer);
     ASSERT_TRUE(renderer->isLayoutPart());
 
@@ -503,10 +509,10 @@ TEST_F(ScrollingCoordinatorTest, rtlIframe)
     ASSERT_TRUE(layoutPart->widget()->isFrameView());
 
     FrameView* innerFrameView = toFrameView(layoutPart->widget());
-    RenderView* innerRenderView = innerFrameView->renderView();
-    ASSERT_TRUE(innerRenderView);
+    LayoutView* innerLayoutView = innerFrameView->layoutView();
+    ASSERT_TRUE(innerLayoutView);
 
-    LayerCompositor* innerCompositor = innerRenderView->compositor();
+    DeprecatedPaintLayerCompositor* innerCompositor = innerLayoutView->compositor();
     ASSERT_TRUE(innerCompositor->inCompositingMode());
     ASSERT_TRUE(innerCompositor->scrollLayer());
 
@@ -541,19 +547,19 @@ TEST_F(ScrollingCoordinatorTest, scrollbarsForceMainThreadOrHaveWebScrollbarLaye
     Element* scrollableElement = document->getElementById("scroller");
     ASSERT(scrollableElement);
 
-    LayoutObject* renderer = scrollableElement->renderer();
+    LayoutObject* renderer = scrollableElement->layoutObject();
     ASSERT_TRUE(renderer->isBox());
-    RenderBox* box = toRenderBox(renderer);
+    LayoutBox* box = toLayoutBox(renderer);
     ASSERT_TRUE(box->usesCompositedScrolling());
-    CompositedLayerMapping* compositedLayerMapping = box->layer()->compositedLayerMapping();
-    GraphicsLayer* scrollbarGraphicsLayer = compositedLayerMapping->layerForVerticalScrollbar();
+    CompositedDeprecatedPaintLayerMapping* compositedDeprecatedPaintLayerMapping = box->layer()->compositedDeprecatedPaintLayerMapping();
+    GraphicsLayer* scrollbarGraphicsLayer = compositedDeprecatedPaintLayerMapping->layerForVerticalScrollbar();
     ASSERT_TRUE(scrollbarGraphicsLayer);
 
     bool hasWebScrollbarLayer = !scrollbarGraphicsLayer->drawsContent();
     ASSERT_TRUE(hasWebScrollbarLayer || scrollbarGraphicsLayer->platformLayer()->shouldScrollOnMainThread());
 }
 
-#if OS(MACOSX)
+#if OS(MACOSX) || OS(ANDROID)
 TEST_F(ScrollingCoordinatorTest, DISABLED_setupScrollbarLayerShouldSetScrollLayerOpaque)
 #else
 TEST_F(ScrollingCoordinatorTest, setupScrollbarLayerShouldSetScrollLayerOpaque)
@@ -579,6 +585,27 @@ TEST_F(ScrollingCoordinatorTest, setupScrollbarLayerShouldSetScrollLayerOpaque)
     // if the main frame's scrollbarLayer is opaque,
     // contentsLayer should be opaque too.
     ASSERT_EQ(platformLayer->opaque(), contentsLayer->opaque());
+}
+
+TEST_F(ScrollingCoordinatorTest, FixedPositionLosingBackingShouldTriggerMainThreadScroll)
+{
+    webViewImpl()->settings()->setPreferCompositingToLCDTextEnabled(false);
+    registerMockedHttpURLLoad("fixed-position-losing-backing.html");
+    navigateTo(m_baseURL + "fixed-position-losing-backing.html");
+    forceFullCompositingUpdate();
+
+    WebLayer* scrollLayer = frame()->page()->deprecatedLocalMainFrame()->view()->layerForScrolling()->platformLayer();
+    Document* document = frame()->document();
+    Element* fixedPos = document->getElementById("fixed");
+
+    EXPECT_TRUE(static_cast<LayoutBoxModelObject*>(fixedPos->layoutObject())->layer()->hasCompositedDeprecatedPaintLayerMapping());
+    EXPECT_FALSE(scrollLayer->shouldScrollOnMainThread());
+
+    fixedPos->setInlineStyleProperty(CSSPropertyTransform, CSSValueNone);
+    forceFullCompositingUpdate();
+
+    EXPECT_FALSE(static_cast<LayoutBoxModelObject*>(fixedPos->layoutObject())->layer()->hasCompositedDeprecatedPaintLayerMapping());
+    EXPECT_TRUE(scrollLayer->shouldScrollOnMainThread());
 }
 
 } // namespace

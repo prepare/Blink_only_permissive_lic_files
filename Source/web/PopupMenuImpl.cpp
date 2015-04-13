@@ -7,12 +7,16 @@
 
 #include "core/HTMLNames.h"
 #include "core/css/CSSFontSelector.h"
+#include "core/dom/ElementTraversal.h"
+#include "core/dom/ExecutionContextTask.h"
+#include "core/dom/NodeComputedStyle.h"
 #include "core/dom/StyleEngine.h"
 #include "core/frame/FrameView.h"
 #include "core/html/HTMLHRElement.h"
 #include "core/html/HTMLOptGroupElement.h"
 #include "core/html/HTMLOptionElement.h"
 #include "core/html/parser/HTMLParserIdioms.h"
+#include "core/layout/LayoutTheme.h"
 #include "core/page/PagePopup.h"
 #include "platform/geometry/IntRect.h"
 #include "platform/text/PlatformLocale.h"
@@ -34,7 +38,7 @@ public:
     // only worked with fonts loaded when opening the popup.
     virtual PassRefPtr<FontData> getFontData(const FontDescription&, const AtomicString&) override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     PopupMenuCSSFontSelector(Document* document, CSSFontSelector* ownerFontSelector)
@@ -50,7 +54,7 @@ PassRefPtr<FontData> PopupMenuCSSFontSelector::getFontData(const FontDescription
     return m_ownerFontSelector->getFontData(description, name);
 }
 
-void PopupMenuCSSFontSelector::trace(Visitor* visitor)
+DEFINE_TRACE(PopupMenuCSSFontSelector)
 {
     visitor->trace(m_ownerFontSelector);
     CSSFontSelector::trace(visitor);
@@ -65,13 +69,13 @@ PopupMenuImpl::PopupMenuImpl(ChromeClientImpl* chromeClient, PopupMenuClient* cl
     : m_chromeClient(chromeClient)
     , m_client(client)
     , m_popup(nullptr)
-    , m_indexToSetOnClose(-1)
+    , m_needsUpdate(false)
 {
 }
 
 PopupMenuImpl::~PopupMenuImpl()
 {
-    closePopup();
+    ASSERT(!m_popup);
 }
 
 IntSize PopupMenuImpl::contentSize()
@@ -81,7 +85,7 @@ IntSize PopupMenuImpl::contentSize()
 
 void PopupMenuImpl::writeDocument(SharedBuffer* data)
 {
-    IntRect anchorRectInScreen = m_chromeClient->rootViewToScreen(m_client->elementRectRelativeToRootView());
+    IntRect anchorRectInScreen = m_chromeClient->viewportToScreen(m_client->elementRectRelativeToViewport());
 
     PagePopupClient::addString("<!DOCTYPE html><head><meta charset='UTF-8'><style>\n", data);
     data->append(Platform::current()->loadResource("pickerCommon.css"));
@@ -100,6 +104,20 @@ void PopupMenuImpl::writeDocument(SharedBuffer* data)
     }
     PagePopupClient::addString("],\n", data);
     addProperty("anchorRectInScreen", anchorRectInScreen, data);
+    const ComputedStyle* ownerStyle = ownerElement().computedStyle();
+    Color backgroundColor = ownerStyle->visitedDependentColor(CSSPropertyBackgroundColor);
+#if OS(LINUX)
+    // On other platforms, the <option> background color is the same as the
+    // <select> background color. On Linux, that makes the <option>
+    // background color very dark, so by default, try to use a lighter
+    // background color for <option>s.
+    if (LayoutTheme::theme().systemColor(CSSValueButtonface) == backgroundColor)
+        backgroundColor = LayoutTheme::theme().systemColor(CSSValueMenu);
+#endif
+    addProperty("backgroundColor", backgroundColor.serialized(), data);
+    bool isRTL = !ownerStyle->isLeftToRightDirection();
+    addProperty("isRTL", isRTL, data);
+    addProperty("paddingStart", isRTL ? m_client->clientPaddingRight().toDouble() : m_client->clientPaddingLeft().toDouble(), data);
     PagePopupClient::addString("};\n", data);
     data->append(Platform::current()->loadResource("pickerCommon.js"));
     data->append(Platform::current()->loadResource("listPicker.js"));
@@ -136,7 +154,7 @@ const char* fontWeightToString(FontWeight weight)
 
 void PopupMenuImpl::addElementStyle(HTMLElement& element, SharedBuffer* data)
 {
-    const LayoutStyle* style = m_client->layoutStyleForItem(element);
+    const ComputedStyle* style = m_client->computedStyleForItem(element);
     ASSERT(style);
     PagePopupClient::addString("style: {\n", data);
     addProperty("color", style->visitedDependentColor(CSSPropertyColor).serialized(), data);
@@ -155,7 +173,6 @@ void PopupMenuImpl::addElementStyle(HTMLElement& element, SharedBuffer* data)
     addProperty("display", String(style->display() == NONE ? "none" : "block"), data);
     addProperty("direction", String(style->direction() == RTL ? "rtl" : "ltr"), data);
     addProperty("unicodeBidi", String(isOverride(style->unicodeBidi()) ? "bidi-override" : "normal"), data);
-    addProperty("zoom", serializeForNumberType(style->effectiveZoom()), data);
     PagePopupClient::addString("},\n", data);
 }
 
@@ -205,23 +222,24 @@ void PopupMenuImpl::addSeparator(HTMLHRElement& element, SharedBuffer* data)
     PagePopupClient::addString("},\n", data);
 }
 
-void PopupMenuImpl::didWriteDocument(Document& document)
+void PopupMenuImpl::selectFontsFromOwnerDocument(Document& document)
 {
     Document& ownerDocument = ownerElement().document();
-    document.styleEngine()->setFontSelector(PopupMenuCSSFontSelector::create(&document, ownerDocument.styleEngine()->fontSelector()));
+    document.styleEngine().setFontSelector(PopupMenuCSSFontSelector::create(&document, ownerDocument.styleEngine().fontSelector()));
 }
 
 void PopupMenuImpl::setValueAndClosePopup(int numValue, const String& stringValue)
 {
     ASSERT(m_popup);
     ASSERT(m_client);
+    RefPtrWillBeRawPtr<PopupMenuImpl> protector(this);
     bool success;
     int listIndex = stringValue.toInt(&success);
     ASSERT(success);
     m_client->selectionChanged(listIndex);
     m_client->valueChanged(listIndex);
-    m_indexToSetOnClose = -1;
-    closePopup();
+    if (m_popup)
+        m_chromeClient->closePagePopup(m_popup);
 }
 
 void PopupMenuImpl::setValue(const String& value)
@@ -230,16 +248,14 @@ void PopupMenuImpl::setValue(const String& value)
     bool success;
     int listIndex = value.toInt(&success);
     ASSERT(success);
-    m_client->setTextFromItem(listIndex);
-    m_indexToSetOnClose = listIndex;
+    m_client->provisionalSelectionChanged(listIndex);
 }
 
 void PopupMenuImpl::didClosePopup()
 {
-    if (m_client && m_indexToSetOnClose >= 0)
-        m_client->valueChanged(m_indexToSetOnClose);
-    m_indexToSetOnClose = -1;
+    // Clearing m_popup first to prevent from trying to close the popup again.
     m_popup = nullptr;
+    RefPtrWillBeRawPtr<PopupMenuImpl> protector(this);
     if (m_client)
         m_client->popupDidHide();
 }
@@ -258,17 +274,20 @@ void PopupMenuImpl::closePopup()
 {
     if (m_popup)
         m_chromeClient->closePagePopup(m_popup);
+    if (m_client)
+        m_client->popupDidCancel();
 }
 
 void PopupMenuImpl::dispose()
 {
-    closePopup();
+    if (m_popup)
+        m_chromeClient->closePagePopup(m_popup);
 }
 
 void PopupMenuImpl::show(const FloatQuad& /*controlPosition*/, const IntSize& /*controlSize*/, int /*index*/)
 {
     ASSERT(!m_popup);
-    m_popup = m_chromeClient->openPagePopup(this, m_client->elementRectRelativeToRootView());
+    m_popup = m_chromeClient->openPagePopup(this);
 }
 
 void PopupMenuImpl::hide()
@@ -279,6 +298,20 @@ void PopupMenuImpl::hide()
 
 void PopupMenuImpl::updateFromElement()
 {
+    if (m_needsUpdate)
+        return;
+    m_needsUpdate = true;
+    ownerElement().document().postTask(FROM_HERE, createSameThreadTask(&PopupMenuImpl::update, PassRefPtrWillBeRawPtr<PopupMenuImpl>(this)));
+}
+
+void PopupMenuImpl::update()
+{
+    if (!m_popup || !m_client)
+        return;
+    ownerElement().document().updateRenderTreeIfNeeded();
+    if (!m_client)
+        return;
+    m_needsUpdate = false;
     RefPtr<SharedBuffer> data = SharedBuffer::create();
     PagePopupClient::addString("window.updateData = {\n", data.get());
     PagePopupClient::addString("type: \"update\",\n", data.get());
@@ -293,20 +326,16 @@ void PopupMenuImpl::updateFromElement()
     }
     PagePopupClient::addString("],\n", data.get());
     PagePopupClient::addString("}\n", data.get());
-    m_popup->postMessage(String(data->data(), data->size()));
+    m_popup->postMessage(String::fromUTF8(data->data(), data->size()));
 }
 
 
 void PopupMenuImpl::disconnectClient()
 {
     m_client = nullptr;
-#if ENABLE(OILPAN)
     // Cannot be done during finalization, so instead done when the
     // render object is destroyed and disconnected.
-    //
-    // FIXME: do this always, regardless of ENABLE(OILPAN).
     dispose();
-#endif
 }
 
 } // namespace blink

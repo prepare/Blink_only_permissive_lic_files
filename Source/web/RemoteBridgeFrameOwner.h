@@ -38,9 +38,14 @@ public:
         m_sandboxFlags = flags;
     }
 
+    void setContentFrame(PassRefPtrWillBeRawPtr<WebLocalFrameImpl> frame)
+    {
+        m_frame = frame;
+    }
+
     virtual void dispatchLoad() override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     RemoteBridgeFrameOwner(PassRefPtrWillBeRawPtr<WebLocalFrameImpl>, SandboxFlags);
@@ -48,6 +53,8 @@ private:
     RefPtrWillBeMember<WebLocalFrameImpl> m_frame;
     SandboxFlags m_sandboxFlags;
 };
+
+DEFINE_TYPE_CASTS(RemoteBridgeFrameOwner, FrameOwner, owner, !owner->isLocal(), !owner.isLocal());
 
 } // namespace blink
 

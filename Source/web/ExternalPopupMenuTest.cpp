@@ -10,11 +10,11 @@
 #include "core/frame/PinchViewport.h"
 #include "core/html/HTMLSelectElement.h"
 #include "core/html/forms/PopupMenuClient.h"
+#include "core/layout/LayoutMenuList.h"
 #include "core/page/Page.h"
-#include "core/rendering/RenderMenuList.h"
 #include "core/testing/DummyPageHolder.h"
-#include "core/testing/URLTestHelpers.h"
 #include "platform/PopupMenu.h"
+#include "platform/testing/URLTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebUnitTestSupport.h"
 #include "public/web/WebExternalPopupMenu.h"
@@ -58,14 +58,15 @@ public:
     virtual int listSize() const override { return m_listSize; }
     virtual int selectedIndex() const override { return 0; }
     virtual void popupDidHide() override { }
+    virtual void popupDidCancel() override { }
     virtual bool itemIsSeparator(unsigned listIndex) const override { return false;}
     virtual bool itemIsLabel(unsigned listIndex) const override { return false; }
     virtual bool itemIsSelected(unsigned listIndex) const override { return listIndex == 0;}
-    virtual void setTextFromItem(unsigned listIndex) override { }
+    virtual void provisionalSelectionChanged(unsigned listIndex) override { }
     virtual bool multiple() const override { return false; }
-    virtual IntRect elementRectRelativeToRootView() const override { return IntRect(); }
+    virtual IntRect elementRectRelativeToViewport() const override { return IntRect(); }
     virtual Element& ownerElement() const override { return *m_ownerElement; }
-    virtual const LayoutStyle* layoutStyleForItem(Element& element) const override { return nullptr; }
+    virtual const ComputedStyle* computedStyleForItem(Element& element) const override { return nullptr; }
 
     void setListSize(size_t size) { m_listSize = size; }
     void setDisplayNoneIndex(unsigned index) { m_displayNoneIndexSet.insert(index); }
@@ -153,7 +154,7 @@ public:
 protected:
     virtual void SetUp() override
     {
-        m_helper.initialize(false, &m_webFrameClient, &m_webViewClient, &configureSettings);
+        m_helper.initialize(false, &m_webFrameClient, &m_webViewClient);
         webView()->setUseExternalPopupMenus(true);
     }
     virtual void TearDown() override
@@ -176,11 +177,6 @@ protected:
     WebLocalFrameImpl* mainFrame() const { return m_helper.webViewImpl()->mainFrameImpl(); }
 
 private:
-    static void configureSettings(WebSettings* settings)
-    {
-        settings->setPinchVirtualViewportEnabled(true);
-    }
-
     std::string m_baseURL;
     FrameTestHelpers::TestWebViewClient m_webViewClient;
     ExternalPopupMenuWebFrameClient m_webFrameClient;
@@ -196,7 +192,7 @@ TEST_F(ExternalPopupMenuTest, PopupAccountsForPinchViewportOffset)
     webView()->layout();
 
     HTMLSelectElement* select = toHTMLSelectElement(mainFrame()->frame()->document()->getElementById("select"));
-    RenderMenuList* menuList = toRenderMenuList(select->renderer());
+    LayoutMenuList* menuList = toLayoutMenuList(select->layoutObject());
     ASSERT_TRUE(menuList);
 
     PinchViewport& pinchViewport = webView()->page()->frameHost().pinchViewport();
@@ -219,7 +215,7 @@ TEST_F(ExternalPopupMenuTest, DidAcceptIndex)
     loadFrame("select.html");
 
     HTMLSelectElement* select = toHTMLSelectElement(mainFrame()->frame()->document()->getElementById("select"));
-    RenderMenuList* menuList = toRenderMenuList(select->renderer());
+    LayoutMenuList* menuList = toLayoutMenuList(select->layoutObject());
     ASSERT_TRUE(menuList);
 
     menuList->showPopup();
@@ -238,7 +234,7 @@ TEST_F(ExternalPopupMenuTest, DidAcceptIndices)
     loadFrame("select.html");
 
     HTMLSelectElement* select = toHTMLSelectElement(mainFrame()->frame()->document()->getElementById("select"));
-    RenderMenuList* menuList = toRenderMenuList(select->renderer());
+    LayoutMenuList* menuList = toLayoutMenuList(select->layoutObject());
     ASSERT_TRUE(menuList);
 
     menuList->showPopup();
@@ -259,7 +255,7 @@ TEST_F(ExternalPopupMenuTest, DidAcceptIndicesClearSelect)
     loadFrame("select.html");
 
     HTMLSelectElement* select = toHTMLSelectElement(mainFrame()->frame()->document()->getElementById("select"));
-    RenderMenuList* menuList = toRenderMenuList(select->renderer());
+    LayoutMenuList* menuList = toLayoutMenuList(select->layoutObject());
     ASSERT_TRUE(menuList);
 
     menuList->showPopup();

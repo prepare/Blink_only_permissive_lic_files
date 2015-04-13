@@ -31,7 +31,8 @@
 #include "config.h"
 #include "web/tests/FrameTestHelpers.h"
 
-#include "core/testing/URLTestHelpers.h"
+#include "platform/testing/URLTestHelpers.h"
+#include "platform/testing/UnitTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebData.h"
 #include "public/platform/WebString.h"
@@ -39,6 +40,7 @@
 #include "public/platform/WebURLRequest.h"
 #include "public/platform/WebURLResponse.h"
 #include "public/platform/WebUnitTestSupport.h"
+#include "public/web/WebRemoteFrame.h"
 #include "public/web/WebSettings.h"
 #include "public/web/WebViewClient.h"
 #include "web/WebLocalFrameImpl.h"
@@ -68,23 +70,6 @@ TestWebFrameClient* testClientForFrame(WebFrame* frame)
 {
     return static_cast<TestWebFrameClient*>(toWebLocalFrameImpl(frame)->client());
 }
-
-class QuitTask : public WebThread::Task {
-public:
-    void PostThis(Timer<QuitTask>*)
-    {
-        // We don't just quit here because the SharedTimer may be part-way
-        // through the current queue of tasks when runPendingTasks was called,
-        // and we can't miss the tasks that were behind it.
-        // Takes ownership of |this|.
-        Platform::current()->currentThread()->postTask(FROM_HERE, this);
-    }
-
-    virtual void run()
-    {
-        Platform::current()->currentThread()->exitRunLoop();
-    }
-};
 
 class ServeAsyncRequestsTask : public WebThread::Task {
 public:
@@ -243,15 +228,6 @@ void pumpPendingRequestsDoNotUse(WebFrame* frame)
     pumpPendingRequests(frame);
 }
 
-// FIXME: There's a duplicate implementation in UnitTestHelpers.cpp. Remove one.
-void runPendingTasks()
-{
-    // Pending tasks include Timers that have been scheduled.
-    Timer<QuitTask> quitOnTimeout(new QuitTask, &QuitTask::PostThis);
-    quitOnTimeout.startOneShot(0, FROM_HERE);
-    Platform::current()->currentThread()->enterRunLoop();
-}
-
 WebViewHelper::WebViewHelper()
     : m_webView(0)
 {
@@ -295,7 +271,7 @@ WebViewImpl* WebViewHelper::initializeAndLoad(const std::string& url, bool enabl
 void WebViewHelper::reset()
 {
     if (m_webView) {
-        ASSERT(!testClientForFrame(m_webView->mainFrame())->isLoading());
+        ASSERT(m_webView->mainFrame()->isWebRemoteFrame() || !testClientForFrame(m_webView->mainFrame())->isLoading());
         m_webView->close();
         m_webView = 0;
     }
@@ -337,12 +313,24 @@ void TestWebFrameClient::waitForLoadToComplete()
         // runPendingTasks may not be enough.
         // runPendingTasks only ensures that main thread task queue is empty,
         // and asynchronous parsing make use of off main thread HTML parser.
-        FrameTestHelpers::runPendingTasks();
+        testing::runPendingTasks();
         if (!isLoading())
             break;
 
         Platform::current()->yieldCurrentThread();
     }
+}
+
+TestWebRemoteFrameClient::TestWebRemoteFrameClient()
+    : m_frame(WebRemoteFrame::create(this))
+{
+}
+
+void TestWebRemoteFrameClient::frameDetached()
+{
+    if (m_frame->parent())
+        m_frame->parent()->removeChild(m_frame);
+    m_frame->close();
 }
 
 void TestWebViewClient::initializeLayerTreeView()

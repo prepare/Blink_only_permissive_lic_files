@@ -48,7 +48,7 @@
 #include "core/html/forms/DateTimeChooser.h"
 #include "core/layout/HitTestResult.h"
 #include "core/layout/LayoutPart.h"
-#include "core/layout/compositing/CompositedSelectionBound.h"
+#include "core/layout/compositing/CompositedSelection.h"
 #include "core/loader/DocumentLoader.h"
 #include "core/loader/FrameLoadRequest.h"
 #include "core/page/Page.h"
@@ -64,7 +64,6 @@
 #include "public/platform/Platform.h"
 #include "public/platform/WebCursorInfo.h"
 #include "public/platform/WebRect.h"
-#include "public/platform/WebSelectionBound.h"
 #include "public/platform/WebURLRequest.h"
 #include "public/web/WebAXObject.h"
 #include "public/web/WebAutofillClient.h"
@@ -78,6 +77,7 @@
 #include "public/web/WebNode.h"
 #include "public/web/WebPlugin.h"
 #include "public/web/WebPopupMenuInfo.h"
+#include "public/web/WebSelection.h"
 #include "public/web/WebSettings.h"
 #include "public/web/WebTextDirection.h"
 #include "public/web/WebTouchAction.h"
@@ -107,23 +107,13 @@
 
 namespace blink {
 
+class WebCompositorAnimationTimeline;
+
 // Converts a AXObjectCache::AXNotification to a WebAXEvent
 static WebAXEvent toWebAXEvent(AXObjectCache::AXNotification notification)
 {
     // These enums have the same values; enforced in AssertMatchingEnums.cpp.
     return static_cast<WebAXEvent>(notification);
-}
-
-static WebSelectionBound toWebSelectionBound(const CompositedSelectionBound& bound)
-{
-    ASSERT(bound.layer);
-
-    // These enums have the same values; enforced in AssertMatchingEnums.cpp.
-    WebSelectionBound result(static_cast<WebSelectionBound::Type>(bound.type));
-    result.layerId = bound.layer->platformLayer()->id();
-    result.edgeTopInLayer = roundedIntPoint(bound.edgeTopInLayer);
-    result.edgeBottomInLayer = roundedIntPoint(bound.edgeBottomInLayer);
-    return result;
 }
 
 ChromeClientImpl::ChromeClientImpl(WebViewImpl* webView)
@@ -300,17 +290,6 @@ void ChromeClientImpl::show(NavigationPolicy navigationPolicy)
     else if (policy == WebNavigationPolicyNewBackgroundTab && getNavigationPolicy(m_windowFeatures) != WebNavigationPolicyNewBackgroundTab)
         policy = WebNavigationPolicyNewForegroundTab;
     m_webView->client()->show(policy);
-}
-
-bool ChromeClientImpl::canRunModal()
-{
-    return !!m_webView->client();
-}
-
-void ChromeClientImpl::runModal()
-{
-    if (m_webView->client())
-        m_webView->client()->runModal();
 }
 
 void ChromeClientImpl::setToolbarsVisible(bool value)
@@ -498,9 +477,9 @@ void ChromeClientImpl::scheduleAnimationForFrame(LocalFrame* localRoot)
         WebLocalFrameImpl::fromFrame(localRoot)->frameWidget()->scheduleAnimation();
 }
 
-IntRect ChromeClientImpl::rootViewToScreen(const IntRect& rect) const
+IntRect ChromeClientImpl::viewportToScreen(const IntRect& rectInViewport) const
 {
-    IntRect screenRect(rect);
+    IntRect screenRect(rectInViewport);
 
     if (m_webView->client()) {
         WebRect windowRect = m_webView->client()->windowRect();
@@ -552,7 +531,7 @@ void ChromeClientImpl::mouseDidMoveOverElement(const HitTestResult& result)
     } else if (result.innerNonSharedNode()
         && (isHTMLObjectElement(*result.innerNonSharedNode())
             || isHTMLEmbedElement(*result.innerNonSharedNode()))) {
-        LayoutObject* object = result.innerNonSharedNode()->renderer();
+        LayoutObject* object = result.innerNonSharedNode()->layoutObject();
         if (object && object->isLayoutPart()) {
             Widget* widget = toLayoutPart(object)->widget();
             if (widget && widget->isPluginContainer()) {
@@ -719,6 +698,44 @@ void ChromeClientImpl::attachRootGraphicsLayer(GraphicsLayer* rootLayer, LocalFr
     }
 }
 
+void ChromeClientImpl::attachCompositorAnimationTimeline(WebCompositorAnimationTimeline* compositorTimeline, LocalFrame* localRoot)
+{
+    // FIXME: For top-level frames we still use the WebView as a WebWidget. This special
+    // case will be removed when top-level frames get WebFrameWidgets.
+    if (localRoot->isMainFrame()) {
+        m_webView->attachCompositorAnimationTimeline(compositorTimeline);
+    } else {
+        WebLocalFrameImpl* webFrame = WebLocalFrameImpl::fromFrame(localRoot);
+        // FIXME: The following conditional is only needed for staging until the Chromium patch
+        // lands that instantiates a WebFrameWidget.
+        if (!webFrame->frameWidget()) {
+            m_webView->attachCompositorAnimationTimeline(compositorTimeline);
+            return;
+        }
+        ASSERT(webFrame && webFrame->frameWidget());
+        webFrame->frameWidget()->attachCompositorAnimationTimeline(compositorTimeline);
+    }
+}
+
+void ChromeClientImpl::detachCompositorAnimationTimeline(WebCompositorAnimationTimeline* compositorTimeline, LocalFrame* localRoot)
+{
+    // FIXME: For top-level frames we still use the WebView as a WebWidget. This special
+    // case will be removed when top-level frames get WebFrameWidgets.
+    if (localRoot->isMainFrame()) {
+        m_webView->detachCompositorAnimationTimeline(compositorTimeline);
+    } else {
+        WebLocalFrameImpl* webFrame = WebLocalFrameImpl::fromFrame(localRoot);
+        // FIXME: The following conditional is only needed for staging until the Chromium patch
+        // lands that instantiates a WebFrameWidget.
+        if (!webFrame->frameWidget()) {
+            m_webView->detachCompositorAnimationTimeline(compositorTimeline);
+            return;
+        }
+        ASSERT(webFrame && webFrame->frameWidget());
+        webFrame->frameWidget()->detachCompositorAnimationTimeline(compositorTimeline);
+    }
+}
+
 void ChromeClientImpl::enterFullScreenForElement(Element* element)
 {
     m_webView->enterFullScreenForElement(element);
@@ -729,14 +746,14 @@ void ChromeClientImpl::exitFullScreenForElement(Element* element)
     m_webView->exitFullScreenForElement(element);
 }
 
-void ChromeClientImpl::clearCompositedSelectionBounds()
+void ChromeClientImpl::clearCompositedSelection()
 {
-    m_webView->clearCompositedSelectionBounds();
+    m_webView->clearCompositedSelection();
 }
 
-void ChromeClientImpl::updateCompositedSelectionBounds(const CompositedSelectionBound& anchor, const CompositedSelectionBound& focus)
+void ChromeClientImpl::updateCompositedSelection(const CompositedSelection& selection)
 {
-    m_webView->updateCompositedSelectionBounds(toWebSelectionBound(anchor), toWebSelectionBound(focus));
+    m_webView->updateCompositedSelection(WebSelection(selection));
 }
 
 bool ChromeClientImpl::hasOpenedPopup() const
@@ -755,9 +772,9 @@ PassRefPtrWillBeRawPtr<PopupMenu> ChromeClientImpl::createPopupMenu(LocalFrame& 
     return adoptRefWillBeNoop(new PopupMenuChromium(frame, client));
 }
 
-PagePopup* ChromeClientImpl::openPagePopup(PagePopupClient* client, const IntRect& originBoundsInRootView)
+PagePopup* ChromeClientImpl::openPagePopup(PagePopupClient* client)
 {
-    return m_webView->openPagePopup(client, originBoundsInRootView);
+    return m_webView->openPagePopup(client);
 }
 
 void ChromeClientImpl::closePagePopup(PagePopup* popup)
@@ -772,7 +789,7 @@ DOMWindow* ChromeClientImpl::pagePopupWindowForTesting() const
 
 bool ChromeClientImpl::shouldRunModalDialogDuringPageDismissal(const DialogType& dialogType, const String& dialogMessage, Document::PageDismissalType dismissalType) const
 {
-    const char* kDialogs[] = {"alert", "confirm", "prompt", "showModalDialog"};
+    const char* kDialogs[] = {"alert", "confirm", "prompt"};
     int dialog = static_cast<int>(dialogType);
     ASSERT_WITH_SECURITY_IMPLICATION(0 <= dialog && dialog < static_cast<int>(arraysize(kDialogs)));
 
@@ -849,10 +866,10 @@ void ChromeClientImpl::showImeIfNeeded()
         m_webView->client()->showImeIfNeeded();
 }
 
-void ChromeClientImpl::showUnhandledTapUIIfNeeded(IntPoint tappedPosition, Node* tappedNode, bool pageChanged)
+void ChromeClientImpl::showUnhandledTapUIIfNeeded(IntPoint tappedPositionInViewport, Node* tappedNode, bool pageChanged)
 {
     if (m_webView->client())
-        m_webView->client()->showUnhandledTapUIIfNeeded(WebPoint(tappedPosition), WebNode(tappedNode), pageChanged);
+        m_webView->client()->showUnhandledTapUIIfNeeded(WebPoint(tappedPositionInViewport), WebNode(tappedNode), pageChanged);
 }
 
 void ChromeClientImpl::handleKeyboardEventOnTextField(HTMLInputElement& inputElement, KeyboardEvent& event)
@@ -890,10 +907,22 @@ void ChromeClientImpl::textFieldDataListChanged(HTMLInputElement& input)
         webframe->autofillClient()->dataListOptionsChanged(WebInputElement(&input));
 }
 
+void ChromeClientImpl::xhrSucceeded(LocalFrame* frame)
+{
+    WebLocalFrameImpl* webframe = WebLocalFrameImpl::fromFrame(frame);
+    if (webframe->autofillClient())
+        webframe->autofillClient()->xhrSucceeded();
+}
+
 void ChromeClientImpl::registerViewportLayers() const
 {
-    if (m_webView->rootGraphicsLayer() && m_webView->layerTreeView() && m_webView->pinchVirtualViewportEnabled())
+    if (m_webView->rootGraphicsLayer() && m_webView->layerTreeView())
         m_webView->page()->frameHost().pinchViewport().registerLayersWithTreeView(m_webView->layerTreeView());
+}
+
+void ChromeClientImpl::didUpdateTopControls() const
+{
+    m_webView->didUpdateTopControls();
 }
 
 } // namespace blink

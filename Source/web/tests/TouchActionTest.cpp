@@ -41,7 +41,8 @@
 #include "core/layout/HitTestResult.h"
 #include "core/layout/LayoutTreeAsText.h"
 #include "core/page/EventHandler.h"
-#include "core/testing/URLTestHelpers.h"
+#include "platform/testing/URLTestHelpers.h"
+#include "platform/testing/UnitTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebUnitTestSupport.h"
 #include "public/web/WebDocument.h"
@@ -58,7 +59,7 @@
 #include <gtest/gtest.h>
 
 using namespace blink;
-using blink::FrameTestHelpers::runPendingTasks;
+using blink::testing::runPendingTasks;
 
 namespace {
 
@@ -101,7 +102,7 @@ private:
 
 const int kfakeTouchId = 7;
 
-class TouchActionTest : public testing::Test {
+class TouchActionTest : public ::testing::Test {
 public:
     TouchActionTest()
         : m_baseURL("http://www.test.com/")
@@ -258,7 +259,7 @@ void TouchActionTest::runTestOnTree(ContainerNode* root, WebView* webView, Touch
             // we intended. This is the easiest way for a test to be broken, but has nothing really
             // to do with touch action.
             // Note that we can't use WebView's hit test API because it doesn't look into shadow DOM.
-            IntPoint docPoint(frameView->windowToContents(clientPoint));
+            IntPoint docPoint(frameView->rootFrameToContents(clientPoint));
             HitTestResult result = frame->eventHandler().hitTestResultAtPoint(docPoint, HitTestRequest::ReadOnly | HitTestRequest::Active);
             ASSERT_EQ(element, result.innerElement()) << "Unexpected hit test result " << failureContextPos
                 << "  Got element: \"" << result.innerElement()->outerHTML().stripWhiteSpace().left(80).ascii().data() << "\""

@@ -32,23 +32,23 @@
 #include "web/WebSettingsImpl.h"
 
 #include "core/frame/Settings.h"
-#include "core/inspector/InspectorController.h"
 #include "platform/graphics/DeferredImageDecoder.h"
 
 #include "public/platform/WebString.h"
 #include "public/platform/WebURL.h"
+#include "web/DevToolsEmulator.h"
+#include "web/WebDevToolsAgentImpl.h"
 
 namespace blink {
 
-WebSettingsImpl::WebSettingsImpl(Settings* settings, InspectorController* inspectorController)
+WebSettingsImpl::WebSettingsImpl(Settings* settings, DevToolsEmulator* devToolsEmulator)
     : m_settings(settings)
-    , m_inspectorController(inspectorController)
+    , m_devToolsEmulator(devToolsEmulator)
     , m_showFPSCounter(false)
     , m_showPaintRects(false)
     , m_renderVSyncNotificationEnabled(false)
     , m_autoZoomFocusedNodeToLegibleScale(false)
     , m_deferredImageDecodingEnabled(false)
-    , m_doubleTapToZoomEnabled(false)
     , m_supportDeprecatedTargetDensityDPI(false)
     , m_shrinksViewportContentToFit(false)
     , m_viewportMetaLayoutSizeQuirk(false)
@@ -57,6 +57,11 @@ WebSettingsImpl::WebSettingsImpl(Settings* settings, InspectorController* inspec
     , m_mainFrameResizesAreOrientationChanges(false)
 {
     ASSERT(settings);
+}
+
+void WebSettingsImpl::setFromStrings(const WebString& name, const WebString& value)
+{
+    m_settings->setFromStrings(name, value);
 }
 
 void WebSettingsImpl::setStandardFontFamily(const WebString& font, UScriptCode script)
@@ -153,7 +158,7 @@ void WebSettingsImpl::setAutoZoomFocusedNodeToLegibleScale(bool autoZoomFocusedN
 
 void WebSettingsImpl::setTextAutosizingEnabled(bool enabled)
 {
-    m_inspectorController->setTextAutosizingEnabled(enabled);
+    m_devToolsEmulator->setTextAutosizingEnabled(enabled);
 }
 
 void WebSettingsImpl::setAccessibilityFontScaleFactor(float fontScaleFactor)
@@ -178,7 +183,7 @@ void WebSettingsImpl::setInlineTextBoxAccessibilityEnabled(bool enabled)
 
 void WebSettingsImpl::setDeviceScaleAdjustment(float deviceScaleAdjustment)
 {
-    m_inspectorController->setDeviceScaleAdjustment(deviceScaleAdjustment);
+    m_devToolsEmulator->setDeviceScaleAdjustment(deviceScaleAdjustment);
 }
 
 void WebSettingsImpl::setDefaultTextEncodingName(const WebString& encoding)
@@ -188,7 +193,7 @@ void WebSettingsImpl::setDefaultTextEncodingName(const WebString& encoding)
 
 void WebSettingsImpl::setJavaScriptEnabled(bool enabled)
 {
-    m_settings->setScriptEnabled(enabled);
+    m_devToolsEmulator->setScriptEnabled(enabled);
 }
 
 void WebSettingsImpl::setWebSecurityEnabled(bool enabled)
@@ -243,7 +248,6 @@ void WebSettingsImpl::setRootLayerScrolls(bool rootLayerScrolls)
 
 void WebSettingsImpl::setRubberBandingOnCompositorThread(bool rubberBandingOnCompositorThread)
 {
-    m_settings->setRubberBandingOnCompositorThread(rubberBandingOnCompositorThread);
 }
 
 void WebSettingsImpl::setClobberUserAgentInitialScaleQuirk(bool clobberUserAgentInitialScaleQuirk)
@@ -358,7 +362,7 @@ void WebSettingsImpl::setUseWideViewport(bool useWideViewport)
 
 void WebSettingsImpl::setDoubleTapToZoomEnabled(bool doubleTapToZoomEnabled)
 {
-    m_doubleTapToZoomEnabled = doubleTapToZoomEnabled;
+    m_devToolsEmulator->setDoubleTapToZoomEnabled(doubleTapToZoomEnabled);
 }
 
 void WebSettingsImpl::setDownloadableBinaryFontsEnabled(bool enabled)
@@ -374,6 +378,41 @@ void WebSettingsImpl::setJavaScriptCanAccessClipboard(bool enabled)
 void WebSettingsImpl::setXSSAuditorEnabled(bool enabled)
 {
     m_settings->setXSSAuditorEnabled(enabled);
+}
+
+void WebSettingsImpl::setTextTrackBackgroundColor(const WebString& color)
+{
+    m_settings->setTextTrackBackgroundColor(color);
+}
+
+void WebSettingsImpl::setTextTrackFontFamily(const WebString& fontFamily)
+{
+    m_settings->setTextTrackFontFamily(fontFamily);
+}
+
+void WebSettingsImpl::setTextTrackFontStyle(const WebString& fontStyle)
+{
+    m_settings->setTextTrackFontStyle(fontStyle);
+}
+
+void WebSettingsImpl::setTextTrackFontVariant(const WebString& fontVariant)
+{
+    m_settings->setTextTrackFontVariant(fontVariant);
+}
+
+void WebSettingsImpl::setTextTrackTextColor(const WebString& color)
+{
+    m_settings->setTextTrackTextColor(color);
+}
+
+void WebSettingsImpl::setTextTrackTextShadow(const WebString& shadow)
+{
+    m_settings->setTextTrackTextShadow(shadow);
+}
+
+void WebSettingsImpl::setTextTrackTextSize(const WebString& size)
+{
+    m_settings->setTextTrackTextSize(size);
 }
 
 void WebSettingsImpl::setUnsafePluginPastingEnabled(bool enabled)
@@ -524,7 +563,7 @@ void WebSettingsImpl::setDeferredImageDecodingEnabled(bool enabled)
 
 void WebSettingsImpl::setPreferCompositingToLCDTextEnabled(bool enabled)
 {
-    m_inspectorController->setPreferCompositingToLCDTextEnabled(enabled);
+    m_devToolsEmulator->setPreferCompositingToLCDTextEnabled(enabled);
 }
 
 void WebSettingsImpl::setMinimumAccelerated2dCanvasSize(int numPixels)
@@ -580,11 +619,6 @@ void WebSettingsImpl::setStrictMixedContentChecking(bool enabled)
 void WebSettingsImpl::setStrictPowerfulFeatureRestrictions(bool enabled)
 {
     m_settings->setStrictPowerfulFeatureRestrictions(enabled);
-}
-
-void WebSettingsImpl::setAllowConnectingInsecureWebSocket(bool enabled)
-{
-    m_settings->setAllowConnectingInsecureWebSocket(enabled);
 }
 
 void WebSettingsImpl::setPasswordEchoEnabled(bool flag)
@@ -645,6 +679,11 @@ WebSettings::HoverType WebSettingsImpl::primaryHoverType() const
 bool WebSettingsImpl::viewportEnabled() const
 {
     return m_settings->viewportEnabled();
+}
+
+bool WebSettingsImpl::doubleTapToZoomEnabled() const
+{
+    return m_devToolsEmulator->doubleTapToZoomEnabled();
 }
 
 bool WebSettingsImpl::mockGestureTapHighlightsEnabled() const
@@ -727,11 +766,6 @@ void WebSettingsImpl::setPinchOverlayScrollbarThickness(int thickness)
     m_settings->setPinchOverlayScrollbarThickness(thickness);
 }
 
-void WebSettingsImpl::setPinchVirtualViewportEnabled(bool enabled)
-{
-    m_settings->setPinchVirtualViewportEnabled(enabled);
-}
-
 void WebSettingsImpl::setUseSolidColorScrollbars(bool enabled)
 {
     m_settings->setUseSolidColorScrollbars(enabled);
@@ -745,6 +779,11 @@ void WebSettingsImpl::setMainFrameResizesAreOrientationChanges(bool enabled)
 void WebSettingsImpl::setV8CacheOptions(V8CacheOptions options)
 {
     m_settings->setV8CacheOptions(static_cast<blink::V8CacheOptions>(options));
+}
+
+void WebSettingsImpl::setUseMobileViewportStyle(bool enabled)
+{
+    m_devToolsEmulator->setUseMobileViewportStyle(enabled);
 }
 
 } // namespace blink

@@ -67,8 +67,6 @@ void reloadFrameIgnoringCache(WebFrame*);
 // this. Use one of the above helpers.
 void pumpPendingRequestsDoNotUse(WebFrame*);
 
-void runPendingTasks();
-
 // Convenience class for handling the lifetime of a WebView and its associated mainframe in tests.
 class WebViewHelper {
     WTF_MAKE_NONCOPYABLE(WebViewHelper);
@@ -116,12 +114,20 @@ private:
 // frames and need further specialization of WebFrameClient behavior should subclass this.
 class TestWebRemoteFrameClient : public WebRemoteFrameClient {
 public:
-    // Notifies the embedder that a postMessage was issued to a remote frame.
-    virtual void postMessageEvent(
+    TestWebRemoteFrameClient();
+
+    WebRemoteFrame* frame() const { return m_frame; }
+
+    // WebRemoteFrameClient overrides:
+    void frameDetached() override;
+    void postMessageEvent(
         WebLocalFrame* sourceFrame,
         WebRemoteFrame* targetFrame,
         WebSecurityOrigin targetOrigin,
-        WebDOMMessageEvent) { }
+        WebDOMMessageEvent) override { }
+
+private:
+    WebRemoteFrame* const m_frame;
 };
 
 class TestWebViewClient : public WebViewClient {

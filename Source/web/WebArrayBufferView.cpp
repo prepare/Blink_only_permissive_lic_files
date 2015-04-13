@@ -58,12 +58,11 @@ unsigned WebArrayBufferView::byteLength() const
     return m_private->byteLength();
 }
 
-WebArrayBufferView* WebArrayBufferView::createFromV8Value(v8::Handle<v8::Value> value)
+WebArrayBufferView* WebArrayBufferView::createFromV8Value(v8::Local<v8::Value> value)
 {
     if (!value->IsArrayBufferView())
         return 0;
-    v8::Isolate* isolate = v8::Isolate::GetCurrent();
-    DOMArrayBufferView* view = V8ArrayBufferView::toImpl(value->ToObject(isolate));
+    DOMArrayBufferView* view = V8ArrayBufferView::toImpl(value.As<v8::Object>());
     return new WebArrayBufferView(view);
 }
 

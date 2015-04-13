@@ -1,41 +1,18 @@
-/*
- * Copyright (C) 2013 Google Inc. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// Copyright 2015 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #include "config.h"
-#include "web/ViewportAnchor.h"
+#include "web/RotationViewportAnchor.h"
 
 #include "core/dom/ContainerNode.h"
 #include "core/dom/Node.h"
 #include "core/frame/FrameView.h"
+#include "core/frame/LocalFrame.h"
+#include "core/frame/PinchViewport.h"
 #include "core/layout/HitTestResult.h"
 #include "core/page/EventHandler.h"
+#include "web/PageScaleConstraintsSet.h"
 
 namespace blink {
 
@@ -45,13 +22,14 @@ static const float viewportAnchorRelativeEpsilon = 0.1f;
 static const int viewportToNodeMaxRelativeArea = 2;
 
 template <typename RectType>
-int area(const RectType& rect) {
+int area(const RectType& rect)
+{
     return rect.width() * rect.height();
 }
 
-Node* findNonEmptyAnchorNode(const IntPoint& point, const IntRect& viewRect, EventHandler* eventHandler)
+Node* findNonEmptyAnchorNode(const IntPoint& point, const IntRect& viewRect, EventHandler& eventHandler)
 {
-    Node* node = eventHandler->hitTestResultAtPoint(point, HitTestRequest::ReadOnly | HitTestRequest::Active).innerNode();
+    Node* node = eventHandler.hitTestResultAtPoint(point, HitTestRequest::ReadOnly | HitTestRequest::Active).innerNode();
 
     // If the node bounding box is sufficiently large, make a single attempt to
     // find a smaller node; the larger the node bounds, the greater the
@@ -60,7 +38,7 @@ Node* findNonEmptyAnchorNode(const IntPoint& point, const IntRect& viewRect, Eve
     if (node && area(node->boundingBox()) > maxNodeArea) {
         IntSize pointOffset = viewRect.size();
         pointOffset.scale(viewportAnchorRelativeEpsilon);
-        node = eventHandler->hitTestResultAtPoint(point + pointOffset, HitTestRequest::ReadOnly | HitTestRequest::Active).innerNode();
+        node = eventHandler.hitTestResultAtPoint(point + pointOffset, HitTestRequest::ReadOnly | HitTestRequest::Active).innerNode();
     }
 
     while (node && node->boundingBox().isEmpty())
@@ -101,19 +79,39 @@ void moveIntoRect(FloatRect& inner, const IntRect& outer)
 
 } // namespace
 
-ViewportAnchor::ViewportAnchor(EventHandler* eventHandler)
-    : m_eventHandler(eventHandler) { }
-
-void ViewportAnchor::setAnchor(const IntRect& outerViewRect, const IntRect& innerViewRect,
-    const FloatSize& anchorInInnerViewCoords)
+RotationViewportAnchor::RotationViewportAnchor(
+    FrameView& rootFrameView,
+    PinchViewport& pinchViewport,
+    const FloatSize& anchorInInnerViewCoords,
+    PageScaleConstraintsSet& pageScaleConstraintsSet)
+    : ViewportAnchor(rootFrameView, pinchViewport)
+    , m_anchorInInnerViewCoords(anchorInInnerViewCoords)
+    , m_pageScaleConstraintsSet(pageScaleConstraintsSet)
 {
-    // Preserve the inner viewport position in document in case we won't find the anchor
-    m_pinchViewportInDocument = innerViewRect.location();
+    setAnchor();
+}
+
+RotationViewportAnchor::~RotationViewportAnchor()
+{
+    restoreToAnchor();
+}
+
+void RotationViewportAnchor::setAnchor()
+{
+    // FIXME: Scroll offsets are now fractional (DoublePoint and FloatPoint for the FrameView and PinchViewport
+    //        respectively. This path should be rewritten without pixel snapping.
+    IntRect outerViewRect = m_rootFrameView->visibleContentRect();
+    IntRect innerViewRect = enclosedIntRect(m_pinchViewport->visibleRectInDocument());
+
+    m_oldPageScaleFactor = m_pinchViewport->scale();
+    m_oldMinimumPageScaleFactor = m_pageScaleConstraintsSet.finalConstraints().minimumScale;
+
+    // Save the absolute location in case we won't find the anchor node, we'll fall back to that.
+    m_pinchViewportInDocument = m_pinchViewport->visibleRectInDocument().location();
 
     m_anchorNode.clear();
     m_anchorNodeBounds = LayoutRect();
     m_anchorInNodeCoords = FloatSize();
-    m_anchorInInnerViewCoords = anchorInInnerViewCoords;
     m_normalizedPinchViewportOffset = FloatSize();
 
     if (innerViewRect.isEmpty())
@@ -135,10 +133,10 @@ void ViewportAnchor::setAnchor(const IntRect& outerViewRect, const IntRect& inne
     m_normalizedPinchViewportOffset.scale(1.0 / outerViewRect.width(), 1.0 / outerViewRect.height());
 
     FloatSize anchorOffset = innerViewRect.size();
-    anchorOffset.scale(anchorInInnerViewCoords.width(), anchorInInnerViewCoords.height());
+    anchorOffset.scale(m_anchorInInnerViewCoords.width(), m_anchorInInnerViewCoords.height());
     const FloatPoint anchorPoint = FloatPoint(innerViewRect.location()) + anchorOffset;
 
-    Node* node = findNonEmptyAnchorNode(flooredIntPoint(anchorPoint), innerViewRect, m_eventHandler);
+    Node* node = findNonEmptyAnchorNode(flooredIntPoint(anchorPoint), innerViewRect, m_rootFrameView->frame().eventHandler());
     if (!node)
         return;
 
@@ -148,10 +146,29 @@ void ViewportAnchor::setAnchor(const IntRect& outerViewRect, const IntRect& inne
     m_anchorInNodeCoords.scale(1.f / m_anchorNodeBounds.width(), 1.f / m_anchorNodeBounds.height());
 }
 
-void ViewportAnchor::computeOrigins(const FrameView& frameView, const FloatSize& innerSize,
-    IntPoint& mainFrameOffset, FloatPoint& pinchViewportOffset) const
+void RotationViewportAnchor::restoreToAnchor()
 {
-    IntSize outerSize = frameView.visibleContentRect().size();
+    float newPageScaleFactor = m_oldPageScaleFactor / m_oldMinimumPageScaleFactor * m_pageScaleConstraintsSet.finalConstraints().minimumScale;
+    newPageScaleFactor = m_pageScaleConstraintsSet.finalConstraints().clampToConstraints(newPageScaleFactor);
+
+    FloatSize pinchViewportSize = m_pinchViewport->size();
+    pinchViewportSize.scale(1 / newPageScaleFactor);
+
+    IntPoint mainFrameOrigin;
+    FloatPoint pinchViewportOrigin;
+
+    computeOrigins(pinchViewportSize, mainFrameOrigin, pinchViewportOrigin);
+
+    m_rootFrameView->setScrollOffset(mainFrameOrigin);
+
+    // Set scale before location, since location can be clamped on setting scale.
+    m_pinchViewport->setScale(newPageScaleFactor);
+    m_pinchViewport->setLocation(pinchViewportOrigin);
+}
+
+void RotationViewportAnchor::computeOrigins(const FloatSize& innerSize, IntPoint& mainFrameOffset, FloatPoint& pinchViewportOffset) const
+{
+    IntSize outerSize = m_rootFrameView->visibleContentRect().size();
 
     // Compute the viewport origins in CSS pixels relative to the document.
     FloatSize absPinchViewportOffset = m_normalizedPinchViewportOffset;
@@ -165,7 +182,7 @@ void ViewportAnchor::computeOrigins(const FrameView& frameView, const FloatSize&
 
     moveToEncloseRect(outerRect, innerRect);
 
-    outerRect.setLocation(frameView.adjustScrollPositionWithinRange(outerRect.location()));
+    outerRect.setLocation(m_rootFrameView->adjustScrollPositionWithinRange(outerRect.location()));
 
     moveIntoRect(innerRect, outerRect);
 
@@ -173,7 +190,7 @@ void ViewportAnchor::computeOrigins(const FrameView& frameView, const FloatSize&
     pinchViewportOffset = FloatPoint(innerRect.location() - outerRect.location());
 }
 
-FloatPoint ViewportAnchor::getInnerOrigin(const FloatSize& innerSize) const
+FloatPoint RotationViewportAnchor::getInnerOrigin(const FloatSize& innerSize) const
 {
     if (!m_anchorNode || !m_anchorNode->inDocument())
         return m_pinchViewportInDocument;

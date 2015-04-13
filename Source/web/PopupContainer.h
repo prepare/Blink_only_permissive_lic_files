@@ -117,15 +117,16 @@ public:
 
     void updateFromElement() { m_listBox->updateFromElement(); }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
+
+    DisplayItemClient displayItemClient() const { return toDisplayItemClient(this); }
+    String debugName() const { return "PopupContainer"; }
 
 private:
     friend class WTF::RefCounted<PopupContainer>;
 
     PopupContainer(PopupMenuClient*, bool deviceSupportsTouch);
     virtual ~PopupContainer();
-
-    DisplayItemClient displayItemClient() { return toDisplayItemClient(this); }
 
     // Paint the border.
     void paintBorder(GraphicsContext*, const IntRect&);

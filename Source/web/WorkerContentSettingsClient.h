@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2013 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -28,37 +28,40 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#include "public/platform/WebIDBDatabaseError.h"
+#ifndef WorkerContentSettingsClient_h
+#define WorkerContentSettingsClient_h
 
-#include "core/dom/DOMError.h"
-#include "public/platform/WebString.h"
+#include "core/workers/WorkerClients.h"
+#include "wtf/Forward.h"
 
 namespace blink {
 
-void WebIDBDatabaseError::assign(const WebIDBDatabaseError& value)
-{
-    m_private = value.m_private;
-}
+class ExecutionContext;
+class WebString;
+class WebWorkerContentSettingsClientProxy;
 
-void WebIDBDatabaseError::assign(unsigned short code)
-{
-    m_private = DOMError::create(code);
-}
+class WorkerContentSettingsClient final : public NoBaseWillBeGarbageCollectedFinalized<WorkerContentSettingsClient>, public WillBeHeapSupplement<WorkerClients> {
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(WorkerContentSettingsClient);
+public:
+    static PassOwnPtrWillBeRawPtr<WorkerContentSettingsClient> create(PassOwnPtr<WebWorkerContentSettingsClientProxy>);
+    virtual ~WorkerContentSettingsClient();
 
-void WebIDBDatabaseError::assign(unsigned short code, const WebString& message)
-{
-    m_private = DOMError::create(code, message);
-}
+    bool requestFileSystemAccessSync();
+    bool allowIndexedDB(const WebString& name);
 
-void WebIDBDatabaseError::reset()
-{
-    m_private.reset();
-}
+    static const char* supplementName();
+    static WorkerContentSettingsClient* from(ExecutionContext&);
 
-WebIDBDatabaseError::operator DOMError*() const
-{
-    return m_private.get();
-}
+    DEFINE_INLINE_VIRTUAL_TRACE() { WillBeHeapSupplement<WorkerClients>::trace(visitor); }
+
+private:
+    explicit WorkerContentSettingsClient(PassOwnPtr<WebWorkerContentSettingsClientProxy>);
+
+    OwnPtr<WebWorkerContentSettingsClientProxy> m_proxy;
+};
+
+void provideContentSettingsClientToWorker(WorkerClients*, PassOwnPtr<WebWorkerContentSettingsClientProxy>);
 
 } // namespace blink
+
+#endif // WorkerContentSettingsClient_h

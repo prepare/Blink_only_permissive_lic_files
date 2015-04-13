@@ -217,12 +217,21 @@ void WebPopupMenuImpl::paintContents(WebCanvas* canvas, const WebRect& rect, Web
     if (!m_widget)
         return;
 
-    GraphicsContext context(canvas, displayItemList(),
-        paintingControl == PaintingControlSetting::DisplayListConstructionDisabled ? GraphicsContext::FullyDisabled : GraphicsContext::NothingDisabled);
-    m_widget->paint(&context, rect);
+    OwnPtr<GraphicsContext> context;
+    GraphicsContext::DisabledMode disabledMode;
+    if (paintingControl == PaintingControlSetting::DisplayListConstructionDisabled)
+        disabledMode = GraphicsContext::FullyDisabled;
+    else
+        disabledMode = GraphicsContext::NothingDisabled;
+
+    if (displayItemList())
+        context = adoptPtr(new GraphicsContext(displayItemList(), disabledMode));
+    else
+        context = GraphicsContext::deprecatedCreateWithCanvas(canvas, disabledMode);
+    m_widget->paint(context.get(), rect);
 
     if (DisplayItemList* displayItemList = this->displayItemList())
-        displayItemList->endNewPaints();
+        displayItemList->commitNewDisplayItems();
 }
 
 void WebPopupMenuImpl::paintContents(WebDisplayItemList* webDisplayItemList, const WebRect& clip, WebContentLayerClient::PaintingControlSetting paintingControl)
@@ -235,7 +244,7 @@ void WebPopupMenuImpl::paintContents(WebDisplayItemList* webDisplayItemList, con
 
     paintContents(static_cast<WebCanvas*>(nullptr), clip, paintingControl);
 
-    for (const auto& item : displayItemList()->paintList())
+    for (const auto& item : displayItemList()->displayItems())
         item->appendToWebDisplayItemList(webDisplayItemList);
 }
 
@@ -245,10 +254,10 @@ void WebPopupMenuImpl::paint(WebCanvas* canvas, const WebRect& rect)
         return;
 
     if (!rect.isEmpty()) {
-        GraphicsContext context(canvas, nullptr);
+        OwnPtr<GraphicsContext> context = GraphicsContext::deprecatedCreateWithCanvas(canvas);
         float scaleFactor = m_client->deviceScaleFactor();
-        context.scale(scaleFactor, scaleFactor);
-        m_widget->paint(&context, rect);
+        context->scale(scaleFactor, scaleFactor);
+        m_widget->paint(context.get(), rect);
     }
 }
 
@@ -397,7 +406,7 @@ void WebPopupMenuImpl::scheduleAnimation()
 {
 }
 
-IntRect WebPopupMenuImpl::rootViewToScreen(const IntRect& rect) const
+IntRect WebPopupMenuImpl::viewportToScreen(const IntRect& rect) const
 {
     notImplemented();
     return IntRect();

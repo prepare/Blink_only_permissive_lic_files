@@ -6,7 +6,7 @@
 #include "web/PageOverlay.h"
 
 #include "core/frame/FrameView.h"
-#include "core/rendering/RenderView.h"
+#include "core/layout/LayoutView.h"
 #include "platform/graphics/Color.h"
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/paint/DisplayItemList.h"
@@ -59,6 +59,7 @@ protected:
             false /* enableJavascript */, nullptr /* webFrameClient */, nullptr /* webViewClient */,
             compositingMode == AcceleratedCompositing ? enableAcceleratedCompositing : disableAcceleratedCompositing);
         webViewImpl()->resize(WebSize(viewportWidth, viewportHeight));
+        webViewImpl()->layout();
         ASSERT_EQ(compositingMode == AcceleratedCompositing, webViewImpl()->isAcceleratedCompositingActive());
         ASSERT_TRUE(!webViewImpl()->pageOverlays() || webViewImpl()->pageOverlays()->empty());
     }
@@ -105,9 +106,13 @@ public:
     {
         GraphicsContext& graphicsContext = toWebGraphicsContextImpl(context)->graphicsContext();
         FloatRect rect(0, 0, size.width, size.height);
-        DrawingRecorder drawingRecorder(&graphicsContext, toDisplayItemClient(this), DisplayItem::PageOverlay, rect);
-        graphicsContext.fillRect(rect, m_color);
+        DrawingRecorder drawingRecorder(graphicsContext, *this, DisplayItem::PageOverlay, rect);
+        if (!drawingRecorder.canUseCachedDrawing())
+            graphicsContext.fillRect(rect, m_color);
     }
+
+    DisplayItemClient displayItemClient() const { return toDisplayItemClient(this); }
+    String debugName() const { return "PrivateGraphicsContextOverlay"; }
 
 private:
     Color m_color;
@@ -194,17 +199,14 @@ void PageOverlayTest::runPageOverlayTestWithAcceleratedCompositing()
         // a display list, and then replay that onto the mock canvas for
         // examination. This is about as close to the real path as we can easily
         // get.
-        GraphicsContext graphicsContext(nullptr /* canvas */, graphicsLayer->displayItemList());
-        graphicsContext.setCertainlyOpaque(false);
+        GraphicsContext graphicsContext(graphicsLayer->displayItemList());
         graphicsLayer->paint(graphicsContext, WebRect(0, 0, viewportWidth, viewportHeight));
 
-        GraphicsContext replayContext(&canvas, nullptr /* displayItemList */);
-        replayContext.setCertainlyOpaque(false);
-        graphicsLayer->displayItemList()->replay(&replayContext);
+        OwnPtr<GraphicsContext> replayContext = GraphicsContext::deprecatedCreateWithCanvas(&canvas);
+        graphicsLayer->displayItemList()->commitNewDisplayItemsAndReplay(*replayContext);
     } else {
-        GraphicsContext graphicsContext(&canvas, nullptr /* displayItemList */);
-        graphicsContext.setCertainlyOpaque(false);
-        graphicsLayer->paint(graphicsContext, WebRect(0, 0, viewportWidth, viewportHeight));
+        OwnPtr<GraphicsContext> graphicsContext = GraphicsContext::deprecatedCreateWithCanvas(&canvas);
+        graphicsLayer->paint(*graphicsContext, WebRect(0, 0, viewportWidth, viewportHeight));
     }
 }
 
