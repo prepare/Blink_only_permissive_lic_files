@@ -124,6 +124,11 @@ class IdlTypeBase(object):
         raise NotImplementedError(
             'resolve_typedefs should be defined in subclasses')
 
+    def idl_types(self):
+        """A generator which yields IdlTypes which are referenced from |self|,
+        including itself."""
+        yield self
+
 
 ################################################################################
 # IdlType
@@ -180,7 +185,11 @@ class IdlType(IdlTypeBase):
 
     @property
     def enum_values(self):
-        return IdlType.enums[self.name]
+        return IdlType.enums.get(self.name)
+
+    @property
+    def enum_type(self):
+        return self.name if self.is_enum else None
 
     @property
     def is_integer_type(self):
@@ -317,6 +326,12 @@ class IdlUnionType(IdlTypeBase):
             for member_type in self.member_types]
         return self
 
+    def idl_types(self):
+        yield self
+        for member_type in self.member_types:
+            for idl_type in member_type.idl_types():
+                yield idl_type
+
 
 ################################################################################
 # IdlArrayOrSequenceType, IdlArrayType, IdlSequenceType
@@ -344,6 +359,19 @@ class IdlArrayOrSequenceType(IdlTypeBase):
     @property
     def is_array_or_sequence_type(self):
         return True
+
+    @property
+    def enum_values(self):
+        return self.element_type.enum_values
+
+    @property
+    def enum_type(self):
+        return self.element_type.enum_type
+
+    def idl_types(self):
+        yield self
+        for idl_type in self.element_type.idl_types():
+            yield idl_type
 
 
 class IdlArrayType(IdlArrayOrSequenceType):
@@ -409,3 +437,8 @@ class IdlNullableType(IdlTypeBase):
     def resolve_typedefs(self, typedefs):
         self.inner_type = self.inner_type.resolve_typedefs(typedefs)
         return self
+
+    def idl_types(self):
+        yield self
+        for idl_type in self.inner_type.idl_types():
+            yield idl_type

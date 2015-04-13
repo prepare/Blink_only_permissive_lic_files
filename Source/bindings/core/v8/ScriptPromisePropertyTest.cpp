@@ -11,6 +11,7 @@
 #include "bindings/core/v8/ScriptState.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/V8Binding.h"
+#include "bindings/core/v8/V8BindingForTesting.h"
 #include "bindings/core/v8/V8GCController.h"
 #include "core/dom/Document.h"
 #include "core/testing/DummyPageHolder.h"
@@ -89,7 +90,7 @@ public:
     Property* property() { return m_property; }
     GarbageCollectedScriptWrappable* toGarbageCollectedScriptWrappable() { return this; }
 
-    virtual void trace(Visitor *visitor) override
+    DEFINE_INLINE_VIRTUAL_TRACE()
     {
         GarbageCollectedScriptWrappable::trace(visitor);
         visitor->trace(m_property);
@@ -148,7 +149,7 @@ public:
         m_page.clear();
         m_otherScriptState.clear();
         gc();
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
     }
 
     void gc() { V8GCController::collectGarbage(v8::Isolate::GetCurrent()); }
@@ -527,7 +528,7 @@ public:
         isolate()->RunMicrotasks();
         {
             ScriptState::Scope scope(mainScriptState());
-            actual = toCoreString(actualValue.v8Value()->ToString(isolate()));
+            actual = toCoreString(actualValue.v8Value()->ToString(mainScriptState()->context()).ToLocalChecked());
         }
         if (expected != actual) {
             ADD_FAILURE_AT(file, line) << "toV8 returns an incorrect value.\n  Actual: " << actual.utf8().data() << "\nExpected: " << expected;

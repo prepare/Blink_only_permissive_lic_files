@@ -32,6 +32,7 @@
 #define DOMWrapperWorld_h
 
 #include "bindings/core/v8/ScriptState.h"
+#include "core/CoreExport.h"
 #include "platform/weborigin/SecurityOrigin.h"
 #include "wtf/MainThread.h"
 #include "wtf/PassRefPtr.h"
@@ -121,8 +122,6 @@ public:
         ASSERT(isMainThread());
         worldOfInitializingWindow = world;
     }
-    // FIXME: Remove this method once we fix crbug.com/345014.
-    static bool windowIsBeingInitialized() { return !!worldOfInitializingWindow; }
 
 private:
     class DOMObjectHolderBase {
@@ -136,7 +135,7 @@ private:
 
         DOMWrapperWorld* world() const { return m_world; }
         void setWorld(DOMWrapperWorld* world) { m_world = world; }
-        void setWeak(void (*callback)(const v8::WeakCallbackData<v8::Value, DOMObjectHolderBase>&))
+        void setWeak(void (*callback)(const v8::WeakCallbackInfo<DOMObjectHolderBase>&))
         {
             m_wrapper.setWeak(this, callback);
         }
@@ -174,12 +173,12 @@ public:
 private:
     DOMWrapperWorld(v8::Isolate*, int worldId, int extensionGroup);
 
-    static void weakCallbackForDOMObjectHolder(const v8::WeakCallbackData<v8::Value, DOMObjectHolderBase>&);
+    static void weakCallbackForDOMObjectHolder(const v8::WeakCallbackInfo<DOMObjectHolderBase>&);
     void registerDOMObjectHolderInternal(PassOwnPtr<DOMObjectHolderBase>);
     void unregisterDOMObjectHolder(DOMObjectHolderBase*);
 
-    static unsigned isolatedWorldCount;
-    static DOMWrapperWorld* worldOfInitializingWindow;
+    CORE_EXPORT static unsigned isolatedWorldCount;
+    CORE_EXPORT static DOMWrapperWorld* worldOfInitializingWindow;
 
     const int m_worldId;
     const int m_extensionGroup;

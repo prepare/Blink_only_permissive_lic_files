@@ -66,13 +66,13 @@ struct PrivateIdentifier {
     bool isString;
 };
 
-NPObject* npCreateV8ScriptObject(v8::Isolate*, NPP, v8::Handle<v8::Object>, LocalDOMWindow*);
+NPObject* npCreateV8ScriptObject(v8::Isolate*, NPP, v8::Local<v8::Object>, LocalDOMWindow*);
 
-NPObject* v8ObjectToNPObject(v8::Handle<v8::Object>);
+NPObject* v8ObjectToNPObject(v8::Local<v8::Object>);
 
-bool isWrappedNPObject(v8::Handle<v8::Object>);
+bool isWrappedNPObject(v8::Local<v8::Object>);
 
-V8NPObject* npObjectToV8NPObject(NPObject*);
+CORE_EXPORT V8NPObject* npObjectToV8NPObject(NPObject*);
 
 ScriptWrappable* npObjectToScriptWrappable(NPObject*);
 

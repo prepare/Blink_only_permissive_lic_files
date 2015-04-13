@@ -6,6 +6,7 @@
 #include "bindings/core/v8/V8ScriptRunner.h"
 
 #include "bindings/core/v8/V8Binding.h"
+#include "bindings/core/v8/V8BindingForTesting.h"
 #include "core/fetch/CachedMetadataHandler.h"
 #include "core/fetch/ScriptResource.h"
 #include "platform/heap/Handle.h"
@@ -65,7 +66,7 @@ public:
     bool compileScript(V8CacheOptions cacheOptions)
     {
         return !V8ScriptRunner::compileScript(
-            v8String(isolate(), code()), filename(), WTF::TextPosition(),
+            v8String(isolate(), code()), filename(), String(), WTF::TextPosition(),
             isolate(), m_resource.get(), nullptr, m_resource.get() ? m_resource->cacheHandler(): nullptr, NotSharableCrossOrigin, cacheOptions)
             .IsEmpty();
     }

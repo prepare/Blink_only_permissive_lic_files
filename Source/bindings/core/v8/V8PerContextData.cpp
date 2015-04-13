@@ -40,7 +40,7 @@
 
 namespace blink {
 
-V8PerContextData::V8PerContextData(v8::Handle<v8::Context> context)
+V8PerContextData::V8PerContextData(v8::Local<v8::Context> context)
     : m_isolate(context->GetIsolate())
     , m_wrapperBoilerplates(m_isolate)
     , m_constructorMap(m_isolate)
@@ -53,10 +53,8 @@ V8PerContextData::V8PerContextData(v8::Handle<v8::Context> context)
 
     v8::Context::Scope contextScope(context);
     ASSERT(m_errorPrototype.isEmpty());
-    v8::Handle<v8::Object> object = v8::Handle<v8::Object>::Cast(context->Global()->Get(v8AtomicString(m_isolate, "Error")));
-    ASSERT(!object.IsEmpty());
-    v8::Handle<v8::Value> prototypeValue = object->Get(v8AtomicString(m_isolate, "prototype"));
-    ASSERT(!prototypeValue.IsEmpty());
+    v8::Local<v8::Value> objectValue = context->Global()->Get(context, v8AtomicString(m_isolate, "Error")).ToLocalChecked();
+    v8::Local<v8::Value> prototypeValue = objectValue.As<v8::Object>()->Get(context, v8AtomicString(m_isolate, "prototype")).ToLocalChecked();
     m_errorPrototype.set(m_isolate, prototypeValue);
 }
 
@@ -64,12 +62,12 @@ V8PerContextData::~V8PerContextData()
 {
 }
 
-PassOwnPtr<V8PerContextData> V8PerContextData::create(v8::Handle<v8::Context> context)
+PassOwnPtr<V8PerContextData> V8PerContextData::create(v8::Local<v8::Context> context)
 {
     return adoptPtr(new V8PerContextData(context));
 }
 
-V8PerContextData* V8PerContextData::from(v8::Handle<v8::Context> context)
+V8PerContextData* V8PerContextData::from(v8::Local<v8::Context> context)
 {
     return ScriptState::from(context)->perContextData();
 }
@@ -92,7 +90,11 @@ v8::Local<v8::Function> V8PerContextData::constructorForTypeSlowCase(const Wrapp
 {
     ASSERT(!m_errorPrototype.isEmpty());
 
-    v8::Context::Scope scope(context());
+    v8::Local<v8::Context> currentContext = context();
+    v8::Context::Scope scope(currentContext);
+    // We shouldn't reach this point for the types that are implemented in v8 suche as typed arrays and
+    // hence don't have domTemplateFunction.
+    ASSERT(type->domTemplateFunction);
     v8::Handle<v8::FunctionTemplate> functionTemplate = type->domTemplate(m_isolate);
     // Getting the function might fail if we're running out of stack or memory.
     v8::Local<v8::Function> function = functionTemplate->GetFunction();
@@ -103,18 +105,18 @@ v8::Local<v8::Function> V8PerContextData::constructorForTypeSlowCase(const Wrapp
         v8::Local<v8::Object> prototypeTemplate = constructorForType(type->parentClass);
         if (prototypeTemplate.IsEmpty())
             return v8::Local<v8::Function>();
-        function->SetPrototype(prototypeTemplate);
+        if (!v8CallBoolean(function->SetPrototype(currentContext, prototypeTemplate)))
+            return v8::Local<v8::Function>();
     }
 
-    v8::Local<v8::Value> prototypeValue = function->Get(v8AtomicString(m_isolate, "prototype"));
-    if (!prototypeValue.IsEmpty() && prototypeValue->IsObject()) {
-        v8::Local<v8::Object> prototypeObject = v8::Local<v8::Object>::Cast(prototypeValue);
-        if (prototypeObject->InternalFieldCount() == v8PrototypeInternalFieldcount
-            && type->wrapperTypePrototype == WrapperTypeInfo::WrapperTypeObjectPrototype)
-            prototypeObject->SetAlignedPointerInInternalField(v8PrototypeTypeIndex, const_cast<WrapperTypeInfo*>(type));
-        type->installConditionallyEnabledMethods(prototypeObject, m_isolate);
-        if (type->wrapperTypePrototype == WrapperTypeInfo::WrapperTypeExceptionPrototype)
-            prototypeObject->SetPrototype(m_errorPrototype.newLocal(m_isolate));
+    v8::Local<v8::Object> prototypeObject = function->Get(currentContext, v8AtomicString(m_isolate, "prototype")).ToLocalChecked().As<v8::Object>();
+    if (prototypeObject->InternalFieldCount() == v8PrototypeInternalFieldcount
+        && type->wrapperTypePrototype == WrapperTypeInfo::WrapperTypeObjectPrototype)
+        prototypeObject->SetAlignedPointerInInternalField(v8PrototypeTypeIndex, const_cast<WrapperTypeInfo*>(type));
+    type->installConditionallyEnabledMethods(prototypeObject, m_isolate);
+    if (type->wrapperTypePrototype == WrapperTypeInfo::WrapperTypeExceptionPrototype) {
+        if (!v8CallBoolean(prototypeObject->SetPrototype(currentContext, m_errorPrototype.newLocal(m_isolate))))
+            return v8::Local<v8::Function>();
     }
 
     m_constructorMap.Set(type, function);
@@ -127,24 +129,15 @@ v8::Local<v8::Object> V8PerContextData::prototypeForType(const WrapperTypeInfo* 
     v8::Local<v8::Object> constructor = constructorForType(type);
     if (constructor.IsEmpty())
         return v8::Local<v8::Object>();
-    return constructor->Get(v8String(m_isolate, "prototype")).As<v8::Object>();
+    v8::Local<v8::Value> prototypeValue;
+    if (!constructor->Get(context(), v8String(m_isolate, "prototype")).ToLocal(&prototypeValue) || !prototypeValue->IsObject())
+        return v8::Local<v8::Object>();
+    return prototypeValue.As<v8::Object>();
 }
 
 void V8PerContextData::addCustomElementBinding(CustomElementDefinition* definition, PassOwnPtr<CustomElementBinding> binding)
 {
     m_customElementBindings.append(binding);
-}
-
-void V8PerContextDebugData::setContextDebugData(v8::Handle<v8::Context> context, const String& data)
-{
-    v8::HandleScope scope(context->GetIsolate());
-    v8::Context::Scope contextScope(context);
-    context->SetEmbedderData(static_cast<int>(gin::kDebugIdIndex), v8String(context->GetIsolate(), data));
-}
-
-v8::Handle<v8::Value> V8PerContextDebugData::contextDebugData(v8::Handle<v8::Context> context)
-{
-    return context->GetEmbedderData(static_cast<int>(gin::kDebugIdIndex));
 }
 
 v8::Handle<v8::Value> V8PerContextData::compiledPrivateScript(String className)

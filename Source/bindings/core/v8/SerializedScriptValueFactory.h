@@ -7,11 +7,12 @@
 
 #include "bindings/core/v8/ScriptValueSerializer.h"
 #include "bindings/core/v8/SerializedScriptValue.h"
+#include "core/CoreExport.h"
 #include "wtf/Noncopyable.h"
 
 namespace blink {
 
-class SerializedScriptValueFactory {
+class CORE_EXPORT SerializedScriptValueFactory {
     WTF_MAKE_NONCOPYABLE(SerializedScriptValueFactory);
 public:
     SerializedScriptValueFactory() { }
@@ -24,7 +25,7 @@ public:
     virtual PassRefPtr<SerializedScriptValue> create(v8::Handle<v8::Value>, MessagePortArray*, ArrayBufferArray*, WebBlobInfoArray*, ExceptionState&, v8::Isolate*);
     PassRefPtr<SerializedScriptValue> create(v8::Handle<v8::Value>, MessagePortArray*, ArrayBufferArray*, ExceptionState&, v8::Isolate*);
     PassRefPtr<SerializedScriptValue> createFromWire(const String&);
-    PassRefPtr<SerializedScriptValue> createFromWireBytes(const Vector<uint8_t>&);
+    PassRefPtr<SerializedScriptValue> createFromWireBytes(const char* data, size_t length);
     PassRefPtr<SerializedScriptValue> create(const String&);
     virtual PassRefPtr<SerializedScriptValue> create(const String&, v8::Isolate*);
     PassRefPtr<SerializedScriptValue> create();
@@ -66,4 +67,3 @@ private:
 } // namespace blink
 
 #endif // SerializedScriptValueFactory_h
-

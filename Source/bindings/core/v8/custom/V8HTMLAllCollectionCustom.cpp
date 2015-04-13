@@ -41,7 +41,7 @@
 namespace blink {
 
 template<class CallbackInfo>
-static v8::Handle<v8::Value> getNamedItems(HTMLAllCollection* collection, AtomicString name, const CallbackInfo& info)
+static v8::Local<v8::Value> getNamedItems(HTMLAllCollection* collection, AtomicString name, const CallbackInfo& info)
 {
     WillBeHeapVector<RefPtrWillBeMember<Element>> namedItems;
     collection->namedItems(name, namedItems);
@@ -67,12 +67,12 @@ static v8::Handle<v8::Value> getNamedItems(HTMLAllCollection* collection, Atomic
 }
 
 template<class CallbackInfo>
-static v8::Handle<v8::Value> getItem(HTMLAllCollection* collection, v8::Handle<v8::Value> argument, const CallbackInfo& info)
+static v8::Local<v8::Value> getItem(HTMLAllCollection* collection, v8::Local<v8::Value> argument, const CallbackInfo& info)
 {
-    v8::Local<v8::Uint32> index = argument->ToArrayIndex();
-    if (index.IsEmpty()) {
+    v8::Local<v8::Uint32> index;
+    if (!argument->ToArrayIndex(info.GetIsolate()->GetCurrentContext()).ToLocal(&index)) {
         TOSTRING_DEFAULT(V8StringResource<>, name, argument, v8::Undefined(info.GetIsolate()));
-        v8::Handle<v8::Value> result = getNamedItems(collection, name, info);
+        v8::Local<v8::Value> result = getNamedItems(collection, name, info);
 
         if (result.IsEmpty())
             return v8::Undefined(info.GetIsolate());
@@ -80,7 +80,7 @@ static v8::Handle<v8::Value> getItem(HTMLAllCollection* collection, v8::Handle<v
         return result;
     }
 
-    RefPtrWillBeRawPtr<Element> result = collection->item(index->Uint32Value());
+    RefPtrWillBeRawPtr<Element> result = collection->item(index->Value());
     return toV8(result.release(), info.Holder(), info.GetIsolate());
 }
 
@@ -107,11 +107,11 @@ void V8HTMLAllCollection::legacyCallCustom(const v8::FunctionCallbackInfo<v8::Va
 
     // If there is a second argument it is the index of the item we want.
     TOSTRING_VOID(V8StringResource<>, name, info[0]);
-    v8::Local<v8::Uint32> index = info[1]->ToArrayIndex();
-    if (index.IsEmpty())
+    v8::Local<v8::Uint32> index;
+    if (!info[1]->ToArrayIndex(info.GetIsolate()->GetCurrentContext()).ToLocal(&index))
         return;
 
-    if (Node* node = impl->namedItemWithIndex(name, index->Uint32Value())) {
+    if (Node* node = impl->namedItemWithIndex(name, index->Value())) {
         v8SetReturnValueFast(info, node, impl);
         return;
     }

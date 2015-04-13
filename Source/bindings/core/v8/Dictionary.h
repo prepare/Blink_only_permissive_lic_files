@@ -32,6 +32,7 @@
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/V8Binding.h"
 #include "bindings/core/v8/V8BindingMacros.h"
+#include "core/CoreExport.h"
 #include "wtf/HashMap.h"
 #include "wtf/HashSet.h"
 #include "wtf/Vector.h"
@@ -44,19 +45,14 @@ namespace blink {
 // Dictionary class provides ways to retrieve property values as C++ objects
 // from a V8 object. Instances of this class must not outlive V8's handle scope
 // because they hold a V8 value without putting it on persistent handles.
-class Dictionary {
+class CORE_EXPORT Dictionary final {
     ALLOW_ONLY_INLINE_ALLOCATION();
 public:
     Dictionary();
-    Dictionary(const v8::Handle<v8::Value>& options, v8::Isolate*, ExceptionState&);
+    Dictionary(const v8::Local<v8::Value>& options, v8::Isolate*, ExceptionState&);
     ~Dictionary();
 
     Dictionary& operator=(const Dictionary&);
-
-    // This is different from the default constructor:
-    //   * isObject() is true when using createEmpty().
-    //   * isUndefinedOrNull() is true when using default constructor.
-    static Dictionary createEmpty(v8::Isolate*);
 
     bool isObject() const;
     bool isUndefinedOrNull() const;
@@ -64,15 +60,9 @@ public:
     bool get(const String&, Dictionary&) const;
     bool get(const String&, v8::Local<v8::Value>&) const;
 
-    // Sets properties using default attributes.
-    bool set(const String&, const v8::Handle<v8::Value>&);
-    bool set(const String&, const String&);
-    bool set(const String&, unsigned);
-    bool set(const String&, const Dictionary&);
+    v8::Local<v8::Value> v8Value() const { return m_options; }
 
-    v8::Handle<v8::Value> v8Value() const { return m_options; }
-
-    class ConversionContext {
+    class CORE_EXPORT ConversionContext {
     public:
         explicit ConversionContext(ExceptionState& exceptionState)
             : m_exceptionState(exceptionState)
@@ -120,18 +110,25 @@ public:
     bool hasProperty(const String&) const;
 
     v8::Isolate* isolate() const { return m_isolate; }
+    v8::Local<v8::Context> v8Context() const
+    {
+        ASSERT(m_isolate);
+        return m_isolate->GetCurrentContext();
+    }
 
     bool getKey(const String& key, v8::Local<v8::Value>&) const;
 
 private:
-    v8::Handle<v8::Value> m_options;
+    bool toObject(v8::Local<v8::Object>&) const;
+
+    v8::Local<v8::Value> m_options;
     v8::Isolate* m_isolate;
     ExceptionState* m_exceptionState;
 };
 
 template<>
 struct NativeValueTraits<Dictionary> {
-    static inline Dictionary nativeValue(const v8::Handle<v8::Value>& value, v8::Isolate* isolate, ExceptionState& exceptionState)
+    static inline Dictionary nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
     {
         return Dictionary(value, isolate, exceptionState);
     }

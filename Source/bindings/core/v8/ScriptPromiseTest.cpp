@@ -34,6 +34,7 @@
 #include "bindings/core/v8/ScriptFunction.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/V8Binding.h"
+#include "bindings/core/v8/V8BindingForTesting.h"
 #include "core/dom/DOMException.h"
 #include "core/dom/ExceptionCode.h"
 
@@ -64,7 +65,7 @@ private:
     virtual ScriptValue call(ScriptValue value) override
     {
         ASSERT(!value.isEmpty());
-        *m_value = toCoreString(value.v8Value()->ToString(scriptState()->isolate()));
+        *m_value = toCoreString(value.v8Value()->ToString(scriptState()->context()).ToLocalChecked());
         return value;
     }
 

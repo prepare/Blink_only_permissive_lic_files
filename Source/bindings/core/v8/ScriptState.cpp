@@ -21,11 +21,15 @@ PassRefPtr<ScriptState> ScriptState::create(v8::Handle<v8::Context> context, Pas
     return scriptState;
 }
 
-static void weakCallback(const v8::WeakCallbackData<v8::Context, ScriptState>& data)
+static void derefCallback(const v8::WeakCallbackInfo<ScriptState>& data)
 {
-    data.GetValue()->SetAlignedPointerInEmbedderData(v8ContextPerContextDataIndex, 0);
-    data.GetParameter()->clearContext();
     data.GetParameter()->deref();
+}
+
+static void weakCallback(const v8::WeakCallbackInfo<ScriptState>& data)
+{
+    data.GetParameter()->clearContext();
+    data.SetSecondPassCallback(derefCallback);
 }
 
 ScriptState::ScriptState(v8::Handle<v8::Context> context, PassRefPtr<DOMWrapperWorld> world)
@@ -88,7 +92,9 @@ void ScriptState::setEvalEnabled(bool enabled)
 ScriptValue ScriptState::getFromGlobalObject(const char* name)
 {
     v8::HandleScope handleScope(m_isolate);
-    v8::Local<v8::Value> v8Value = context()->Global()->Get(v8AtomicString(isolate(), name));
+    v8::Local<v8::Value> v8Value;
+    if (!context()->Global()->Get(context(), v8AtomicString(isolate(), name)).ToLocal(&v8Value))
+        return ScriptValue();
     return ScriptValue(this, v8Value);
 }
 
@@ -114,30 +120,6 @@ ScriptState* ScriptState::forMainWorld(LocalFrame* frame)
     v8::Isolate* isolate = toIsolate(frame);
     v8::HandleScope handleScope(isolate);
     return ScriptState::from(toV8Context(frame, DOMWrapperWorld::mainWorld()));
-}
-
-PassRefPtr<ScriptStateForTesting> ScriptStateForTesting::create(v8::Handle<v8::Context> context, PassRefPtr<DOMWrapperWorld> world)
-{
-    RefPtr<ScriptStateForTesting> scriptState = adoptRef(new ScriptStateForTesting(context, world));
-    // This ref() is for keeping this ScriptState alive as long as the v8::Context is alive.
-    // This is deref()ed in the weak callback of the v8::Context.
-    scriptState->ref();
-    return scriptState;
-}
-
-ScriptStateForTesting::ScriptStateForTesting(v8::Handle<v8::Context> context, PassRefPtr<DOMWrapperWorld> world)
-    : ScriptState(context, world)
-{
-}
-
-ExecutionContext* ScriptStateForTesting::executionContext() const
-{
-    return m_executionContext;
-}
-
-void ScriptStateForTesting::setExecutionContext(ExecutionContext* executionContext)
-{
-    m_executionContext = executionContext;
 }
 
 }

@@ -6,6 +6,7 @@
 #include "bindings/core/v8/ToV8.h"
 
 #include "bindings/core/v8/V8Binding.h"
+#include "bindings/core/v8/V8BindingForTesting.h"
 #include "core/testing/GarbageCollectedScriptWrappable.h"
 #include "core/testing/RefCountedScriptWrappable.h"
 #include "platform/heap/Heap.h"
@@ -31,7 +32,7 @@ public:
             ADD_FAILURE_AT(path, lineNumber) << "toV8 returns an empty value.";
             return;
         }
-        String actualString = toCoreString(actual->ToString(m_scope.isolate()));
+        String actualString = toCoreString(actual->ToString(m_scope.context()).ToLocalChecked());
         if (String(expected) != actualString) {
             ADD_FAILURE_AT(path, lineNumber) << "toV8 returns an incorrect value.\n  Actual: " << actualString.utf8().data() << "\nExpected: " << expected;
             return;
@@ -46,7 +47,7 @@ public:
     GarbageCollectedHolder(GarbageCollectedScriptWrappable* scriptWrappable)
         : m_scriptWrappable(scriptWrappable) { }
 
-    void trace(Visitor* visitor) { visitor->trace(m_scriptWrappable); }
+    DEFINE_INLINE_TRACE() { visitor->trace(m_scriptWrappable); }
 
     // This should be public in order to access a Member<X> object.
     Member<GarbageCollectedScriptWrappable> m_scriptWrappable;
@@ -148,7 +149,7 @@ TEST_F(ToV8Test, boolean)
 TEST_F(ToV8Test, v8Value)
 {
     v8::Local<v8::Value> localValue(v8::Number::New(m_scope.isolate(), 1234));
-    v8::Handle<v8::Value> handleValue(v8::Number::New(m_scope.isolate(), 5678));
+    v8::Local<v8::Value> handleValue(v8::Number::New(m_scope.isolate(), 5678));
 
     TEST_TOV8("1234", localValue);
     TEST_TOV8("5678", handleValue);
@@ -225,6 +226,20 @@ TEST_F(ToV8Test, basicTypeVectors)
     boolVector.append(true);
     boolVector.append(false);
     TEST_TOV8("true,true,false", boolVector);
+}
+
+TEST_F(ToV8Test, dictionaryVector)
+{
+    Vector<std::pair<String, int>> dictionary;
+    dictionary.append(std::make_pair("one", 1));
+    dictionary.append(std::make_pair("two", 2));
+    TEST_TOV8("[object Object]", dictionary);
+    v8::Local<v8::Context> context = m_scope.scriptState()->context();
+    v8::Local<v8::Object> result = toV8(dictionary, context->Global(), m_scope.isolate())->ToObject(context).ToLocalChecked();
+    v8::Local<v8::Value> one = result->Get(context, v8String(m_scope.isolate(), "one")).ToLocalChecked();
+    EXPECT_EQ(1, one->NumberValue(context).FromJust());
+    v8::Local<v8::Value> two = result->Get(context, v8String(m_scope.isolate(), "two")).ToLocalChecked();
+    EXPECT_EQ(2, two->NumberValue(context).FromJust());
 }
 
 TEST_F(ToV8Test, heapVector)

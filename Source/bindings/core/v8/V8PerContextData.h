@@ -35,6 +35,7 @@
 #include "bindings/core/v8/ScopedPersistent.h"
 #include "bindings/core/v8/V8PersistentValueMap.h"
 #include "bindings/core/v8/WrapperTypeInfo.h"
+#include "core/CoreExport.h"
 #include "gin/public/context_holder.h"
 #include "gin/public/gin_embedders.h"
 #include "wtf/HashMap.h"
@@ -57,15 +58,15 @@ enum V8ContextEmbedderDataField {
     v8ContextPerContextDataIndex = static_cast<int>(gin::kPerContextDataStartIndex + gin::kEmbedderBlink),
 };
 
-class V8PerContextData {
+class CORE_EXPORT V8PerContextData final {
 public:
-    static PassOwnPtr<V8PerContextData> create(v8::Handle<v8::Context>);
+    static PassOwnPtr<V8PerContextData> create(v8::Local<v8::Context>);
 
-    static V8PerContextData* from(v8::Handle<v8::Context>);
+    static V8PerContextData* from(v8::Local<v8::Context>);
 
     ~V8PerContextData();
 
-    v8::Handle<v8::Context> context() { return m_context.newLocal(m_isolate); }
+    v8::Local<v8::Context> context() { return m_context.newLocal(m_isolate); }
 
     // To create JS Wrapper objects, we create a cache of a 'boiler plate'
     // object, and then simply Clone that object each time we need a new one.
@@ -95,7 +96,7 @@ public:
     void setCompiledPrivateScript(String, v8::Handle<v8::Value>);
 
 private:
-    V8PerContextData(v8::Handle<v8::Context>);
+    V8PerContextData(v8::Local<v8::Context>);
 
     v8::Local<v8::Object> createWrapperFromCacheSlowCase(const WrapperTypeInfo*);
     v8::Local<v8::Function> constructorForTypeSlowCase(const WrapperTypeInfo*);
@@ -124,12 +125,6 @@ private:
     V8DOMActivityLogger* m_activityLogger;
 
     V8PersistentValueMap<String, v8::Value, false> m_compiledPrivateScript;
-};
-
-class V8PerContextDebugData {
-public:
-    static void setContextDebugData(v8::Handle<v8::Context>, const String& data);
-    static v8::Handle<v8::Value> contextDebugData(v8::Handle<v8::Context>);
 };
 
 } // namespace blink

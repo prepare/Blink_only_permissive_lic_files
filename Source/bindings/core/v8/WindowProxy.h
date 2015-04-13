@@ -55,7 +55,7 @@ public:
     static PassOwnPtrWillBeRawPtr<WindowProxy> create(Frame*, DOMWrapperWorld&, v8::Isolate*);
 
     ~WindowProxy();
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     v8::Local<v8::Context> context() const { return m_scriptState ? m_scriptState->context() : v8::Local<v8::Context>(); }
     ScriptState* scriptState() const { return m_scriptState.get(); }
@@ -74,10 +74,12 @@ public:
     bool isGlobalInitialized() { return !m_global.isEmpty(); }
 
     bool initializeIfNeeded();
-    void updateDocumentWrapper(v8::Handle<v8::Object> wrapper);
+    void updateDocumentWrapper(v8::Local<v8::Object> wrapper);
 
     void clearForNavigation();
     void clearForClose();
+
+    void takeGlobalFrom(WindowProxy*);
 
     DOMWrapperWorld& world() { return *m_world; }
 

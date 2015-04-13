@@ -14,6 +14,7 @@
 #include "bindings/tests/idls/core/TestInterfaceGarbageCollected.h"
 #include "bindings/tests/idls/core/TestInterfaceImplementation.h"
 #include "bindings/tests/idls/core/TestInterfaceWillBeGarbageCollected.h"
+#include "core/CoreExport.h"
 #include "core/dom/DOMTypedArray.h"
 #include "core/dom/Element.h"
 #include "core/events/EventTarget.h"
@@ -24,7 +25,7 @@
 
 namespace blink {
 
-class TestDictionary {
+class CORE_EXPORT TestDictionary {
     ALLOW_ONLY_INLINE_ALLOCATION();
 public:
     TestDictionary();
@@ -55,6 +56,10 @@ public:
     String enumMember() const { return m_enumMember; }
     void setEnumMember(String value) { m_enumMember = value; }
 
+    bool hasEnumSequenceMember() const { return !m_enumSequenceMember.isNull(); }
+    const Vector<String>& enumSequenceMember() const { return m_enumSequenceMember.get(); }
+    void setEnumSequenceMember(const Vector<String>& value) { m_enumSequenceMember = value; }
+
     bool hasEventTargetMember() const { return m_eventTargetMember; }
     PassRefPtrWillBeRawPtr<EventTarget> eventTargetMember() const { return m_eventTargetMember; }
     void setEventTargetMember(PassRefPtrWillBeRawPtr<EventTarget> value) { m_eventTargetMember = value; }
@@ -75,6 +80,10 @@ public:
     ScriptValue objectOrNullMember() const { return m_objectOrNullMember; }
     void setObjectOrNullMember(ScriptValue value) { m_objectOrNullMember = value; }
     void setObjectOrNullMemberToNull() { m_objectOrNullMember = ScriptValue(); }
+
+    bool hasOtherDoubleOrStringMember() const { return !m_otherDoubleOrStringMember.isNull(); }
+    const DoubleOrString& otherDoubleOrStringMember() const { return m_otherDoubleOrStringMember; }
+    void setOtherDoubleOrStringMember(const DoubleOrString& value) { m_otherDoubleOrStringMember = value; }
 
     bool hasRestrictedDoubleMember() const { return !m_restrictedDoubleMember.isNull(); }
     double restrictedDoubleMember() const { return m_restrictedDoubleMember.get(); }
@@ -136,7 +145,7 @@ public:
     double unrestrictedDoubleMember() const { return m_unrestrictedDoubleMember.get(); }
     void setUnrestrictedDoubleMember(double value) { m_unrestrictedDoubleMember = value; }
 
-    virtual void trace(Visitor*);
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     Nullable<bool> m_booleanMember;
@@ -145,11 +154,13 @@ private:
     DoubleOrString m_doubleOrStringMember;
     RefPtrWillBeMember<Element> m_elementOrNullMember;
     String m_enumMember;
+    Nullable<Vector<String>> m_enumSequenceMember;
     RefPtrWillBeMember<EventTarget> m_eventTargetMember;
     Nullable<Vector<InternalDictionary>> m_internalDictionarySequenceMember;
     Nullable<int> m_longMember;
     ScriptValue m_objectMember;
     ScriptValue m_objectOrNullMember;
+    DoubleOrString m_otherDoubleOrStringMember;
     Nullable<double> m_restrictedDoubleMember;
     Nullable<Vector<String>> m_stringArrayMember;
     String m_stringMember;

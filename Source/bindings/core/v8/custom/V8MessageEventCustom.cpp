@@ -47,7 +47,7 @@ void V8MessageEvent::dataAttributeGetterCustom(const v8::PropertyCallbackInfo<v8
 {
     MessageEvent* event = V8MessageEvent::toImpl(info.Holder());
 
-    v8::Handle<v8::Value> result;
+    v8::Local<v8::Value> result;
     switch (event->dataType()) {
     case MessageEvent::DataTypeScriptValue: {
         result = V8HiddenValue::getHiddenValue(info.GetIsolate(), info.Holder(), V8HiddenValue::data(info.GetIsolate()));
@@ -99,7 +99,10 @@ void V8MessageEvent::dataAttributeGetterCustom(const v8::PropertyCallbackInfo<v8
     // Overwrite the data attribute so it returns the cached result in future invocations.
     // This custom getter handler will not be called again.
     v8::PropertyAttribute dataAttr = static_cast<v8::PropertyAttribute>(v8::DontDelete | v8::ReadOnly);
-    info.Holder()->ForceSet(v8AtomicString(info.GetIsolate(), "data"), result, dataAttr);
+    if (!v8CallBoolean(info.Holder()->ForceSet(info.GetIsolate()->GetCurrentContext(), v8AtomicString(info.GetIsolate(), "data"), result, dataAttr))) {
+        v8SetReturnValue(info, v8::Null(info.GetIsolate()));
+        return;
+    }
     v8SetReturnValue(info, result);
 }
 
@@ -110,7 +113,7 @@ void V8MessageEvent::initMessageEventMethodCustom(const v8::FunctionCallbackInfo
     TOSTRING_VOID(V8StringResource<>, typeArg, info[0]);
     TONATIVE_VOID(bool, canBubbleArg, info[1]->BooleanValue());
     TONATIVE_VOID(bool, cancelableArg, info[2]->BooleanValue());
-    v8::Handle<v8::Value> dataArg = info[3];
+    v8::Local<v8::Value> dataArg = info[3];
     TOSTRING_VOID(V8StringResource<>, originArg, info[4]);
     TOSTRING_VOID(V8StringResource<>, lastEventIdArg, info[5]);
     DOMWindow* sourceArg = toDOMWindow(info.GetIsolate(), info[6]);

@@ -27,7 +27,9 @@
 #define V8ValueCache_h
 
 #include "bindings/core/v8/V8PersistentValueMap.h"
+#include "core/CoreExport.h"
 #include "wtf/HashMap.h"
+#include "wtf/Noncopyable.h"
 #include "wtf/RefPtr.h"
 #include "wtf/text/AtomicString.h"
 #include "wtf/text/WTFString.h"
@@ -58,12 +60,13 @@ public:
 };
 
 
-class StringCache {
+class CORE_EXPORT StringCache {
+    WTF_MAKE_NONCOPYABLE(StringCache);
 public:
     StringCache(v8::Isolate* isolate) : m_stringCache(isolate) { }
     ~StringCache();
 
-    v8::Handle<v8::String> v8ExternalString(StringImpl* stringImpl, v8::Isolate* isolate)
+    v8::Local<v8::String> v8ExternalString(StringImpl* stringImpl, v8::Isolate* isolate)
     {
         ASSERT(stringImpl);
         if (m_lastStringImpl.get() == stringImpl)
@@ -83,7 +86,7 @@ public:
     friend class StringCacheMapTraits;
 
 private:
-    v8::Handle<v8::String> v8ExternalStringSlow(v8::Isolate*, StringImpl*);
+    v8::Local<v8::String> v8ExternalStringSlow(v8::Isolate*, StringImpl*);
     void setReturnValueFromStringSlow(v8::ReturnValue<v8::Value>, StringImpl*);
     v8::Local<v8::String> createStringAndInsertIntoCache(v8::Isolate*, StringImpl*);
     void InvalidateLastString();

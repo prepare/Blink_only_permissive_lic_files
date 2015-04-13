@@ -20,8 +20,12 @@ void V8TestPermissiveDictionary::toImpl(v8::Isolate* isolate, v8::Local<v8::Valu
         return;
     }
 
-    v8::Local<v8::Object> v8Object = v8Value->ToObject(isolate);
     v8::TryCatch block;
+    v8::Local<v8::Object> v8Object;
+    if (!v8Call(v8Value->ToObject(isolate->GetCurrentContext()), v8Object, block)) {
+        exceptionState.rethrowV8Exception(block.Exception());
+        return;
+    }
     v8::Local<v8::Value> booleanMemberValue = v8Object->Get(v8String(isolate, "booleanMember"));
     if (block.HasCaught()) {
         exceptionState.rethrowV8Exception(block.Exception());
@@ -30,7 +34,9 @@ void V8TestPermissiveDictionary::toImpl(v8::Isolate* isolate, v8::Local<v8::Valu
     if (booleanMemberValue.IsEmpty() || booleanMemberValue->IsUndefined()) {
         // Do nothing.
     } else {
-        bool booleanMember = booleanMemberValue->BooleanValue();
+        bool booleanMember = toBoolean(isolate, booleanMemberValue, exceptionState);
+        if (exceptionState.hadException())
+            return;
         impl.setBooleanMember(booleanMember);
     }
 
@@ -51,7 +57,7 @@ void toV8TestPermissiveDictionary(const TestPermissiveDictionary& impl, v8::Loca
 
 }
 
-TestPermissiveDictionary NativeValueTraits<TestPermissiveDictionary>::nativeValue(const v8::Local<v8::Value>& value, v8::Isolate* isolate, ExceptionState& exceptionState)
+TestPermissiveDictionary NativeValueTraits<TestPermissiveDictionary>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
 {
     TestPermissiveDictionary impl;
     V8TestPermissiveDictionary::toImpl(isolate, value, impl, exceptionState);
