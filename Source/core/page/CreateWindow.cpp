@@ -38,16 +38,19 @@
 #include "core/page/FocusController.h"
 #include "core/page/Page.h"
 #include "core/page/WindowFeatures.h"
+#include "platform/UserGestureIndicator.h"
 #include "platform/network/ResourceRequest.h"
 #include "platform/weborigin/KURL.h"
 #include "platform/weborigin/SecurityOrigin.h"
 #include "platform/weborigin/SecurityPolicy.h"
+#include "public/platform/WebURLRequest.h"
 
 namespace blink {
 
 static LocalFrame* createWindow(LocalFrame& openerFrame, LocalFrame& lookupFrame, const FrameLoadRequest& request, const WindowFeatures& features, NavigationPolicy policy, ShouldSendReferrer shouldSendReferrer, bool& created)
 {
     ASSERT(!features.dialog || request.frameName().isEmpty());
+    ASSERT(request.resourceRequest().frameType() == WebURLRequest::FrameTypeAuxiliary);
 
     if (!request.frameName().isEmpty() && request.frameName() != "_blank" && policy == NavigationPolicyIgnore) {
         if (Frame* frame = lookupFrame.findFrameForNavigation(request.frameName(), openerFrame)) {
@@ -138,6 +141,7 @@ LocalFrame* createWindow(const String& urlString, const AtomicString& frameName,
     }
 
     FrameLoadRequest frameRequest(callingWindow.document(), completedURL, frameName);
+    frameRequest.resourceRequest().setFrameType(WebURLRequest::FrameTypeAuxiliary);
 
     // Normally, FrameLoader would take care of setting the referrer for a navigation that is
     // triggered from javascript. However, creating a window goes through sufficient processing
@@ -145,6 +149,8 @@ LocalFrame* createWindow(const String& urlString, const AtomicString& frameName,
     // assumes no responsibility for generating an embedder-initiated navigation's referrer,
     // so we need to ensure the proper referrer is set now.
     frameRequest.resourceRequest().setHTTPReferrer(SecurityPolicy::generateReferrer(activeFrame->document()->referrerPolicy(), completedURL, activeFrame->document()->outgoingReferrer()));
+
+    bool hasUserGesture = UserGestureIndicator::processingUserGesture();
 
     // We pass the opener frame for the lookupFrame in case the active frame is different from
     // the opener frame, and the name references a frame relative to the opener frame.
@@ -158,10 +164,13 @@ LocalFrame* createWindow(const String& urlString, const AtomicString& frameName,
     if (newFrame->localDOMWindow()->isInsecureScriptAccess(callingWindow, completedURL))
         return newFrame;
 
-    if (created)
-        newFrame->loader().load(FrameLoadRequest(callingWindow.document(), completedURL));
-    else if (!urlString.isEmpty())
+    if (created) {
+        FrameLoadRequest request(callingWindow.document(), completedURL);
+        request.resourceRequest().setHasUserGesture(hasUserGesture);
+        newFrame->loader().load(request);
+    } else if (!urlString.isEmpty()) {
         newFrame->navigate(*callingWindow.document(), completedURL, false);
+    }
     return newFrame;
 }
 

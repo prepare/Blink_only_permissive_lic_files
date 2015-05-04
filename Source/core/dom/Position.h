@@ -85,6 +85,7 @@ public:
         int m_offset;
     };
 
+    static const TreeScope* commonAncestorTreeScope(const PositionType&, const PositionType& b);
     static PositionType createLegacyEditingPosition(PassRefPtrWillBeRawPtr<Node> anchorNode, int offset);
 
     PositionAlgorithm(PassRefPtrWillBeRawPtr<Node> anchorNode, LegacyEditingOffset);
@@ -96,6 +97,8 @@ public:
     // For creating offset positions:
     // FIXME: This constructor should eventually go away. See bug 63040.
     PositionAlgorithm(PassRefPtrWillBeRawPtr<Node> anchorNode, int offset, AnchorType);
+
+    PositionAlgorithm(const PositionAlgorithm&);
 
     AnchorType anchorType() const { return m_anchorType; }
 
@@ -174,13 +177,15 @@ public:
     PassRefPtrWillBeRawPtr<CSSComputedStyleDeclaration> ensureComputedStyle() const;
 
     // Move up or down the DOM by one position.
-    // Offsets are computed using render text for nodes that have renderers - but note that even when
+    // Offsets are computed using layout text for nodes that have layoutObjects - but note that even when
     // using composed characters, the result may be inside a single user-visible character if a ligature is formed.
     PositionType previous(PositionMoveType = CodePoint) const;
     PositionType next(PositionMoveType = CodePoint) const;
     static int uncheckedPreviousOffset(const Node*, int current);
     static int uncheckedPreviousOffsetForBackwardDeletion(const Node*, int current);
     static int uncheckedNextOffset(const Node*, int current);
+
+    int compareTo(const PositionType&) const;
 
     // These can be either inside or just before/after the node, depending on
     // if the node is ignored by editing or not.
@@ -231,6 +236,7 @@ public:
     void formatForDebugger(char* buffer, unsigned length) const;
     void showAnchorTypeAndOffset() const;
     void showTreeForThis() const;
+    void showTreeForThisInComposedTree() const;
 #endif
 
     DEFINE_INLINE_TRACE()
@@ -238,9 +244,7 @@ public:
         visitor->trace(m_anchorNode);
     }
 
-protected:
-    PositionAlgorithm(const PositionAlgorithm&);
-
+private:
     int offsetForPositionAfterAnchor() const;
 
     int renderedOffset() const;
@@ -256,37 +260,8 @@ protected:
     bool m_isLegacyEditingPosition;
 };
 
-// Represents a position in DOM tree.
-class CORE_EXPORT Position final : public PositionAlgorithm<EditingStrategy> {
-    DISALLOW_ALLOCATION();
-public:
-    Position()
-    {
-    }
-
-    static const TreeScope* commonAncestorTreeScope(const Position&, const Position&);
-    static Position fromPositionInDOMTree(const Position& position) { return position; }
-
-    Position(PassRefPtrWillBeRawPtr<Node> anchorNode, LegacyEditingOffset);
-
-    // For creating before/after positions:
-    Position(PassRefPtrWillBeRawPtr<Node> anchorNode, AnchorType);
-    Position(PassRefPtrWillBeRawPtr<Text> textNode, unsigned offset);
-
-    // For creating offset positions:
-    // FIXME: This constructor should eventually go away. See bug 63040.
-    Position(PassRefPtrWillBeRawPtr<Node> anchorNode, int offset, AnchorType);
-    explicit Position(const PositionAlgorithm&);
-
-    int compareTo(const Position&) const;
-
-#ifndef NDEBUG
-    Node* nodeAsSelectionStart() const;
-    Node* nodeAsSelectionEnd() const;
-    bool equivalentTo(const Position&) const;
-    Position toPositionForEquality() const;
-#endif
-};
+using Position = PositionAlgorithm<EditingStrategy>;
+using PositionInComposedTree = PositionAlgorithm<EditingInComposedTreeStrategy>;
 
 template <typename Strategy>
 typename Strategy::PositionType PositionAlgorithm<Strategy>::createLegacyEditingPosition(PassRefPtrWillBeRawPtr<Node> node, int offset)
@@ -299,17 +274,27 @@ inline Position createLegacyEditingPosition(PassRefPtrWillBeRawPtr<Node> node, i
     return Position::createLegacyEditingPosition(node, offset);
 }
 
-inline bool operator==(const Position& a, const Position& b)
+template <typename Strategy>
+bool operator==(const PositionAlgorithm<Strategy>& a, const PositionAlgorithm<Strategy>& b)
 {
     if (a.isNull())
         return b.isNull();
 
+    if (a.anchorNode() != b.anchorNode() || a.anchorType() != b.anchorType())
+        return false;
+
+    if (a.anchorType() != PositionAlgorithm<Strategy>::PositionIsOffsetInAnchor) {
+        // Note: |m_offset| only has meaning when |PositionIsOffsetInAnchor|.
+        return true;
+    }
+
     // FIXME: In <div><img></div> [div, 0] != [img, 0] even though most of the
     // editing code will treat them as identical.
-    return a.anchorNode() == b.anchorNode() && a.deprecatedEditingOffset() == b.deprecatedEditingOffset() && a.anchorType() == b.anchorType();
+    return a.offsetInContainerNode() == b.offsetInContainerNode();
 }
 
-inline bool operator!=(const Position& a, const Position& b)
+template <typename Strategy>
+bool operator!=(const PositionAlgorithm<Strategy>& a, const PositionAlgorithm<Strategy>& b)
 {
     return !(a == b);
 }
@@ -461,6 +446,10 @@ typename Strategy::PositionType PositionAlgorithm<Strategy>::lastPositionInOrAft
 }
 
 extern template class CORE_TEMPLATE_EXPORT PositionAlgorithm<EditingStrategy>;
+extern template class CORE_TEMPLATE_EXPORT PositionAlgorithm<EditingInComposedTreeStrategy>;
+
+PositionInComposedTree toPositionInComposedTree(const Position&);
+Position toPositionInDOMTree(const PositionInComposedTree&);
 
 } // namespace blink
 

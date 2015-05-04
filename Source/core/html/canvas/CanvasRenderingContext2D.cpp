@@ -951,7 +951,8 @@ void CanvasRenderingContext2D::drawPathInternal(const Path& path, CanvasRenderin
     if (draw(
         [&skPath, this](const SkPaint* paint) // draw lambda
         {
-            drawingCanvas()->drawPath(skPath, *paint);
+            if (drawingCanvas())
+                drawingCanvas()->drawPath(skPath, *paint);
         },
         [](const SkIRect& rect) // overdraw test lambda
         {
@@ -1007,7 +1008,8 @@ void CanvasRenderingContext2D::fillRect(float x, float y, float width, float hei
     draw(
         [&rect, this](const SkPaint* paint) // draw lambda
         {
-            drawingCanvas()->drawRect(rect, *paint);
+            if (drawingCanvas())
+                drawingCanvas()->drawRect(rect, *paint);
         },
         [&rect, this](const SkIRect& clipBounds) // overdraw test lambda
         {
@@ -1042,7 +1044,8 @@ void CanvasRenderingContext2D::strokeRect(float x, float y, float width, float h
     draw(
         [&rect, this](const SkPaint* paint) // draw lambda
         {
-            strokeRectOnCanvas(rect, drawingCanvas(), paint);
+            if (drawingCanvas())
+                strokeRectOnCanvas(rect, drawingCanvas(), paint);
         },
         [](const SkIRect& clipBounds) // overdraw test lambda
         {
@@ -1154,12 +1157,15 @@ void CanvasRenderingContext2D::scrollPathIntoView(Path2D* path2d)
 
 void CanvasRenderingContext2D::scrollPathIntoViewInternal(const Path& path)
 {
-    LayoutObject* renderer = canvas()->layoutObject();
-    LayoutBox* layoutBox = canvas()->layoutBox();
-    if (!renderer || !layoutBox || !state().isTransformInvertible() || path.isEmpty())
+    if (!state().isTransformInvertible() || path.isEmpty())
         return;
 
     canvas()->document().updateLayoutIgnorePendingStylesheets();
+
+    LayoutObject* renderer = canvas()->layoutObject();
+    LayoutBox* layoutBox = canvas()->layoutBox();
+    if (!renderer || !layoutBox)
+        return;
 
     // Apply transformation and get the bounding rect
     Path transformedPath = path;
@@ -1200,7 +1206,8 @@ void CanvasRenderingContext2D::clearRect(float x, float y, float width, float he
 
     if (rectContainsTransformedRect(rect, clipBounds)) {
         checkOverdraw(rect, &clearPaint, CanvasRenderingContext2DState::NoImage, ClipFill);
-        drawingCanvas()->drawRect(rect, clearPaint);
+        if (drawingCanvas())
+            drawingCanvas()->drawRect(rect, clearPaint);
         didDraw(clipBounds);
     } else {
         SkIRect dirtyRect;
@@ -1351,6 +1358,9 @@ void CanvasRenderingContext2D::drawImage(CanvasImageSource* imageSource,
             exceptionState.throwDOMException(InvalidStateError, "The HTMLImageElement provided is in the 'broken' state.");
         if (!image || !image->width() || !image->height())
             return;
+    } else {
+        if (!static_cast<HTMLVideoElement*>(imageSource)->hasAvailableVideoFrame())
+            return;
     }
 
     if (!std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dw) || !std::isfinite(dh)
@@ -1382,7 +1392,8 @@ void CanvasRenderingContext2D::drawImage(CanvasImageSource* imageSource,
     draw(
         [this, &imageSource, &image, &srcRect, dstRect](const SkPaint* paint) // draw lambda
         {
-            drawImageOnContext(imageSource, image.get(), srcRect, dstRect, paint);\
+            if (drawingCanvas())
+                drawImageOnContext(imageSource, image.get(), srcRect, dstRect, paint);
         },
         [this, &dstRect](const SkIRect& clipBounds) // overdraw test lambda
         {
@@ -1394,7 +1405,15 @@ void CanvasRenderingContext2D::drawImage(CanvasImageSource* imageSource,
 
     validateStateStack();
 
-    if (ExpensiveCanvasHeuristicParameters::SVGImageSourcesAreExpensive && image && image->isSVGImage()) {
+    bool isExpensive = false;
+
+    if (ExpensiveCanvasHeuristicParameters::SVGImageSourcesAreExpensive && image && image->isSVGImage())
+        isExpensive = true;
+
+    if (imageSource->elementSize().width() * imageSource->elementSize().height() > canvas()->width() * canvas()->height() * ExpensiveCanvasHeuristicParameters::ExpensiveImageSizeRatio)
+        isExpensive = true;
+
+    if (isExpensive) {
         ImageBuffer* buffer = canvas()->buffer();
         if (buffer)
             buffer->setHasExpensiveOp();
@@ -1410,14 +1429,9 @@ void CanvasRenderingContext2D::drawImage(CanvasImageSource* imageSource,
 void CanvasRenderingContext2D::clearCanvas()
 {
     FloatRect canvasRect(0, 0, canvas()->width(), canvas()->height());
-    SkCanvas* c = drawingCanvas();
-    if (!c)
-        return;
-
     checkOverdraw(canvasRect, 0, CanvasRenderingContext2DState::NoImage, ClipFill);
-    // Must not use 'c' beyond this point in case checkOverdraw substitutes the recording
-    // canvas in order to clear a draw command backlog.
-    drawingCanvas()->clear(m_hasAlpha ? SK_ColorTRANSPARENT : SK_ColorBLACK);
+    if (drawingCanvas())
+        drawingCanvas()->clear(m_hasAlpha ? SK_ColorTRANSPARENT : SK_ColorBLACK);
 }
 
 bool CanvasRenderingContext2D::rectContainsTransformedRect(const FloatRect& rect, const SkIRect& transformedRect) const
@@ -1722,7 +1736,7 @@ void CanvasRenderingContext2D::setFont(const String& newFont)
     // Map the <canvas> font into the text style. If the font uses keywords like larger/smaller, these will work
     // relative to the canvas.
     RefPtr<ComputedStyle> newStyle = ComputedStyle::create();
-    canvas()->document().updateRenderTreeIfNeeded();
+    canvas()->document().updateLayoutTreeIfNeeded();
     if (const ComputedStyle* computedStyle = canvas()->ensureComputedStyle()) {
         FontDescription elementFontDescription(computedStyle->fontDescription());
         // Reset the computed size to avoid inheriting the zoom factor from the <canvas> element.
@@ -1799,7 +1813,7 @@ static inline TextDirection toTextDirection(CanvasRenderingContext2DState::Direc
 String CanvasRenderingContext2D::direction() const
 {
     if (state().direction() == CanvasRenderingContext2DState::DirectionInherit)
-        canvas()->document().updateRenderTreeIfNeeded();
+        canvas()->document().updateLayoutTreeIfNeeded();
     return toTextDirection(state().direction(), canvas()) == RTL ? rtl : ltr;
 }
 
@@ -1850,7 +1864,7 @@ PassRefPtrWillBeRawPtr<TextMetrics> CanvasRenderingContext2D::measureText(const 
     if (!canvas()->document().frame())
         return metrics.release();
 
-    canvas()->document().updateRenderTreeIfNeeded();
+    canvas()->document().updateLayoutTreeIfNeeded();
     const Font& font = accessFont();
 
     TextDirection direction;
@@ -1897,7 +1911,7 @@ void CanvasRenderingContext2D::drawTextInternal(const String& text, float x, flo
     // accessFont needs the style to be up to date, but updating style can cause script to run,
     // (e.g. due to autofocus) which can free the canvas (set size to 0, for example), so update
     // style before grabbing the drawingCanvas.
-    canvas()->document().updateRenderTreeIfNeeded();
+    canvas()->document().updateLayoutTreeIfNeeded();
 
     if (!drawingCanvas())
         return;
@@ -1965,7 +1979,8 @@ void CanvasRenderingContext2D::drawTextInternal(const String& text, float x, flo
     draw(
         [&font, this, &textRunPaintInfo, &location](const SkPaint* paint) // draw lambda
         {
-            font.drawBidiText(drawingCanvas(), textRunPaintInfo, location, Font::UseFallbackIfFontNotReady, cDeviceScaleFactor, *paint);
+            if (drawingCanvas())
+                font.drawBidiText(drawingCanvas(), textRunPaintInfo, location, Font::UseFallbackIfFontNotReady, cDeviceScaleFactor, *paint);
         },
         [](const SkIRect& rect) // overdraw test lambda
         {
@@ -2131,7 +2146,9 @@ void CanvasRenderingContext2D::drawFocusRing(const Path& path)
 void CanvasRenderingContext2D::updateFocusRingElementAccessibility(const Path& path, Element* element)
 {
     AXObjectCache* axObjectCache = element->document().existingAXObjectCache();
-    if (!axObjectCache)
+    LayoutBoxModelObject* lbmo = canvas()->layoutBoxModelObject();
+    LayoutObject* renderer = canvas()->layoutObject();
+    if (!axObjectCache || !lbmo || !renderer)
         return;
 
     // Get the transformed path.
@@ -2139,9 +2156,8 @@ void CanvasRenderingContext2D::updateFocusRingElementAccessibility(const Path& p
     transformedPath.transform(state().transform());
 
     // Offset by the canvas rect, taking border and padding into account.
-    LayoutBoxModelObject* rbmo = canvas()->layoutBoxModelObject();
-    IntRect canvasRect = canvas()->layoutObject()->absoluteBoundingBoxRect();
-    canvasRect.move(rbmo->borderLeft() + rbmo->paddingLeft(), rbmo->borderTop() + rbmo->paddingTop());
+    IntRect canvasRect = renderer->absoluteBoundingBoxRect();
+    canvasRect.move(lbmo->borderLeft() + lbmo->paddingLeft(), lbmo->borderTop() + lbmo->paddingTop());
     LayoutRect elementRect = enclosingLayoutRect(transformedPath.boundingRect());
     elementRect.moveBy(canvasRect.location());
     axObjectCache->setCanvasObjectBounds(element, elementRect);

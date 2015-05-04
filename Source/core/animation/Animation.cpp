@@ -40,10 +40,12 @@
 #include "core/animation/ElementAnimations.h"
 #include "core/animation/Interpolation.h"
 #include "core/animation/KeyframeEffectModel.h"
+#include "core/animation/PropertyHandle.h"
 #include "core/dom/Element.h"
 #include "core/dom/NodeComputedStyle.h"
 #include "core/frame/UseCounter.h"
 #include "core/paint/DeprecatedPaintLayer.h"
+#include "core/svg/SVGElement.h"
 
 namespace blink {
 
@@ -158,6 +160,8 @@ void Animation::applyEffects()
     }
 
     m_target->setNeedsAnimationStyleRecalc();
+    if (m_target->isSVGElement())
+        m_sampledEffect->applySVGUpdate(toSVGElement(*m_target));
 }
 
 void Animation::clearEffects()
@@ -264,10 +268,10 @@ bool Animation::hasActiveAnimationsOnCompositor() const
 
 bool Animation::hasActiveAnimationsOnCompositor(CSSPropertyID property) const
 {
-    return hasActiveAnimationsOnCompositor() && affects(property);
+    return hasActiveAnimationsOnCompositor() && affects(PropertyHandle(property));
 }
 
-bool Animation::affects(CSSPropertyID property) const
+bool Animation::affects(PropertyHandle property) const
 {
     return m_effect && m_effect->affects(property);
 }

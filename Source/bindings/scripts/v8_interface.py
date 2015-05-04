@@ -174,7 +174,6 @@ def interface_context(interface):
                                        interface.name != 'Window' and
                                        interface.name != 'EventTarget'),
         'has_custom_legacy_call_as_function': has_extended_attribute_value(interface, 'Custom', 'LegacyCallAsFunction'),  # [Custom=LegacyCallAsFunction]
-        'has_custom_to_v8': has_extended_attribute_value(interface, 'Custom', 'ToV8'),  # [Custom=ToV8]
         'has_partial_interface': len(interface.partial_interfaces) > 0,
         'has_visit_dom_wrapper': has_visit_dom_wrapper,
         'header_includes': header_includes,
@@ -243,6 +242,15 @@ def interface_context(interface):
         includes.add('bindings/core/v8/V8ObjectConstructor.h')
         includes.add('core/frame/LocalDOMWindow.h')
 
+    # [Unscopeable] attributes and methods
+    unscopeables = []
+    for attribute in interface.attributes:
+        if 'Unscopeable' in attribute.extended_attributes:
+            unscopeables.append((attribute.name, v8_utilities.runtime_enabled_function_name(attribute)))
+    for method in interface.operations:
+        if 'Unscopeable' in method.extended_attributes:
+            unscopeables.append((method.name, v8_utilities.runtime_enabled_function_name(method)))
+
     context.update({
         'any_type_attributes': any_type_attributes,
         'constructors': constructors,
@@ -252,6 +260,7 @@ def interface_context(interface):
             interface_length(interface, constructors + custom_constructors),
         'is_constructor_raises_exception': extended_attributes.get('RaisesException') == 'Constructor',  # [RaisesException=Constructor]
         'named_constructor': named_constructor,
+        'unscopeables': sorted(unscopeables),
     })
 
     constants = [constant_context(constant, interface) for constant in interface.constants]
@@ -285,7 +294,7 @@ def interface_context(interface):
     attributes = [v8_attributes.attribute_context(interface, attribute)
                   for attribute in interface.attributes]
 
-    has_conditional_attributes = any(attribute['per_context_enabled_function'] or attribute['exposed_test'] for attribute in attributes)
+    has_conditional_attributes = any(attribute['exposed_test'] for attribute in attributes)
     if has_conditional_attributes and interface.is_partial:
         raise Exception('Conditional attributes between partial interfaces in modules and the original interfaces(%s) in core are not allowed.' % interface.name)
 
@@ -294,15 +303,13 @@ def interface_context(interface):
         'has_accessor_configuration': any(
             attribute['is_expose_js_accessors'] and
             not (attribute['is_static'] or
-                 attribute['runtime_enabled_function'] or
-                 attribute['per_context_enabled_function']) and
+                 attribute['runtime_enabled_function']) and
             attribute['should_be_exposed_to_script']
             for attribute in attributes),
         'has_attribute_configuration': any(
              not (attribute['is_expose_js_accessors'] or
                   attribute['is_static'] or
-                  attribute['runtime_enabled_function'] or
-                  attribute['per_context_enabled_function'])
+                  attribute['runtime_enabled_function'])
              and attribute['should_be_exposed_to_script']
              for attribute in attributes),
         'has_conditional_attributes': has_conditional_attributes,
@@ -516,7 +523,6 @@ def interface_context(interface):
             # original interface will register instead of partial interface.
             if overloads['has_partial_overloads'] and interface.is_partial:
                 continue
-            per_context_enabled_function = overloads['per_context_enabled_function_all']
             conditionally_exposed_function = overloads['exposed_test_all']
             runtime_enabled_function = overloads['runtime_enabled_function_all']
             has_custom_registration = (overloads['has_custom_registration_all'] or
@@ -524,7 +530,6 @@ def interface_context(interface):
         else:
             if not method['visible']:
                 continue
-            per_context_enabled_function = method['per_context_enabled_function']
             conditionally_exposed_function = method['exposed_test']
             runtime_enabled_function = method['runtime_enabled_function']
             has_custom_registration = method['has_custom_registration']
@@ -532,7 +537,7 @@ def interface_context(interface):
         if has_custom_registration:
             custom_registration_methods.append(method)
             continue
-        if per_context_enabled_function or conditionally_exposed_function:
+        if conditionally_exposed_function:
             conditionally_enabled_methods.append(method)
             continue
         if runtime_enabled_function:
@@ -730,7 +735,6 @@ def overloads_context(interface, overloads):
         'maxarg': lengths[-1],
         'measure_all_as': common_value(overloads, 'measure_as'),  # [MeasureAs]
         'minarg': lengths[0],
-        'per_context_enabled_function_all': common_value(overloads, 'per_context_enabled_function'),  # [PerContextEnabled]
         'returns_promise_all': promise_overload_count > 0,
         'runtime_determined_lengths': runtime_determined_lengths,
         'runtime_enabled_function_all': common_value(overloads, 'runtime_enabled_function'),  # [RuntimeEnabled]
@@ -1252,8 +1256,9 @@ def property_getter(getter, cpp_arguments):
             return 'result.isEmpty()'
         return ''
 
-    idl_type = getter.idl_type
     extended_attributes = getter.extended_attributes
+    idl_type = getter.idl_type
+    idl_type.add_includes_for_type(extended_attributes)
     is_call_with_script_state = v8_utilities.has_extended_attribute_value(getter, 'CallWith', 'ScriptState')
     is_raises_exception = 'RaisesException' in extended_attributes
     use_output_parameter_for_result = idl_type.use_output_parameter_for_result
@@ -1296,8 +1301,9 @@ def property_setter(setter, interface):
     if not setter:
         return None
 
-    idl_type = setter.arguments[1].idl_type
     extended_attributes = setter.extended_attributes
+    idl_type = setter.arguments[1].idl_type
+    idl_type.add_includes_for_type(extended_attributes)
     is_call_with_script_state = v8_utilities.has_extended_attribute_value(setter, 'CallWith', 'ScriptState')
     is_raises_exception = 'RaisesException' in extended_attributes
 
@@ -1325,8 +1331,8 @@ def property_deleter(deleter):
     if not deleter:
         return None
 
-    idl_type = deleter.idl_type
     extended_attributes = deleter.extended_attributes
+    idl_type = deleter.idl_type
     is_call_with_script_state = v8_utilities.has_extended_attribute_value(deleter, 'CallWith', 'ScriptState')
     return {
         'is_call_with_script_state': is_call_with_script_state,

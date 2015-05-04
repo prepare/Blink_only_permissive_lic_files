@@ -59,8 +59,8 @@ protected:
         dummyPageHolder->page().setDeviceScaleFactor(1.0);
         documentLoader = DocumentLoader::create(&dummyPageHolder->frame(), ResourceRequest("http://www.example.com"), SubstituteData());
         document = toHTMLDocument(&dummyPageHolder->document());
-        fetchContext = &static_cast<FrameFetchContext&>(documentLoader->fetcher()->context());
-        fetchContext->setDocument(document.get());
+        fetchContext = &documentLoader->fetcher()->context();
+        FrameFetchContext::provideDocumentToContext(*fetchContext, document.get());
     }
 
     void expectUpgrade(const char* input, const char* expected)
@@ -110,7 +110,7 @@ protected:
     // as the ResourceFetcher and Document live due to indirect usage.
     RefPtr<DocumentLoader> documentLoader;
     RefPtrWillBePersistent<Document> document;
-    FrameFetchContext* fetchContext;
+    FetchContext* fetchContext;
 };
 
 TEST_F(FrameFetchContextUpgradeTest, UpgradeInsecureResourceRequests)
@@ -211,8 +211,8 @@ protected:
         dummyPageHolder->page().setDeviceScaleFactor(1.0);
         documentLoader = DocumentLoader::create(&dummyPageHolder->frame(), ResourceRequest("http://www.example.com"), SubstituteData());
         document = toHTMLDocument(&dummyPageHolder->document());
-        fetchContext = &static_cast<FrameFetchContext&>(documentLoader->fetcher()->context());
-        fetchContext->setDocument(document.get());
+        fetchContext = &documentLoader->fetcher()->context();
+        FrameFetchContext::provideDocumentToContext(*fetchContext, document.get());
     }
 
     void expectHeader(const char* input, const char* headerName, bool isPresent, const char* headerValue)
@@ -230,13 +230,15 @@ protected:
     // as the ResourceFetcher and Document live due to indirect usage.
     RefPtr<DocumentLoader> documentLoader;
     RefPtrWillBePersistent<Document> document;
-    FrameFetchContext* fetchContext;
+    FetchContext* fetchContext;
 };
 
 TEST_F(FrameFetchContextHintsTest, MonitorDPRHints)
 {
     expectHeader("http://www.example.com/1.gif", "DPR", false, "");
-    dummyPageHolder->frame().setShouldSendDPRHint();
+    ClientHintsPreferences preferences;
+    preferences.setShouldSendDPR(true);
+    document->setClientHintsPreferences(preferences);
     expectHeader("http://www.example.com/1.gif", "DPR", true, "1");
     dummyPageHolder->page().setDeviceScaleFactor(2.5);
     expectHeader("http://www.example.com/1.gif", "DPR", true, "2.5");
@@ -246,7 +248,9 @@ TEST_F(FrameFetchContextHintsTest, MonitorDPRHints)
 TEST_F(FrameFetchContextHintsTest, MonitorRWHints)
 {
     expectHeader("http://www.example.com/1.gif", "RW", false, "");
-    dummyPageHolder->frame().setShouldSendRWHint();
+    ClientHintsPreferences preferences;
+    preferences.setShouldSendRW(true);
+    document->setClientHintsPreferences(preferences);
     expectHeader("http://www.example.com/1.gif", "RW", true, "500");
     dummyPageHolder->frameView().setLayoutSizeFixedToFrameSize(false);
     dummyPageHolder->frameView().setLayoutSize(IntSize(800, 800));
@@ -259,8 +263,10 @@ TEST_F(FrameFetchContextHintsTest, MonitorBothHints)
     expectHeader("http://www.example.com/1.gif", "DPR", false, "");
     expectHeader("http://www.example.com/1.gif", "RW", false, "");
 
-    dummyPageHolder->frame().setShouldSendDPRHint();
-    dummyPageHolder->frame().setShouldSendRWHint();
+    ClientHintsPreferences preferences;
+    preferences.setShouldSendDPR(true);
+    preferences.setShouldSendRW(true);
+    document->setClientHintsPreferences(preferences);
     expectHeader("http://www.example.com/1.gif", "DPR", true, "1");
     expectHeader("http://www.example.com/1.gif", "RW", true, "500");
 }

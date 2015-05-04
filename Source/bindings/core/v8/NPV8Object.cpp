@@ -97,7 +97,7 @@ static ScriptState* mainWorldScriptState(v8::Isolate* isolate, NPP npp, NPObject
     return ScriptState::from(context);
 }
 
-static PassOwnPtr<v8::Local<v8::Value>[]> createValueListFromVariantArgs(const NPVariant* arguments, uint32_t argumentCount, NPObject* owner, v8::Isolate* isolate)
+static PassOwnPtr<v8::Local<v8::Value>[]> createValueListFromVariantArgs(v8::Isolate* isolate, const NPVariant* arguments, uint32_t argumentCount, NPObject* owner)
 {
     OwnPtr<v8::Local<v8::Value>[]> argv = adoptArrayPtr(new v8::Local<v8::Value>[argumentCount]);
     for (uint32_t index = 0; index < argumentCount; index++) {
@@ -272,12 +272,11 @@ bool _NPN_Invoke(NPP npp, NPObject* npObject, NPIdentifier methodName, const NPV
 
     // Call the function object.
     v8::Local<v8::Function> function = v8::Local<v8::Function>::Cast(functionObject);
-    OwnPtr<v8::Local<v8::Value>[]> argv = createValueListFromVariantArgs(arguments, argumentCount, npObject, isolate);
-    v8::Local<v8::Value> resultObject = frame->script().callFunction(function, v8Object, argumentCount, argv.get());
-
+    OwnPtr<v8::Local<v8::Value>[]> argv = createValueListFromVariantArgs(isolate, arguments, argumentCount, npObject);
     // If we had an error, return false.  The spec is a little unclear here, but says "Returns true if the method was
     // successfully invoked".  If we get an error return value, was that successfully invoked?
-    if (resultObject.IsEmpty())
+    v8::Local<v8::Value> resultObject;
+    if (!frame->script().callFunction(function, v8Object, argumentCount, argv.get()).ToLocal(&resultObject))
         return false;
 
     convertV8ObjectToNPVariant(isolate, resultObject, npObject, result);
@@ -315,18 +314,18 @@ bool _NPN_InvokeDefault(NPP npp, NPObject* npObject, const NPVariant* arguments,
     if (!functionObject->IsFunction())
         return false;
 
-    v8::Local<v8::Value> resultObject;
     v8::Local<v8::Function> function = v8::Local<v8::Function>::Cast(functionObject);
-    if (!function->IsNull()) {
-        LocalFrame* frame = v8NpObject->rootObject->frame();
-        ASSERT(frame);
+    if (function->IsNull())
+        return false;
 
-        OwnPtr<v8::Local<v8::Value>[]> argv = createValueListFromVariantArgs(arguments, argumentCount, npObject, isolate);
-        resultObject = frame->script().callFunction(function, functionObject, argumentCount, argv.get());
-    }
+    LocalFrame* frame = v8NpObject->rootObject->frame();
+    ASSERT(frame);
+
+    OwnPtr<v8::Local<v8::Value>[]> argv = createValueListFromVariantArgs(isolate, arguments, argumentCount, npObject);
     // If we had an error, return false.  The spec is a little unclear here, but says "Returns true if the method was
     // successfully invoked".  If we get an error return value, was that successfully invoked?
-    if (resultObject.IsEmpty())
+    v8::Local<v8::Value> resultObject;
+    if (!frame->script().callFunction(function, functionObject, argumentCount, argv.get()).ToLocal(&resultObject))
         return false;
 
     convertV8ObjectToNPVariant(isolate, resultObject, npObject, result);
@@ -474,8 +473,8 @@ bool _NPN_HasProperty(NPP npp, NPObject* npObject, NPIdentifier propertyName)
         ScriptState::Scope scope(scriptState);
         ExceptionCatcher exceptionCatcher;
 
-        v8::Local<v8::Object> obj = v8::Local<v8::Object>::New(isolate, object->v8Object);
-        return obj->Has(npIdentifierToV8Identifier(isolate, propertyName));
+        v8::Local<v8::Object> obj = v8::Local<v8::Object>::New(scriptState->isolate(), object->v8Object);
+        return v8CallBoolean(obj->Has(scriptState->context(), npIdentifierToV8Identifier(scriptState->isolate(), propertyName)));
     }
 
     if (npObject->_class->hasProperty)
@@ -604,14 +603,13 @@ bool _NPN_Construct(NPP npp, NPObject* npObject, const NPVariant* arguments, uin
         // Call the constructor.
         v8::Local<v8::Value> resultObject;
         v8::Local<v8::Function> ctor = v8::Local<v8::Function>::Cast(ctorObj);
-        if (!ctor->IsNull()) {
-            LocalFrame* frame = object->rootObject->frame();
-            ASSERT(frame);
-            OwnPtr<v8::Local<v8::Value>[]> argv = createValueListFromVariantArgs(arguments, argumentCount, npObject, scriptState->isolate());
-            resultObject = V8ObjectConstructor::newInstanceInDocument(scriptState->isolate(), ctor, argumentCount, argv.get(), frame ? frame->document() : 0);
-        }
+        if (ctor->IsNull())
+            return false;
 
-        if (resultObject.IsEmpty())
+        LocalFrame* frame = object->rootObject->frame();
+        ASSERT(frame);
+        OwnPtr<v8::Local<v8::Value>[]> argv = createValueListFromVariantArgs(scriptState->isolate(), arguments, argumentCount, npObject);
+        if (!V8ObjectConstructor::newInstanceInDocument(scriptState->isolate(), ctor, argumentCount, argv.get(), frame ? frame->document() : 0).ToLocal(&resultObject))
             return false;
 
         convertV8ObjectToNPVariant(scriptState->isolate(), resultObject, npObject, result);

@@ -53,6 +53,13 @@ public:
 
     virtual Frame* frame() const = 0;
 
+    // ScriptWrappable overrides:
+    v8::Local<v8::Object> wrap(v8::Local<v8::Object> creationContext, v8::Isolate*) override final;
+    v8::Local<v8::Object> associateWithWrapper(v8::Isolate*, const WrapperTypeInfo*, v8::Local<v8::Object> wrapper) override final;
+
+    // EventTarget overrides:
+    const AtomicString& interfaceName() const override;
+
     // DOM Level 0
     virtual Screen* screen() const = 0;
     virtual History* history() const = 0;
@@ -181,11 +188,9 @@ public:
 
     void postMessage(PassRefPtr<SerializedScriptValue> message, const MessagePortArray*, const String& targetOrigin, LocalDOMWindow* source, ExceptionState&);
 
-    // FIXME: These should be non-virtual, but this is blocked on the security
-    // origin replication work.
-    virtual String sanitizedCrossDomainAccessErrorMessage(LocalDOMWindow* callingWindow) = 0;
-    virtual String crossDomainAccessErrorMessage(LocalDOMWindow* callingWindow) = 0;
-    virtual bool isInsecureScriptAccess(DOMWindow& callingWindow, const String& urlString);
+    String sanitizedCrossDomainAccessErrorMessage(LocalDOMWindow* callingWindow);
+    String crossDomainAccessErrorMessage(LocalDOMWindow* callingWindow);
+    bool isInsecureScriptAccess(LocalDOMWindow& callingWindow, const String& urlString);
 
     // FIXME: When this DOMWindow is no longer the active DOMWindow (i.e.,
     // when its document is no longer the document that is displayed in its

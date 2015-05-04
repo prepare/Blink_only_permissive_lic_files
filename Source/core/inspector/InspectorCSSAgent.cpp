@@ -528,6 +528,7 @@ void InspectorCSSAgent::didCommitLoadForLocalFrame(LocalFrame* frame)
     if (frame == m_pageAgent->inspectedFrame()) {
         reset();
         m_editedStyleSheets.clear();
+        m_editedStyleElements.clear();
     }
 }
 
@@ -656,6 +657,19 @@ bool InspectorCSSAgent::getEditedStyleSheet(const String& url, String* content)
     return true;
 }
 
+void InspectorCSSAgent::addEditedStyleElement(int backendNodeId, const String& content)
+{
+    m_editedStyleElements.set(backendNodeId, content);
+}
+
+bool InspectorCSSAgent::getEditedStyleElement(int backendNodeId, String* content)
+{
+    if (!m_editedStyleElements.contains(backendNodeId))
+        return false;
+    *content = m_editedStyleElements.get(backendNodeId);
+    return true;
+}
+
 bool InspectorCSSAgent::forcePseudoState(Element* element, CSSSelector::PseudoType pseudoType)
 {
     if (m_nodeIdToForcedPseudoState.isEmpty())
@@ -729,6 +743,7 @@ void InspectorCSSAgent::getMatchedStylesForNode(ErrorString* errorString, int no
     // Matched rules.
     StyleResolver& styleResolver = ownerDocument->ensureStyleResolver();
 
+    element->updateDistribution();
     RefPtrWillBeRawPtr<CSSRuleList> matchedRules = styleResolver.pseudoCSSRulesForElement(element, elementPseudoId, StyleResolver::AllCSSRules);
     matchedCSSRules = buildArrayForMatchedRuleList(matchedRules.get(), originalElement, NOPSEUDO);
 
@@ -1301,7 +1316,7 @@ InspectorStyleSheet* InspectorCSSAgent::bindStyleSheet(CSSStyleSheet* styleSheet
     if (!inspectorStyleSheet) {
         String id = String::number(m_lastStyleSheetId++);
         Document* document = styleSheet->ownerDocument();
-        inspectorStyleSheet = InspectorStyleSheet::create(m_pageAgent, m_resourceAgent, id, styleSheet, detectOrigin(styleSheet, document), InspectorDOMAgent::documentURLString(document), this);
+        inspectorStyleSheet = InspectorStyleSheet::create(m_resourceAgent, id, styleSheet, detectOrigin(styleSheet, document), InspectorDOMAgent::documentURLString(document), this);
         m_idToInspectorStyleSheet.set(id, inspectorStyleSheet);
         m_cssStyleSheetToInspectorStyleSheet.set(styleSheet, inspectorStyleSheet);
         if (m_creatingViaInspectorStyleSheet)

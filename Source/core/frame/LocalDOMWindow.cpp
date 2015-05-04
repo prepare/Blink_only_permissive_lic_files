@@ -158,7 +158,7 @@ private:
 
 static void updateSuddenTerminationStatus(LocalDOMWindow* domWindow, bool addedListener, FrameLoaderClient::SuddenTerminationDisablerType disablerType)
 {
-    blink::Platform::current()->suddenTerminationChanged(!addedListener);
+    Platform::current()->suddenTerminationChanged(!addedListener);
     if (domWindow->frame() && domWindow->frame()->loader().client())
         domWindow->frame()->loader().client()->suddenTerminationDisablerChanged(addedListener, disablerType);
 }
@@ -477,11 +477,6 @@ void LocalDOMWindow::dispose()
     removeAllEventListeners();
 }
 
-const AtomicString& LocalDOMWindow::interfaceName() const
-{
-    return EventTargetNames::LocalDOMWindow;
-}
-
 ExecutionContext* LocalDOMWindow::executionContext() const
 {
     return m_document.get();
@@ -742,8 +737,7 @@ Element* LocalDOMWindow::frameElement() const
         return nullptr;
 
     // The bindings security check should ensure we're same origin...
-    ASSERT(!frame()->owner() || frame()->owner()->isLocal());
-    return frame()->deprecatedLocalOwner();
+    return toHTMLFrameOwnerElement(frame()->owner());
 }
 
 void LocalDOMWindow::focus(ExecutionContext* context)
@@ -845,7 +839,7 @@ void LocalDOMWindow::alert(const String& message)
     if (!frame())
         return;
 
-    frame()->document()->updateRenderTreeIfNeeded();
+    frame()->document()->updateLayoutTreeIfNeeded();
 
     FrameHost* host = frame()->host();
     if (!host)
@@ -859,7 +853,7 @@ bool LocalDOMWindow::confirm(const String& message)
     if (!frame())
         return false;
 
-    frame()->document()->updateRenderTreeIfNeeded();
+    frame()->document()->updateLayoutTreeIfNeeded();
 
     FrameHost* host = frame()->host();
     if (!host)
@@ -873,7 +867,7 @@ String LocalDOMWindow::prompt(const String& message, const String& defaultValue)
     if (!frame())
         return String();
 
-    frame()->document()->updateRenderTreeIfNeeded();
+    frame()->document()->updateLayoutTreeIfNeeded();
 
     FrameHost* host = frame()->host();
     if (!host)
@@ -932,29 +926,40 @@ int LocalDOMWindow::outerWidth() const
     return host->chrome().windowRect().width();
 }
 
+static FloatSize getViewportSize(LocalFrame* frame)
+{
+    FrameView* view = frame->view();
+    if (!view)
+        return FloatSize();
+
+    FrameHost* host = frame->host();
+    if (!host)
+        return FloatSize();
+
+    // The main frame's viewport size depends on the page scale. Since the
+    // initial page scale depends on the content width and is set after a
+    // layout, perform one now so queries during page load will use the up to
+    // date viewport.
+    if (host->settings().viewportEnabled() && frame->isMainFrame())
+        frame->document()->updateLayoutIgnorePendingStylesheets();
+
+    // FIXME: This is potentially too much work. We really only need to know the dimensions of the parent frame's renderer.
+    if (Frame* parent = frame->tree().parent()) {
+        if (parent && parent->isLocalFrame())
+            toLocalFrame(parent)->document()->updateLayoutIgnorePendingStylesheets();
+    }
+
+    return frame->isMainFrame()
+        ? host->pinchViewport().visibleRect().size()
+        : view->visibleContentRect(IncludeScrollbars).size();
+}
+
 int LocalDOMWindow::innerHeight() const
 {
     if (!frame())
         return 0;
 
-    FrameView* view = frame()->view();
-    if (!view)
-        return 0;
-
-    FrameHost* host = frame()->host();
-    if (!host)
-        return 0;
-
-    // FIXME: This is potentially too much work. We really only need to know the dimensions of the parent frame's renderer.
-    if (Frame* parent = frame()->tree().parent()) {
-        if (parent && parent->isLocalFrame())
-            toLocalFrame(parent)->document()->updateLayoutIgnorePendingStylesheets();
-    }
-
-    FloatSize viewportSize = frame()->isMainFrame()
-        ? host->pinchViewport().visibleRect().size()
-        : view->visibleContentRect(IncludeScrollbars).size();
-
+    FloatSize viewportSize = getViewportSize(frame());
     return adjustForAbsoluteZoom(expandedIntSize(viewportSize).height(), frame()->pageZoomFactor());
 }
 
@@ -963,24 +968,7 @@ int LocalDOMWindow::innerWidth() const
     if (!frame())
         return 0;
 
-    FrameView* view = frame()->view();
-    if (!view)
-        return 0;
-
-    FrameHost* host = frame()->host();
-    if (!host)
-        return 0;
-
-    // FIXME: This is potentially too much work. We really only need to know the dimensions of the parent frame's renderer.
-    if (Frame* parent = frame()->tree().parent()) {
-        if (parent && parent->isLocalFrame())
-            toLocalFrame(parent)->document()->updateLayoutIgnorePendingStylesheets();
-    }
-
-    FloatSize viewportSize = frame()->isMainFrame()
-        ? host->pinchViewport().visibleRect().size()
-        : view->visibleContentRect(IncludeScrollbars).size();
-
+    FloatSize viewportSize = getViewportSize(frame());
     return adjustForAbsoluteZoom(expandedIntSize(viewportSize).width(), frame()->pageZoomFactor());
 }
 
@@ -1139,7 +1127,7 @@ PassRefPtrWillBeRawPtr<CSSRuleList> LocalDOMWindow::getMatchedCSSRules(Element* 
 
     unsigned rulesToInclude = StyleResolver::AuthorCSSRules;
     PseudoId pseudoId = CSSSelector::pseudoId(pseudoType);
-    element->document().updateRenderTreeIfNeeded();
+    element->document().updateLayoutTreeIfNeeded();
     return frame()->document()->ensureStyleResolver().pseudoCSSRulesForElement(element, pseudoId, rulesToInclude);
 }
 
@@ -1500,84 +1488,6 @@ void LocalDOMWindow::printErrorMessage(const String& message)
     frameConsole()->addMessage(ConsoleMessage::create(JSMessageSource, ErrorMessageLevel, message));
 }
 
-// FIXME: Once we're throwing exceptions for cross-origin access violations, we will always sanitize the target
-// frame details, so we can safely combine 'crossDomainAccessErrorMessage' with this method after considering
-// exactly which details may be exposed to JavaScript.
-//
-// http://crbug.com/17325
-String LocalDOMWindow::sanitizedCrossDomainAccessErrorMessage(LocalDOMWindow* callingWindow)
-{
-    if (!callingWindow || !callingWindow->document())
-        return String();
-
-    const KURL& callingWindowURL = callingWindow->document()->url();
-    if (callingWindowURL.isNull())
-        return String();
-
-    ASSERT(!callingWindow->document()->securityOrigin()->canAccess(document()->securityOrigin()));
-
-    SecurityOrigin* activeOrigin = callingWindow->document()->securityOrigin();
-    String message = "Blocked a frame with origin \"" + activeOrigin->toString() + "\" from accessing a cross-origin frame.";
-
-    // FIXME: Evaluate which details from 'crossDomainAccessErrorMessage' may safely be reported to JavaScript.
-
-    return message;
-}
-
-String LocalDOMWindow::crossDomainAccessErrorMessage(LocalDOMWindow* callingWindow)
-{
-    if (!callingWindow || !callingWindow->document())
-        return String();
-
-    const KURL& callingWindowURL = callingWindow->document()->url();
-    if (callingWindowURL.isNull())
-        return String();
-
-    ASSERT(!callingWindow->document()->securityOrigin()->canAccess(document()->securityOrigin()));
-
-    // FIXME: This message, and other console messages, have extra newlines. Should remove them.
-    SecurityOrigin* activeOrigin = callingWindow->document()->securityOrigin();
-    SecurityOrigin* targetOrigin = document()->securityOrigin();
-    String message = "Blocked a frame with origin \"" + activeOrigin->toString() + "\" from accessing a frame with origin \"" + targetOrigin->toString() + "\". ";
-
-    // Sandbox errors: Use the origin of the frames' location, rather than their actual origin (since we know that at least one will be "null").
-    KURL activeURL = callingWindow->document()->url();
-    KURL targetURL = document()->url();
-    if (document()->isSandboxed(SandboxOrigin) || callingWindow->document()->isSandboxed(SandboxOrigin)) {
-        message = "Blocked a frame at \"" + SecurityOrigin::create(activeURL)->toString() + "\" from accessing a frame at \"" + SecurityOrigin::create(targetURL)->toString() + "\". ";
-        if (document()->isSandboxed(SandboxOrigin) && callingWindow->document()->isSandboxed(SandboxOrigin))
-            return "Sandbox access violation: " + message + " Both frames are sandboxed and lack the \"allow-same-origin\" flag.";
-        if (document()->isSandboxed(SandboxOrigin))
-            return "Sandbox access violation: " + message + " The frame being accessed is sandboxed and lacks the \"allow-same-origin\" flag.";
-        return "Sandbox access violation: " + message + " The frame requesting access is sandboxed and lacks the \"allow-same-origin\" flag.";
-    }
-
-    // Protocol errors: Use the URL's protocol rather than the origin's protocol so that we get a useful message for non-heirarchal URLs like 'data:'.
-    if (targetOrigin->protocol() != activeOrigin->protocol())
-        return message + " The frame requesting access has a protocol of \"" + activeURL.protocol() + "\", the frame being accessed has a protocol of \"" + targetURL.protocol() + "\". Protocols must match.\n";
-
-    // 'document.domain' errors.
-    if (targetOrigin->domainWasSetInDOM() && activeOrigin->domainWasSetInDOM())
-        return message + "The frame requesting access set \"document.domain\" to \"" + activeOrigin->domain() + "\", the frame being accessed set it to \"" + targetOrigin->domain() + "\". Both must set \"document.domain\" to the same value to allow access.";
-    if (activeOrigin->domainWasSetInDOM())
-        return message + "The frame requesting access set \"document.domain\" to \"" + activeOrigin->domain() + "\", but the frame being accessed did not. Both must set \"document.domain\" to the same value to allow access.";
-    if (targetOrigin->domainWasSetInDOM())
-        return message + "The frame being accessed set \"document.domain\" to \"" + targetOrigin->domain() + "\", but the frame requesting access did not. Both must set \"document.domain\" to the same value to allow access.";
-
-    // Default.
-    return message + "Protocols, domains, and ports must match.";
-}
-
-bool LocalDOMWindow::isInsecureScriptAccess(DOMWindow& callingWindow, const String& urlString)
-{
-    if (!DOMWindow::isInsecureScriptAccess(callingWindow, urlString))
-        return false;
-
-    if (callingWindow.isLocalDOMWindow())
-        printErrorMessage(crossDomainAccessErrorMessage(static_cast<LocalDOMWindow*>(&callingWindow)));
-    return true;
-}
-
 PassRefPtrWillBeRawPtr<DOMWindow> LocalDOMWindow::open(const String& urlString, const AtomicString& frameName, const String& windowFeaturesString,
     LocalDOMWindow* callingWindow, LocalDOMWindow* enteredWindow)
 {
@@ -1664,12 +1574,6 @@ DEFINE_TRACE(LocalDOMWindow)
 LocalFrame* LocalDOMWindow::frame() const
 {
     return m_frameObserver->frame();
-}
-
-v8::Handle<v8::Object> LocalDOMWindow::wrap(v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
-{
-    ASSERT_NOT_REACHED(); // LocalDOMWindow has [Custom=ToV8].
-    return v8::Handle<v8::Object>();
 }
 
 } // namespace blink

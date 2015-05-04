@@ -52,9 +52,9 @@ static unsigned prerenderRelTypesFromRelAttribute(const LinkRelAttribute& relAtt
 {
     unsigned result = 0;
     if (relAttribute.isLinkPrerender())
-        result |= blink::PrerenderRelTypePrerender;
+        result |= PrerenderRelTypePrerender;
     if (relAttribute.isLinkNext())
-        result |= blink::PrerenderRelTypeNext;
+        result |= PrerenderRelTypeNext;
 
     return result;
 }
@@ -132,7 +132,8 @@ static void preconnectIfNeeded(const LinkRelAttribute& relAttribute, const KURL&
 {
     if (relAttribute.isPreconnect() && href.isValid()) {
         ASSERT(RuntimeEnabledFeatures::linkPreconnectEnabled());
-        if (document.settings()->logDnsPrefetchAndPreconnect())
+        Settings* settings = document.settings();
+        if (settings && settings->logDnsPrefetchAndPreconnect())
             document.addConsoleMessage(ConsoleMessage::create(OtherMessageSource, DebugMessageLevel, String("Preconnect triggered for " + href.host())));
         preconnect(href);
     }
@@ -145,7 +146,7 @@ static bool getTypeFromAsAttribute(const String& as, Resource::Type& type)
         return false;
     // TODO(yoav): Return false also when the `as` value is not a valid one.
     // TODO(yoav): Add actual types here and make sure priorities work accordingly.
-    type = Resource::Raw;
+    type = Resource::LinkSubresource;
     return true;
 }
 
@@ -163,7 +164,8 @@ void LinkLoader::preloadIfNeeded(const LinkRelAttribute& relAttribute, const KUR
             return;
         }
         FetchRequest linkRequest(ResourceRequest(document.completeURL(href)), FetchInitiatorTypeNames::link);
-        if (document.settings()->logPreload())
+        Settings* settings = document.settings();
+        if (settings && settings->logPreload())
             document.addConsoleMessage(ConsoleMessage::create(OtherMessageSource, DebugMessageLevel, String("Preload triggered for " + href.host() + href.path())));
         setResource(document.fetcher()->fetchLinkPreloadResource(type, linkRequest));
     }

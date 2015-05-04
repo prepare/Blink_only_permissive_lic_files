@@ -31,7 +31,8 @@
 #ifndef ScriptDebugServer_h
 #define ScriptDebugServer_h
 
-#include "bindings/core/v8/V8PersistentValueMap.h"
+#include "bindings/core/v8/V8GlobalValueMap.h"
+#include "core/CoreExport.h"
 #include "core/inspector/ScriptBreakpoint.h"
 #include "core/inspector/ScriptCallStack.h"
 #include "core/inspector/ScriptDebugListener.h"
@@ -48,7 +49,7 @@ class ScriptSourceCode;
 class ScriptValue;
 class JavaScriptCallFrame;
 
-class ScriptDebugServer : public NoBaseWillBeGarbageCollectedFinalized<ScriptDebugServer> {
+class CORE_EXPORT ScriptDebugServer : public NoBaseWillBeGarbageCollectedFinalized<ScriptDebugServer> {
     WTF_MAKE_NONCOPYABLE(ScriptDebugServer);
 public:
     virtual ~ScriptDebugServer();
@@ -56,6 +57,7 @@ public:
 
     void enable();
     void disable();
+    bool enabled() const;
 
     static void setContextDebugData(v8::Local<v8::Context>, const String& contextDebugData);
     // Each script inherits debug data from v8::Context where it has been compiled.
@@ -109,8 +111,7 @@ public:
     v8::Local<v8::Value> generatorObjectDetails(v8::Local<v8::Object>&);
     v8::Local<v8::Value> collectionEntries(v8::Local<v8::Object>&);
     v8::Local<v8::Value> getInternalProperties(v8::Local<v8::Object>&);
-    v8::Local<v8::Value> setFunctionVariableValue(v8::Local<v8::Value> functionValue, int scopeNumber, const String& variableName, v8::Local<v8::Value> newValue);
-    v8::Local<v8::Value> callDebuggerMethod(const char* functionName, int argc, v8::Local<v8::Value> argv[]);
+    v8::MaybeLocal<v8::Value> setFunctionVariableValue(v8::Local<v8::Value> functionValue, int scopeNumber, const String& variableName, v8::Local<v8::Value> newValue);
 
     virtual void compileScript(ScriptState*, const String& expression, const String& sourceURL, bool persistScript, String* scriptId, String* exceptionDetailsText, int* lineNumber, int* columnNumber, RefPtrWillBeRawPtr<ScriptCallStack>* stackTrace);
     virtual void runScript(ScriptState*, const String& scriptId, ScriptValue* result, bool* wasThrown, String* exceptionDetailsText, int* lineNumber, int* columnNumber, RefPtrWillBeRawPtr<ScriptCallStack>* stackTrace);
@@ -130,8 +131,8 @@ protected:
     virtual void quitMessageLoopOnPause() = 0;
 
 private:
-    bool enabled() const;
     void ensureDebuggerScriptCompiled();
+    v8::MaybeLocal<v8::Value> callDebuggerMethod(const char* functionName, int argc, v8::Local<v8::Value> argv[]);
     v8::Local<v8::Object> debuggerScriptLocal() const;
     void clearBreakpoints();
 
@@ -158,7 +159,7 @@ private:
 
     v8::Isolate* m_isolate;
     bool m_breakpointsActivated;
-    V8PersistentValueMap<String, v8::Script, false> m_compiledScripts;
+    V8GlobalValueMap<String, v8::Script, v8::kNotWeak> m_compiledScripts;
     v8::UniquePersistent<v8::FunctionTemplate> m_breakProgramCallbackTemplate;
     v8::UniquePersistent<v8::Object> m_debuggerScript;
     v8::Local<v8::Object> m_executionState;

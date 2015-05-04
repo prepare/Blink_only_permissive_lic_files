@@ -31,9 +31,11 @@
 #ifndef KeyframeEffectModel_h
 #define KeyframeEffectModel_h
 
+#include "core/CoreExport.h"
 #include "core/animation/AnimationEffect.h"
 #include "core/animation/AnimationNode.h"
 #include "core/animation/InterpolationEffect.h"
+#include "core/animation/PropertyHandle.h"
 #include "core/animation/StringKeyframe.h"
 #include "core/animation/animatable/AnimatableValueKeyframe.h"
 #include "platform/animation/TimingFunction.h"
@@ -50,7 +52,7 @@ namespace blink {
 class Element;
 class KeyframeEffectModelTest;
 
-class KeyframeEffectModelBase : public AnimationEffect {
+class CORE_EXPORT KeyframeEffectModelBase : public AnimationEffect {
 public:
     // FIXME: Implement accumulation.
 
@@ -73,16 +75,16 @@ public:
 
     bool isReplaceOnly();
 
-    PropertySet properties() const;
+    PropertyHandleSet properties() const;
 
     using KeyframeVector = WillBeHeapVector<RefPtrWillBeMember<Keyframe>>;
     const KeyframeVector& getFrames() const { return m_keyframes; }
     void setFrames(KeyframeVector& keyframes);
 
-    const PropertySpecificKeyframeVector& getPropertySpecificKeyframes(CSSPropertyID id) const
+    const PropertySpecificKeyframeVector& getPropertySpecificKeyframes(PropertyHandle property) const
     {
         ensureKeyframeGroups();
-        return m_keyframeGroups->get(id)->keyframes();
+        return m_keyframeGroups->get(property)->keyframes();
     }
 
     // AnimationEffect implementation.
@@ -111,7 +113,7 @@ public:
 
     static KeyframeVector normalizedKeyframesForInspector(const KeyframeVector& keyframes) { return normalizedKeyframes(keyframes); }
 
-    bool affects(CSSPropertyID property) const override
+    bool affects(PropertyHandle property) const override
     {
         ensureKeyframeGroups();
         return m_keyframeGroups->contains(property);
@@ -134,7 +136,7 @@ protected:
     // The spec describes filtering the normalized keyframes at sampling time
     // to get the 'property-specific keyframes'. For efficiency, we cache the
     // property-specific lists.
-    using KeyframeGroupMap = WillBeHeapHashMap<CSSPropertyID, OwnPtrWillBeMember<PropertySpecificKeyframeGroup>>;
+    using KeyframeGroupMap = WillBeHeapHashMap<PropertyHandle, OwnPtrWillBeMember<PropertySpecificKeyframeGroup>>;
     mutable OwnPtrWillBeMember<KeyframeGroupMap> m_keyframeGroups;
     mutable RefPtrWillBeMember<InterpolationEffect> m_interpolationEffect;
     RefPtr<TimingFunction> m_neutralKeyframeEasing;

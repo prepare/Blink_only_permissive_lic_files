@@ -51,18 +51,16 @@
 #include "core/html/parser/TextResourceDecoder.h"
 #include "core/inspector/ContentSearchUtils.h"
 #include "core/inspector/DOMPatchSupport.h"
-#include "core/inspector/IdentifiersFactory.h"
 #include "core/inspector/InspectorCSSAgent.h"
 #include "core/inspector/InspectorDebuggerAgent.h"
+#include "core/inspector/InspectorIdentifiers.h"
 #include "core/inspector/InspectorInstrumentation.h"
 #include "core/inspector/InspectorOverlay.h"
 #include "core/inspector/InspectorResourceContentLoader.h"
 #include "core/inspector/InspectorState.h"
 #include "core/inspector/InstrumentingAgents.h"
-#include "core/loader/CookieJar.h"
 #include "core/loader/DocumentLoader.h"
 #include "core/loader/FrameLoader.h"
-#include "platform/Cookie.h"
 #include "platform/JSONValues.h"
 #include "platform/MIMETypeRegistry.h"
 #include "platform/PlatformResourceLoader.h"
@@ -91,6 +89,11 @@ KURL urlWithoutFragment(const KURL& url)
     KURL result = url;
     result.removeFragmentIdentifier();
     return result;
+}
+
+String frameId(LocalFrame* frame)
+{
+    return frame ? InspectorIdentifiers<LocalFrame>::identifier(frame) : "";
 }
 
 }
@@ -463,33 +466,6 @@ void InspectorPageAgent::navigate(ErrorString*, const String& url, String* outFr
     *outFrameId = frameId(inspectedFrame());
 }
 
-static PassRefPtr<TypeBuilder::Page::Cookie> buildObjectForCookie(const Cookie& cookie)
-{
-    return TypeBuilder::Page::Cookie::create()
-        .setName(cookie.name)
-        .setValue(cookie.value)
-        .setDomain(cookie.domain)
-        .setPath(cookie.path)
-        .setExpires(cookie.expires)
-        .setSize((cookie.name.length() + cookie.value.length()))
-        .setHttpOnly(cookie.httpOnly)
-        .setSecure(cookie.secure)
-        .setSession(cookie.session)
-        .release();
-}
-
-static PassRefPtr<TypeBuilder::Array<TypeBuilder::Page::Cookie>> buildArrayForCookies(ListHashSet<Cookie>& cookiesList)
-{
-    RefPtr<TypeBuilder::Array<TypeBuilder::Page::Cookie>> cookies = TypeBuilder::Array<TypeBuilder::Page::Cookie>::create();
-
-    ListHashSet<Cookie>::iterator end = cookiesList.end();
-    ListHashSet<Cookie>::iterator it = cookiesList.begin();
-    for (int i = 0; it != end; ++it, i++)
-        cookies->addItem(buildObjectForCookie(*it));
-
-    return cookies;
-}
-
 static void cachedResourcesForDocument(Document* document, Vector<Resource*>& result, bool skipXHRs)
 {
     const ResourceFetcher::DocumentResourceMap& allResources = document->fetcher()->allResources();
@@ -547,51 +523,6 @@ static Vector<Resource*> cachedResourcesForFrame(LocalFrame* frame, bool skipXHR
         cachedResourcesForDocument(loaders[i], result, skipXHRs);
 
     return result;
-}
-
-static Vector<KURL> allResourcesURLsForFrame(LocalFrame* frame)
-{
-    Vector<KURL> result;
-
-    result.append(urlWithoutFragment(frame->loader().documentLoader()->url()));
-
-    Vector<Resource*> allResources = cachedResourcesForFrame(frame, false);
-    for (const auto& resource : allResources)
-        result.append(urlWithoutFragment(resource->url()));
-
-    return result;
-}
-
-void InspectorPageAgent::getCookies(ErrorString*, RefPtr<TypeBuilder::Array<TypeBuilder::Page::Cookie>>& cookies)
-{
-    ListHashSet<Cookie> rawCookiesList;
-
-    for (Frame* frame = inspectedFrame(); frame; frame = frame->tree().traverseNext(inspectedFrame())) {
-        if (!frame->isLocalFrame())
-            continue;
-        Document* document = toLocalFrame(frame)->document();
-        Vector<KURL> allURLs = allResourcesURLsForFrame(toLocalFrame(frame));
-        for (const auto& url : allURLs) {
-            Vector<Cookie> docCookiesList;
-            getRawCookies(document, url, docCookiesList);
-            int cookiesSize = docCookiesList.size();
-            for (int i = 0; i < cookiesSize; i++) {
-                if (!rawCookiesList.contains(docCookiesList[i]))
-                    rawCookiesList.add(docCookiesList[i]);
-            }
-        }
-    }
-
-    cookies = buildArrayForCookies(rawCookiesList);
-}
-
-void InspectorPageAgent::deleteCookie(ErrorString*, const String& cookieName, const String& url)
-{
-    KURL parsedURL(ParsedURLString, url);
-    for (Frame* frame = inspectedFrame(); frame; frame = frame->tree().traverseNext(inspectedFrame())) {
-        if (frame->isLocalFrame())
-            blink::deleteCookie(toLocalFrame(frame)->document(), parsedURL, cookieName);
-    }
 }
 
 void InspectorPageAgent::getResourceTree(ErrorString*, RefPtr<TypeBuilder::Page::FrameResourceTree>& object)
@@ -744,12 +675,7 @@ void InspectorPageAgent::frameAttachedToParent(LocalFrame* frame)
 
 void InspectorPageAgent::frameDetachedFromParent(LocalFrame* frame)
 {
-    HashMap<LocalFrame*, String>::iterator iterator = m_frameToIdentifier.find(frame);
-    if (iterator != m_frameToIdentifier.end()) {
-        frontend()->frameDetached(iterator->value);
-        m_identifierToFrame.remove(iterator->value);
-        m_frameToIdentifier.remove(iterator);
-    }
+    frontend()->frameDetached(frameId(frame));
 }
 
 FrameHost* InspectorPageAgent::frameHost()
@@ -759,37 +685,8 @@ FrameHost* InspectorPageAgent::frameHost()
 
 LocalFrame* InspectorPageAgent::frameForId(const String& frameId)
 {
-    return frameId.isEmpty() ? nullptr : m_identifierToFrame.get(frameId);
-}
-
-String InspectorPageAgent::frameId(LocalFrame* frame)
-{
-    if (!frame)
-        return "";
-    String identifier = m_frameToIdentifier.get(frame);
-    if (identifier.isNull()) {
-        identifier = IdentifiersFactory::createIdentifier();
-        m_frameToIdentifier.set(frame, identifier);
-        m_identifierToFrame.set(identifier, frame);
-    }
-    return identifier;
-}
-
-bool InspectorPageAgent::hasIdForFrame(LocalFrame* frame) const
-{
-    return frame && m_frameToIdentifier.contains(frame);
-}
-
-String InspectorPageAgent::loaderId(DocumentLoader* loader)
-{
-    if (!loader)
-        return "";
-    String identifier = m_loaderToIdentifier.get(loader);
-    if (identifier.isNull()) {
-        identifier = IdentifiersFactory::createIdentifier();
-        m_loaderToIdentifier.set(loader, identifier);
-    }
-    return identifier;
+    LocalFrame* frame = InspectorIdentifiers<LocalFrame>::lookup(frameId);
+    return frame && frame->instrumentingAgents() == m_inspectedFrame->instrumentingAgents() ? frame : nullptr;
 }
 
 LocalFrame* InspectorPageAgent::findFrameWithSecurityOrigin(const String& originRawString)
@@ -824,13 +721,6 @@ DocumentLoader* InspectorPageAgent::assertDocumentLoader(ErrorString* errorStrin
     if (!documentLoader)
         *errorString = "No documentLoader for given frame found";
     return documentLoader;
-}
-
-void InspectorPageAgent::loaderDetachedFromFrame(DocumentLoader* loader)
-{
-    HashMap<DocumentLoader*, String>::iterator iterator = m_loaderToIdentifier.find(loader);
-    if (iterator != m_loaderToIdentifier.end())
-        m_loaderToIdentifier.remove(iterator);
 }
 
 void InspectorPageAgent::frameStartedLoading(LocalFrame* frame)
@@ -897,7 +787,7 @@ PassRefPtr<TypeBuilder::Page::Frame> InspectorPageAgent::buildObjectForFrame(Loc
 {
     RefPtr<TypeBuilder::Page::Frame> frameObject = TypeBuilder::Page::Frame::create()
         .setId(frameId(frame))
-        .setLoaderId(loaderId(frame->loader().documentLoader()))
+        .setLoaderId(InspectorIdentifiers<DocumentLoader>::identifier(frame->loader().documentLoader()))
         .setUrl(urlWithoutFragment(frame->document()->url()).string())
         .setMimeType(frame->loader().documentLoader()->responseMIMEType())
         .setSecurityOrigin(frame->document()->securityOrigin()->toRawString());

@@ -8,6 +8,7 @@
 
 #include "core/inspector/InspectorTracingAgent.h"
 
+#include "core/frame/LocalFrame.h"
 #include "core/inspector/IdentifiersFactory.h"
 #include "core/inspector/InspectorPageAgent.h"
 #include "core/inspector/InspectorState.h"

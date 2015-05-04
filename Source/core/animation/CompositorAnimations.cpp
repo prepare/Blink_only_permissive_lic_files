@@ -63,11 +63,11 @@ namespace blink {
 
 namespace {
 
-void getKeyframeValuesForProperty(const KeyframeEffectModelBase* effect, CSSPropertyID id, double scale, PropertySpecificKeyframeVector& values)
+void getKeyframeValuesForProperty(const KeyframeEffectModelBase* effect, PropertyHandle property, double scale, PropertySpecificKeyframeVector& values)
 {
     ASSERT(values.isEmpty());
 
-    for (const auto& keyframe : effect->getPropertySpecificKeyframes(id)) {
+    for (const auto& keyframe : effect->getPropertySpecificKeyframes(property)) {
         double offset = keyframe->offset() * scale;
         values.append(keyframe->cloneWithOffset(offset));
     }
@@ -95,9 +95,9 @@ bool considerPlayerAsIncompatible(const AnimationPlayer& player, const Animation
 
 bool hasIncompatibleAnimations(const Element& targetElement, const AnimationPlayer& playerToAdd, const AnimationEffect& effectToAdd)
 {
-    const bool affectsOpacity = effectToAdd.affects(CSSPropertyOpacity);
-    const bool affectsTransform = effectToAdd.affects(CSSPropertyTransform);
-    const bool affectsFilter = effectToAdd.affects(CSSPropertyWebkitFilter);
+    const bool affectsOpacity = effectToAdd.affects(PropertyHandle(CSSPropertyOpacity));
+    const bool affectsTransform = effectToAdd.affects(PropertyHandle(CSSPropertyTransform));
+    const bool affectsFilter = effectToAdd.affects(PropertyHandle(CSSPropertyWebkitFilter));
 
     if (!targetElement.hasAnimations())
         return false;
@@ -129,7 +129,7 @@ bool CompositorAnimations::getAnimatedBoundingBox(FloatBox& box, const Animation
 {
     const KeyframeEffectModelBase& keyframeEffect = toKeyframeEffectModelBase(effect);
 
-    PropertySet properties = keyframeEffect.properties();
+    PropertyHandleSet properties = keyframeEffect.properties();
 
     if (properties.isEmpty())
         return true;
@@ -138,8 +138,11 @@ bool CompositorAnimations::getAnimatedBoundingBox(FloatBox& box, const Animation
     maxValue = std::max(maxValue, 1.0);
 
     for (const auto& property : properties) {
+        if (!property.isCSSProperty())
+            continue;
+
         // TODO: Add the ability to get expanded bounds for filters as well.
-        if (property != CSSPropertyTransform && property != CSSPropertyWebkitTransform)
+        if (property.cssProperty() != CSSPropertyTransform)
             continue;
 
         const PropertySpecificKeyframeVector& frames = keyframeEffect.getPropertySpecificKeyframes(property);
@@ -193,20 +196,23 @@ bool CompositorAnimations::isCandidateForAnimationOnCompositor(const Timing& tim
 {
     const KeyframeEffectModelBase& keyframeEffect = toKeyframeEffectModelBase(effect);
 
-    PropertySet properties = keyframeEffect.properties();
+    PropertyHandleSet properties = keyframeEffect.properties();
     if (properties.isEmpty())
         return false;
 
     for (const auto& property : properties) {
+        if (!property.isCSSProperty())
+            return false;
+
         const PropertySpecificKeyframeVector& keyframes = keyframeEffect.getPropertySpecificKeyframes(property);
         ASSERT(keyframes.size() >= 2);
         for (const auto& keyframe : keyframes) {
             // FIXME: Determine candidacy based on the CSSValue instead of a snapshot AnimatableValue.
-            bool isNeutralKeyframe = keyframe->isStringPropertySpecificKeyframe() && !toStringPropertySpecificKeyframe(keyframe.get())->value() && keyframe->composite() == AnimationEffect::CompositeAdd;
+            bool isNeutralKeyframe = keyframe->isCSSPropertySpecificKeyframe() && !toCSSPropertySpecificKeyframe(keyframe.get())->value() && keyframe->composite() == AnimationEffect::CompositeAdd;
             if ((keyframe->composite() != AnimationEffect::CompositeReplace && !isNeutralKeyframe) || !keyframe->getAnimatableValue())
                 return false;
 
-            switch (property) {
+            switch (property.cssProperty()) {
             case CSSPropertyOpacity:
                 break;
             case CSSPropertyTransform:
@@ -238,9 +244,9 @@ bool CompositorAnimations::isCandidateForAnimationOnCompositor(const Timing& tim
 
 void CompositorAnimations::cancelIncompatibleAnimationsOnCompositor(const Element& targetElement, const AnimationPlayer& playerToAdd, const AnimationEffect& effectToAdd)
 {
-    const bool affectsOpacity = effectToAdd.affects(CSSPropertyOpacity);
-    const bool affectsTransform = effectToAdd.affects(CSSPropertyTransform);
-    const bool affectsFilter = effectToAdd.affects(CSSPropertyWebkitFilter);
+    const bool affectsOpacity = effectToAdd.affects(PropertyHandle(CSSPropertyOpacity));
+    const bool affectsTransform = effectToAdd.affects(PropertyHandle(CSSPropertyTransform));
+    const bool affectsFilter = effectToAdd.affects(PropertyHandle(CSSPropertyWebkitFilter));
 
     if (!targetElement.hasAnimations())
         return;
@@ -598,7 +604,7 @@ void CompositorAnimationsImpl::getAnimationOnCompositor(const Timing& timing, in
     bool timingValid = convertTimingForCompositor(timing, timeOffset, compositorTiming, playerPlaybackRate);
     ASSERT_UNUSED(timingValid, timingValid);
 
-    PropertySet properties = effect.properties();
+    PropertyHandleSet properties = effect.properties();
     ASSERT(!properties.isEmpty());
     for (const auto& property : properties) {
         PropertySpecificKeyframeVector values;
@@ -606,7 +612,7 @@ void CompositorAnimationsImpl::getAnimationOnCompositor(const Timing& timing, in
 
         WebCompositorAnimation::TargetProperty targetProperty;
         OwnPtr<WebCompositorAnimationCurve> curve;
-        switch (property) {
+        switch (property.cssProperty()) {
         case CSSPropertyOpacity: {
             targetProperty = WebCompositorAnimation::TargetPropertyOpacity;
 
@@ -649,16 +655,16 @@ void CompositorAnimationsImpl::getAnimationOnCompositor(const Timing& timing, in
 
         switch (compositorTiming.direction) {
         case Timing::PlaybackDirectionNormal:
-            animation->setDirection(blink::WebCompositorAnimation::DirectionNormal);
+            animation->setDirection(WebCompositorAnimation::DirectionNormal);
             break;
         case Timing::PlaybackDirectionReverse:
-            animation->setDirection(blink::WebCompositorAnimation::DirectionReverse);
+            animation->setDirection(WebCompositorAnimation::DirectionReverse);
             break;
         case Timing::PlaybackDirectionAlternate:
-            animation->setDirection(blink::WebCompositorAnimation::DirectionAlternate);
+            animation->setDirection(WebCompositorAnimation::DirectionAlternate);
             break;
         case Timing::PlaybackDirectionAlternateReverse:
-            animation->setDirection(blink::WebCompositorAnimation::DirectionAlternateReverse);
+            animation->setDirection(WebCompositorAnimation::DirectionAlternateReverse);
             break;
         default:
             ASSERT_NOT_REACHED();
@@ -667,16 +673,16 @@ void CompositorAnimationsImpl::getAnimationOnCompositor(const Timing& timing, in
 
         switch (compositorTiming.fillMode) {
         case Timing::FillModeNone:
-            animation->setFillMode(blink::WebCompositorAnimation::FillModeNone);
+            animation->setFillMode(WebCompositorAnimation::FillModeNone);
             break;
         case Timing::FillModeForwards:
-            animation->setFillMode(blink::WebCompositorAnimation::FillModeForwards);
+            animation->setFillMode(WebCompositorAnimation::FillModeForwards);
             break;
         case Timing::FillModeBackwards:
-            animation->setFillMode(blink::WebCompositorAnimation::FillModeBackwards);
+            animation->setFillMode(WebCompositorAnimation::FillModeBackwards);
             break;
         case Timing::FillModeBoth:
-            animation->setFillMode(blink::WebCompositorAnimation::FillModeBoth);
+            animation->setFillMode(WebCompositorAnimation::FillModeBoth);
             break;
         default:
             ASSERT_NOT_REACHED();

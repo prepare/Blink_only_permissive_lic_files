@@ -5,12 +5,13 @@
 #ifndef AnimatableValueKeyframe_h
 #define AnimatableValueKeyframe_h
 
+#include "core/CoreExport.h"
 #include "core/animation/Keyframe.h"
 #include "core/animation/animatable/AnimatableValue.h"
 
 namespace blink {
 
-class AnimatableValueKeyframe : public Keyframe {
+class CORE_EXPORT AnimatableValueKeyframe : public Keyframe {
 public:
     static PassRefPtrWillBeRawPtr<AnimatableValueKeyframe> create()
     {
@@ -26,7 +27,7 @@ public:
         ASSERT(m_propertyValues.contains(property));
         return m_propertyValues.get(property);
     }
-    virtual PropertySet properties() const override;
+    virtual PropertyHandleSet properties() const override;
 
     DECLARE_VIRTUAL_TRACE();
 
@@ -38,7 +39,7 @@ public:
         virtual const PassRefPtrWillBeRawPtr<AnimatableValue> getAnimatableValue() const override final { return m_value; }
 
         virtual PassOwnPtrWillBeRawPtr<Keyframe::PropertySpecificKeyframe> neutralKeyframe(double offset, PassRefPtr<TimingFunction> easing) const override final;
-        virtual PassRefPtrWillBeRawPtr<Interpolation> maybeCreateInterpolation(CSSPropertyID, blink::Keyframe::PropertySpecificKeyframe& end, Element*, const ComputedStyle*) const override final;
+        virtual PassRefPtrWillBeRawPtr<Interpolation> maybeCreateInterpolation(PropertyHandle, Keyframe::PropertySpecificKeyframe& end, Element*, const ComputedStyle*) const override final;
 
         DECLARE_VIRTUAL_TRACE();
 
@@ -57,7 +58,7 @@ private:
     AnimatableValueKeyframe(const AnimatableValueKeyframe& copyFrom);
 
     virtual PassRefPtrWillBeRawPtr<Keyframe> clone() const override;
-    virtual PassOwnPtrWillBeRawPtr<Keyframe::PropertySpecificKeyframe> createPropertySpecificKeyframe(CSSPropertyID) const override;
+    virtual PassOwnPtrWillBeRawPtr<Keyframe::PropertySpecificKeyframe> createPropertySpecificKeyframe(PropertyHandle) const override;
 
     virtual bool isAnimatableValueKeyframe() const override { return true; }
 

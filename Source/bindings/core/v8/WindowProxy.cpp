@@ -62,6 +62,7 @@
 #include "wtf/Assertions.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/StringExtras.h"
+#include "wtf/TemporaryChange.h"
 #include "wtf/text/CString.h"
 #include <algorithm>
 #include <utility>
@@ -76,7 +77,7 @@ static void checkDocumentWrapper(v8::Local<v8::Object> wrapper, Document* docume
     ASSERT(!document->isHTMLDocument() || (V8Document::toImpl(v8::Local<v8::Object>::Cast(wrapper->GetPrototype())) == document));
 }
 
-PassOwnPtrWillBeRawPtr<WindowProxy> WindowProxy::create(Frame* frame, DOMWrapperWorld& world, v8::Isolate* isolate)
+PassOwnPtrWillBeRawPtr<WindowProxy> WindowProxy::create(v8::Isolate* isolate, Frame* frame, DOMWrapperWorld& world)
 {
     return adoptPtrWillBeNoop(new WindowProxy(frame, &world, isolate));
 }
@@ -85,6 +86,7 @@ WindowProxy::WindowProxy(Frame* frame, PassRefPtr<DOMWrapperWorld> world, v8::Is
     : m_frame(frame)
     , m_isolate(isolate)
     , m_world(world)
+    , m_installingDOMWindow(false)
 {
 }
 
@@ -297,7 +299,7 @@ void WindowProxy::createContext()
     const char* histogramName = "WebCore.WindowProxy.createContext.MainWorld";
     if (!m_world->isMainWorld())
         histogramName = "WebCore.WindowProxy.createContext.IsolatedWorld";
-    blink::Platform::current()->histogramCustomCounts(histogramName, contextCreationDurationInMilliseconds, 0, 10000, 50);
+    Platform::current()->histogramCustomCounts(histogramName, contextCreationDurationInMilliseconds, 0, 10000, 50);
 }
 
 static v8::Local<v8::Object> toInnerGlobalObject(v8::Local<v8::Context> context)
@@ -307,10 +309,16 @@ static v8::Local<v8::Object> toInnerGlobalObject(v8::Local<v8::Context> context)
 
 bool WindowProxy::installDOMWindow()
 {
+    RELEASE_ASSERT(!m_installingDOMWindow);
+    TemporaryChange<bool> installing(m_installingDOMWindow, true);
+
     DOMWindow* window = m_frame->domWindow();
     const WrapperTypeInfo* wrapperTypeInfo = window->wrapperTypeInfo();
-    v8::Local<v8::Object> windowWrapper = V8ObjectConstructor::newInstance(m_isolate, m_scriptState->perContextData()->constructorForType(wrapperTypeInfo));
-    if (windowWrapper.IsEmpty())
+    v8::Local<v8::Object> windowWrapper;
+    v8::Local<v8::Function> constructor = m_scriptState->perContextData()->constructorForType(wrapperTypeInfo);
+    if (constructor.IsEmpty())
+        return false;
+    if (!V8ObjectConstructor::newInstance(m_isolate, constructor).ToLocal(&windowWrapper))
         return false;
 
     V8DOMWrapper::setNativeInfo(v8::Local<v8::Object>::Cast(windowWrapper->GetPrototype()), wrapperTypeInfo, window);

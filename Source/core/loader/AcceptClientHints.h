@@ -5,14 +5,37 @@
 #ifndef AcceptClientHints_h
 #define AcceptClientHints_h
 
+#include "core/CoreExport.h"
 #include "wtf/text/WTFString.h"
 
 namespace blink {
 
-class LocalFrame;
+class DocumentLoader;
 
-void handleAcceptClientHintsHeader(const String& headerValue, LocalFrame*);
+class ClientHintsPreferences {
+public:
+    ClientHintsPreferences()
+        : m_shouldSendDPR(false)
+        , m_shouldSendRW(false)
+    {
+    }
 
+    void set(const ClientHintsPreferences& other)
+    {
+        m_shouldSendDPR = other.m_shouldSendDPR;
+        m_shouldSendRW = other.m_shouldSendRW;
+    }
+
+    void setShouldSendDPR(bool should) { m_shouldSendDPR = should; }
+    void setShouldSendRW(bool should) { m_shouldSendRW = should; }
+    bool shouldSendDPR() const { return m_shouldSendDPR; }
+    bool shouldSendRW() const { return m_shouldSendRW; }
+private:
+    bool m_shouldSendDPR;
+    bool m_shouldSendRW;
+};
+
+CORE_EXPORT void handleAcceptClientHintsHeader(const String& headerValue, ClientHintsPreferences&);
 } // namespace blink
 #endif
 

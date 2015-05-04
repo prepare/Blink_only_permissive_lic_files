@@ -33,7 +33,13 @@
 
 #include "bindings/core/v8/DOMWrapperWorld.h"
 #include "bindings/core/v8/ScriptDebugServer.h"
+#include "bindings/core/v8/ScriptEventListener.h"
 #include "bindings/core/v8/ScriptState.h"
+#include "core/dom/Document.h"
+#include "core/dom/Node.h"
+#include "core/events/EventTarget.h"
+#include "core/frame/LocalDOMWindow.h"
+#include "core/inspector/EventListenerInfo.h"
 #include "core/inspector/InjectedScript.h"
 #include "core/inspector/InjectedScriptManager.h"
 #include "core/inspector/InspectorState.h"
@@ -45,6 +51,44 @@ namespace blink {
 
 namespace InspectorRuntimeAgentState {
 static const char runtimeEnabled[] = "runtimeEnabled";
+};
+
+class InspectorRuntimeAgent::InjectedScriptCallScope {
+public:
+    InjectedScriptCallScope(InspectorRuntimeAgent* agent, bool doNotPauseOnExceptionsAndMuteConsole)
+        : m_agent(agent)
+        , m_doNotPauseOnExceptionsAndMuteConsole(doNotPauseOnExceptionsAndMuteConsole)
+        , m_previousPauseOnExceptionsState(ScriptDebugServer::DontPauseOnExceptions)
+    {
+        if (!m_doNotPauseOnExceptionsAndMuteConsole)
+            return;
+        m_previousPauseOnExceptionsState = setPauseOnExceptionsState(ScriptDebugServer::DontPauseOnExceptions);
+        m_agent->muteConsole();
+    }
+    ~InjectedScriptCallScope()
+    {
+        if (!m_doNotPauseOnExceptionsAndMuteConsole)
+            return;
+        m_agent->unmuteConsole();
+        setPauseOnExceptionsState(m_previousPauseOnExceptionsState);
+    }
+
+private:
+    ScriptDebugServer::PauseOnExceptionsState setPauseOnExceptionsState(ScriptDebugServer::PauseOnExceptionsState newState)
+    {
+        ScriptDebugServer* scriptDebugServer = m_agent->m_scriptDebugServer;
+        ASSERT(scriptDebugServer);
+        if (!scriptDebugServer->enabled())
+            return newState;
+        ScriptDebugServer::PauseOnExceptionsState presentState = scriptDebugServer->pauseOnExceptionsState();
+        if (presentState != newState)
+            scriptDebugServer->setPauseOnExceptionsState(newState);
+        return presentState;
+    }
+
+    InspectorRuntimeAgent* m_agent;
+    bool m_doNotPauseOnExceptionsAndMuteConsole;
+    ScriptDebugServer::PauseOnExceptionsState m_previousPauseOnExceptionsState;
 };
 
 InspectorRuntimeAgent::InspectorRuntimeAgent(InjectedScriptManager* injectedScriptManager, ScriptDebugServer* scriptDebugServer, Client* client)
@@ -66,32 +110,14 @@ DEFINE_TRACE(InspectorRuntimeAgent)
     InspectorBaseAgent::trace(visitor);
 }
 
-static ScriptDebugServer::PauseOnExceptionsState setPauseOnExceptionsState(ScriptDebugServer* scriptDebugServer, ScriptDebugServer::PauseOnExceptionsState newState)
-{
-    ASSERT(scriptDebugServer);
-    ScriptDebugServer::PauseOnExceptionsState presentState = scriptDebugServer->pauseOnExceptionsState();
-    if (presentState != newState)
-        scriptDebugServer->setPauseOnExceptionsState(newState);
-    return presentState;
-}
-
 void InspectorRuntimeAgent::evaluate(ErrorString* errorString, const String& expression, const String* const objectGroup, const bool* const includeCommandLineAPI, const bool* const doNotPauseOnExceptionsAndMuteConsole, const int* executionContextId, const bool* const returnByValue, const bool* generatePreview, RefPtr<TypeBuilder::Runtime::RemoteObject>& result, TypeBuilder::OptOutput<bool>* wasThrown, RefPtr<TypeBuilder::Debugger::ExceptionDetails>& exceptionDetails)
 {
     InjectedScript injectedScript = injectedScriptForEval(errorString, executionContextId);
     if (injectedScript.isEmpty())
         return;
-    ScriptDebugServer::PauseOnExceptionsState previousPauseOnExceptionsState = ScriptDebugServer::DontPauseOnExceptions;
-    if (asBool(doNotPauseOnExceptionsAndMuteConsole))
-        previousPauseOnExceptionsState = setPauseOnExceptionsState(m_scriptDebugServer, ScriptDebugServer::DontPauseOnExceptions);
-    if (asBool(doNotPauseOnExceptionsAndMuteConsole))
-        muteConsole();
 
+    InjectedScriptCallScope callScope(this, asBool(doNotPauseOnExceptionsAndMuteConsole));
     injectedScript.evaluate(errorString, expression, objectGroup ? *objectGroup : "", asBool(includeCommandLineAPI), asBool(returnByValue), asBool(generatePreview), &result, wasThrown, &exceptionDetails);
-
-    if (asBool(doNotPauseOnExceptionsAndMuteConsole)) {
-        unmuteConsole();
-        setPauseOnExceptionsState(m_scriptDebugServer, previousPauseOnExceptionsState);
-    }
 }
 
 void InspectorRuntimeAgent::callFunctionOn(ErrorString* errorString, const String& objectId, const String& expression, const RefPtr<JSONArray>* const optionalArguments, const bool* const doNotPauseOnExceptionsAndMuteConsole, const bool* const returnByValue, const bool* generatePreview, RefPtr<TypeBuilder::Runtime::RemoteObject>& result, TypeBuilder::OptOutput<bool>* wasThrown)
@@ -105,21 +131,11 @@ void InspectorRuntimeAgent::callFunctionOn(ErrorString* errorString, const Strin
     if (optionalArguments)
         arguments = (*optionalArguments)->toJSONString();
 
-    ScriptDebugServer::PauseOnExceptionsState previousPauseOnExceptionsState = ScriptDebugServer::DontPauseOnExceptions;
-    if (asBool(doNotPauseOnExceptionsAndMuteConsole))
-        previousPauseOnExceptionsState = setPauseOnExceptionsState(m_scriptDebugServer, ScriptDebugServer::DontPauseOnExceptions);
-    if (asBool(doNotPauseOnExceptionsAndMuteConsole))
-        muteConsole();
-
+    InjectedScriptCallScope callScope(this, asBool(doNotPauseOnExceptionsAndMuteConsole));
     injectedScript.callFunctionOn(errorString, objectId, expression, arguments, asBool(returnByValue), asBool(generatePreview), &result, wasThrown);
-
-    if (asBool(doNotPauseOnExceptionsAndMuteConsole)) {
-        unmuteConsole();
-        setPauseOnExceptionsState(m_scriptDebugServer, previousPauseOnExceptionsState);
-    }
 }
 
-void InspectorRuntimeAgent::getProperties(ErrorString* errorString, const String& objectId, const bool* ownProperties, const bool* accessorPropertiesOnly, const bool* generatePreview, RefPtr<TypeBuilder::Array<TypeBuilder::Runtime::PropertyDescriptor>>& result, RefPtr<TypeBuilder::Array<TypeBuilder::Runtime::InternalPropertyDescriptor>>& internalProperties)
+void InspectorRuntimeAgent::getProperties(ErrorString* errorString, const String& objectId, const bool* ownProperties, const bool* accessorPropertiesOnly, const bool* generatePreview, RefPtr<TypeBuilder::Array<TypeBuilder::Runtime::PropertyDescriptor>>& result, RefPtr<TypeBuilder::Array<TypeBuilder::Runtime::InternalPropertyDescriptor>>& internalProperties, RefPtr<TypeBuilder::Debugger::ExceptionDetails>& exceptionDetails)
 {
     InjectedScript injectedScript = m_injectedScriptManager->injectedScriptForObjectId(objectId);
     if (injectedScript.isEmpty()) {
@@ -127,16 +143,67 @@ void InspectorRuntimeAgent::getProperties(ErrorString* errorString, const String
         return;
     }
 
-    ScriptDebugServer::PauseOnExceptionsState previousPauseOnExceptionsState = setPauseOnExceptionsState(m_scriptDebugServer, ScriptDebugServer::DontPauseOnExceptions);
-    muteConsole();
+    InjectedScriptCallScope callScope(this, true);
 
-    injectedScript.getProperties(errorString, objectId, asBool(ownProperties), asBool(accessorPropertiesOnly), asBool(generatePreview), &result);
+    injectedScript.getProperties(errorString, objectId, asBool(ownProperties), asBool(accessorPropertiesOnly), asBool(generatePreview), &result, &exceptionDetails);
 
-    if (!asBool(accessorPropertiesOnly))
-        injectedScript.getInternalProperties(errorString, objectId, &internalProperties);
+    if (!exceptionDetails && !asBool(accessorPropertiesOnly))
+        injectedScript.getInternalProperties(errorString, objectId, &internalProperties, &exceptionDetails);
+}
 
-    unmuteConsole();
-    setPauseOnExceptionsState(m_scriptDebugServer, previousPauseOnExceptionsState);
+void InspectorRuntimeAgent::getEventListeners(ErrorString* errorString, const String& objectId, const String* objectGroup, RefPtr<TypeBuilder::Array<TypeBuilder::Runtime::EventListener>>& listenersArray)
+{
+    InjectedScript injectedScript = m_injectedScriptManager->injectedScriptForObjectId(objectId);
+    if (injectedScript.isEmpty()) {
+        *errorString = "Inspected frame has gone";
+        return;
+    }
+    EventTarget* target = injectedScript.eventTargetForObjectId(objectId);
+    if (!target) {
+        *errorString = "No event target with passed objectId";
+        return;
+    }
+
+    InjectedScriptCallScope callScope(this, true);
+
+    listenersArray = TypeBuilder::Array<TypeBuilder::Runtime::EventListener>::create();
+    Vector<EventListenerInfo> eventInformation;
+    EventListenerInfo::getEventListeners(target, eventInformation, false);
+    if (eventInformation.isEmpty())
+        return;
+
+    RegisteredEventListenerIterator iterator(eventInformation);
+    while (const RegisteredEventListener* listener = iterator.nextRegisteredEventListener()) {
+        const EventListenerInfo& info = iterator.currentEventListenerInfo();
+        RefPtr<TypeBuilder::Runtime::EventListener> listenerObject = buildObjectForEventListener(*listener, info.eventType, info.eventTarget, objectGroup);
+        if (listenerObject)
+            listenersArray->addItem(listenerObject);
+    }
+}
+
+PassRefPtr<TypeBuilder::Runtime::EventListener> InspectorRuntimeAgent::buildObjectForEventListener(const RegisteredEventListener& registeredEventListener, const AtomicString& eventType, EventTarget* target, const String* objectGroupId)
+{
+    RefPtr<EventListener> eventListener = registeredEventListener.listener;
+    String scriptId;
+    int lineNumber;
+    int columnNumber;
+    ExecutionContext* context = target->executionContext();
+    if (!context)
+        return nullptr;
+    if (!eventListenerHandlerLocation(context, eventListener.get(), scriptId, lineNumber, columnNumber))
+        return nullptr;
+
+    RefPtr<TypeBuilder::Debugger::Location> location = TypeBuilder::Debugger::Location::create()
+        .setScriptId(scriptId)
+        .setLineNumber(lineNumber);
+    location->setColumnNumber(columnNumber);
+    RefPtr<TypeBuilder::Runtime::EventListener> value = TypeBuilder::Runtime::EventListener::create()
+        .setType(eventType)
+        .setUseCapture(registeredEventListener.useCapture)
+        .setLocation(location);
+    if (objectGroupId)
+        value->setHandler(eventHandlerObject(context, eventListener.get(), m_injectedScriptManager, objectGroupId));
+    return value.release();
 }
 
 void InspectorRuntimeAgent::releaseObject(ErrorString*, const String& objectId)

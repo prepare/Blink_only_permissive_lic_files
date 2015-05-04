@@ -221,7 +221,7 @@ void HTMLCanvasElement::getContext(const String& type, const CanvasContextCreati
         if (m_context && !m_context->is2d())
             return;
         if (!m_context) {
-            blink::Platform::current()->histogramEnumeration("Canvas.ContextType", Context2d, ContextTypeCount);
+            Platform::current()->histogramEnumeration("Canvas.ContextType", Context2d, ContextTypeCount);
 
             m_context = CanvasRenderingContext2D::create(this, attributes, document());
             setNeedsCompositingUpdate();
@@ -244,7 +244,7 @@ void HTMLCanvasElement::getContext(const String& type, const CanvasContextCreati
 
     if (is3dContext) {
         if (!m_context) {
-            blink::Platform::current()->histogramEnumeration("Canvas.ContextType", contextType, ContextTypeCount);
+            Platform::current()->histogramEnumeration("Canvas.ContextType", contextType, ContextTypeCount);
             if (contextType == ContextWebgl2) {
                 m_context = WebGL2RenderingContext::create(this, attributes);
             } else {
@@ -288,6 +288,7 @@ void HTMLCanvasElement::didDraw(const FloatRect& rect)
     m_dirtyRect.unite(rect);
     if (m_context && m_context->is2d() && hasImageBuffer())
         buffer()->didDraw(rect);
+    notifyObserversCanvasChanged(m_dirtyRect);
 }
 
 void HTMLCanvasElement::didFinalizeFrame()
@@ -310,7 +311,6 @@ void HTMLCanvasElement::didFinalizeFrame()
         DisableCompositingQueryAsserts disabler;
         ro->invalidatePaintRectangle(mappedDirtyRect);
     }
-    notifyObserversCanvasChanged(m_dirtyRect);
     m_dirtyRect = FloatRect();
 }
 
@@ -390,15 +390,15 @@ void HTMLCanvasElement::reset()
     if (m_context && m_context->is3d() && oldSize != size())
         toWebGLRenderingContextBase(m_context.get())->reshape(width(), height());
 
-    if (LayoutObject* renderer = this->layoutObject()) {
-        if (renderer->isCanvas()) {
+    if (LayoutObject* layoutObject = this->layoutObject()) {
+        if (layoutObject->isCanvas()) {
             if (oldSize != size()) {
-                toLayoutHTMLCanvas(renderer)->canvasSizeChanged();
+                toLayoutHTMLCanvas(layoutObject)->canvasSizeChanged();
                 if (layoutBox() && layoutBox()->hasAcceleratedCompositing())
                     layoutBox()->contentChanged(CanvasChanged);
             }
             if (hadImageBuffer)
-                renderer->setShouldDoFullPaintInvalidation();
+                layoutObject->setShouldDoFullPaintInvalidation();
         }
     }
 
@@ -541,6 +541,10 @@ bool HTMLCanvasElement::shouldAccelerate(const IntSize& size) const
     if (RuntimeEnabledFeatures::forceDisplayList2dCanvasEnabled())
         return false;
 
+    // Prefer display list over acceleration only if gpu rasterization is triggered
+    if (RuntimeEnabledFeatures::displayList2dCanvasEnabled() && document().viewportDescription().matchesHeuristicsForGpuRasterization())
+        return false;
+
     Settings* settings = document().settings();
     if (!settings || !settings->accelerated2dCanvasEnabled())
         return false;
@@ -549,7 +553,7 @@ bool HTMLCanvasElement::shouldAccelerate(const IntSize& size) const
     if (size.width() * size.height() < settings->minimumAccelerated2dCanvasSize())
         return false;
 
-    if (!blink::Platform::current()->canAccelerate2dCanvas())
+    if (!Platform::current()->canAccelerate2dCanvas())
         return false;
 
     return true;
@@ -643,7 +647,7 @@ void HTMLCanvasElement::createImageBufferInternal(PassOwnPtr<ImageBufferSurface>
         return;
     m_imageBuffer->setClient(this);
 
-    document().updateRenderTreeIfNeeded();
+    document().updateLayoutTreeIfNeeded();
     const ComputedStyle* style = ensureComputedStyle();
     m_imageBuffer->setFilterQuality((style && (style->imageRendering() == ImageRenderingPixelated)) ? kNone_SkFilterQuality : kLow_SkFilterQuality);
 
@@ -750,9 +754,11 @@ ImageBuffer* HTMLCanvasElement::buffer() const
     return m_imageBuffer.get();
 }
 
-void HTMLCanvasElement::createImageBufferUsingSurface(PassOwnPtr<ImageBufferSurface> surface)
+void HTMLCanvasElement::createImageBufferUsingSurfaceForTesting(PassOwnPtr<ImageBufferSurface> surface)
 {
     discardImageBuffer();
+    setWidth(surface->size().width());
+    setHeight(surface->size().height());
     createImageBufferInternal(surface);
 }
 

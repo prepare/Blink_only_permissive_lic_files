@@ -54,6 +54,7 @@
 #include "bindings/core/v8/V8ScriptRunner.h"
 #include "core/events/EventTarget.h"
 #include "core/frame/LocalDOMWindow.h"
+#include "core/inspector/EventListenerInfo.h"
 #include "core/inspector/InjectedScript.h"
 #include "core/inspector/InjectedScriptHost.h"
 #include "core/inspector/InspectorDOMAgent.h"
@@ -78,6 +79,25 @@ ScriptValue InjectedScriptHost::nodeAsScriptValue(ScriptState* scriptState, Node
     if (!BindingSecurity::shouldAllowAccessToNode(isolate, node, exceptionState))
         return ScriptValue(scriptState, v8::Null(isolate));
     return ScriptValue(scriptState, toV8(node, scriptState->context()->Global(), isolate));
+}
+
+static EventTarget* eventTargetFromScriptValue(v8::Isolate* isolate, v8::Local<v8::Value> value)
+{
+    EventTarget* target = V8EventTarget::toImplWithTypeCheck(isolate, value);
+    // We need to handle LocalDOMWindow specially, because LocalDOMWindow wrapper exists on prototype chain.
+    if (!target)
+        target = toDOMWindow(isolate, value);
+    if (!target || !target->executionContext())
+        return nullptr;
+    return target;
+}
+
+EventTarget* InjectedScriptHost::scriptValueAsEventTarget(ScriptState* scriptState, ScriptValue value)
+{
+    ScriptState::Scope scope(scriptState);
+    if (value.isNull() || !value.isObject())
+        return nullptr;
+    return eventTargetFromScriptValue(scriptState->isolate(), value.v8Value());
 }
 
 void V8InjectedScriptHost::inspectedObjectMethodCustom(const v8::FunctionCallbackInfo<v8::Value>& info)
@@ -286,7 +306,7 @@ void V8InjectedScriptHost::getInternalPropertiesMethodCustom(const v8::FunctionC
     v8SetReturnValue(info, debugServer.getInternalProperties(object));
 }
 
-static v8::Local<v8::Array> getJSListenerFunctions(ExecutionContext* executionContext, const EventListenerInfo& listenerInfo, v8::Isolate* isolate)
+static v8::Local<v8::Array> getJSListenerFunctions(v8::Isolate* isolate, ExecutionContext* executionContext, const EventListenerInfo& listenerInfo)
 {
     v8::Local<v8::Array> result = v8::Array::New(isolate);
     size_t handlersCount = listenerInfo.eventListenerVector.size();
@@ -323,24 +343,16 @@ void V8InjectedScriptHost::getEventListenersMethodCustom(const v8::FunctionCallb
     if (info.Length() < 1)
         return;
 
-
-    v8::Local<v8::Value> value = info[0];
-    EventTarget* target = V8EventTarget::toImplWithTypeCheck(info.GetIsolate(), value);
-
-    // We need to handle a LocalDOMWindow specially, because a LocalDOMWindow wrapper exists on a prototype chain.
+    EventTarget* target = eventTargetFromScriptValue(info.GetIsolate(), info[0]);
     if (!target)
-        target = toDOMWindow(info.GetIsolate(), value);
-
-    if (!target || !target->executionContext())
         return;
-
     InjectedScriptHost* host = V8InjectedScriptHost::toImpl(info.Holder());
     Vector<EventListenerInfo> listenersArray;
     host->getEventListenersImpl(target, listenersArray);
 
     v8::Local<v8::Object> result = v8::Object::New(info.GetIsolate());
     for (size_t i = 0; i < listenersArray.size(); ++i) {
-        v8::Local<v8::Array> listeners = getJSListenerFunctions(target->executionContext(), listenersArray[i], info.GetIsolate());
+        v8::Local<v8::Array> listeners = getJSListenerFunctions(info.GetIsolate(), target->executionContext(), listenersArray[i]);
         if (!listeners->Length())
             continue;
         AtomicString eventType = listenersArray[i].eventType;
@@ -537,8 +549,10 @@ void V8InjectedScriptHost::callFunctionMethodCustom(const v8::FunctionCallbackIn
     v8::Local<v8::Array> arguments = v8::Local<v8::Array>::Cast(info[2]);
     size_t argc = arguments->Length();
     OwnPtr<v8::Local<v8::Value>[]> argv = adoptArrayPtr(new v8::Local<v8::Value>[argc]);
-    for (size_t i = 0; i < argc; ++i)
-        argv[i] = arguments->Get(i);
+    for (size_t i = 0; i < argc; ++i) {
+        if (!arguments->Get(info.GetIsolate()->GetCurrentContext(), v8::Integer::New(info.GetIsolate(), i)).ToLocal(&argv[i]))
+            return;
+    }
 
     v8::Local<v8::Value> result = function->Call(receiver, argc, argv.get());
     v8SetReturnValue(info, result);

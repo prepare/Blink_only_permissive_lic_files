@@ -123,8 +123,8 @@ public:
     // scale factor is left unchanged.
     bool magnifyScaleAroundAnchor(float magnifyDelta, const FloatPoint& anchor);
 
-    void registerLayersWithTreeView(blink::WebLayerTreeView*) const;
-    void clearLayersForTreeView(blink::WebLayerTreeView*) const;
+    void registerLayersWithTreeView(WebLayerTreeView*) const;
+    void clearLayersForTreeView(WebLayerTreeView*) const;
 
     ScrollResult wheelEvent(const PlatformWheelEvent&);
 
@@ -173,8 +173,6 @@ public:
     FloatPoint rootFrameToViewport(const FloatPoint&) const;
     IntPoint viewportToRootFrame(const IntPoint&) const;
     IntPoint rootFrameToViewport(const IntPoint&) const;
-private:
-    explicit PinchViewport(FrameHost&);
 
     // ScrollableArea implementation
     virtual bool shouldUseIntegerScrollOffset() const override;
@@ -197,17 +195,20 @@ private:
     virtual void invalidateScrollbarRect(Scrollbar*, const IntRect&) override;
     virtual void invalidateScrollCornerRect(const IntRect&) override { }
     virtual void setScrollOffset(const IntPoint&) override;
+    virtual void setScrollOffset(const DoublePoint&) override;
     virtual GraphicsLayer* layerForContainer() const override;
     virtual GraphicsLayer* layerForScrolling() const override;
     virtual GraphicsLayer* layerForHorizontalScrollbar() const override;
     virtual GraphicsLayer* layerForVerticalScrollbar() const override;
-    virtual String debugName() const override { return "PinchViewport"; }
+
+private:
+    explicit PinchViewport(FrameHost&);
 
     // GraphicsLayerClient implementation.
     virtual void paintContents(const GraphicsLayer*, GraphicsContext&, GraphicsLayerPaintingPhase, const IntRect& inClip) override;
     virtual String debugName(const GraphicsLayer*) override;
 
-    void setupScrollbar(blink::WebScrollbar::Orientation);
+    void setupScrollbar(WebScrollbar::Orientation);
     FloatPoint clampOffsetToBoundaries(const FloatPoint&);
 
     LocalFrame* mainFrame() const;
@@ -226,8 +227,8 @@ private:
     OwnPtr<GraphicsLayer> m_innerViewportScrollLayer;
     OwnPtr<GraphicsLayer> m_overlayScrollbarHorizontal;
     OwnPtr<GraphicsLayer> m_overlayScrollbarVertical;
-    OwnPtr<blink::WebScrollbarLayer> m_webOverlayScrollbarHorizontal;
-    OwnPtr<blink::WebScrollbarLayer> m_webOverlayScrollbarVertical;
+    OwnPtr<WebScrollbarLayer> m_webOverlayScrollbarHorizontal;
+    OwnPtr<WebScrollbarLayer> m_webOverlayScrollbarVertical;
 
     // Offset of the pinch viewport from the main frame's origin, in CSS pixels.
     FloatPoint m_offset;

@@ -100,6 +100,7 @@ gamepadconnected
 gamepaddisconnected
 geofenceenter
 geofenceleave
+gesturelongpress
 gesturescrollend
 gesturescrollstart
 gesturescrollupdate
@@ -155,6 +156,7 @@ pagehide
 pageshow
 paste
 pause
+periodicsync
 play
 playing
 pointerlockchange

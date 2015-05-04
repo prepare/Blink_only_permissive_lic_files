@@ -278,7 +278,7 @@ DEFINE_TRACE(EventHandler)
 
 DragState& EventHandler::dragState()
 {
-    DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<DragState>, state, (adoptPtrWillBeNoop(new DragState())));
+    DEFINE_STATIC_LOCAL(Persistent<DragState>, state, (new DragState()));
     return *state;
 }
 
@@ -331,9 +331,7 @@ void EventHandler::clear()
     m_longTapShouldInvokeContextMenu = false;
     m_dragStartPos = LayoutPoint();
     m_offsetFromResizeCorner = LayoutSize();
-    m_currentMouseCursor = Cursor();
     m_mouseDown = PlatformMouseEvent();
-
 }
 
 void EventHandler::nodeWillBeRemoved(Node& nodeToBeRemoved)
@@ -987,8 +985,10 @@ bool EventHandler::bubblingScroll(ScrollDirection direction, ScrollGranularity g
         return true;
     LocalFrame* frame = m_frame;
     FrameView* view = frame->view();
-    if (view && view->scroll(direction, granularity))
+    if (view && view->scroll(direction, granularity)) {
+        setFrameWasScrolledByUser();
         return true;
+    }
     Frame* parentFrame = frame->tree().parent();
     if (!parentFrame || !parentFrame->isLocalFrame())
         return false;
@@ -1047,6 +1047,10 @@ void EventHandler::cursorUpdateTimerFired(Timer<EventHandler>*)
 
 void EventHandler::updateCursor()
 {
+    // We must do a cross-frame hit test because the frame that triggered the cursor
+    // update could be occluded by a different frame.
+    ASSERT(m_frame == m_frame->localFrameRoot());
+
     if (m_mousePositionIsUnknown)
         return;
 
@@ -1060,14 +1064,15 @@ void EventHandler::updateCursor()
 
     m_frame->document()->updateLayout();
 
-    HitTestRequest request(HitTestRequest::ReadOnly);
+    HitTestRequest request(HitTestRequest::ReadOnly | HitTestRequest::AllowChildFrameContent);
     HitTestResult result(request, view->rootFrameToContents(m_lastKnownMousePosition));
     layoutView->hitTest(result);
 
-    OptionalCursor optionalCursor = selectCursor(result);
-    if (optionalCursor.isCursorChange()) {
-        m_currentMouseCursor = optionalCursor.cursor();
-        view->setCursor(m_currentMouseCursor);
+    if (LocalFrame* frame = result.innerNodeFrame()) {
+        OptionalCursor optionalCursor = frame->eventHandler().selectCursor(result);
+        if (optionalCursor.isCursorChange()) {
+            view->setCursor(optionalCursor.cursor());
+        }
     }
 }
 
@@ -1079,10 +1084,8 @@ OptionalCursor EventHandler::selectCursor(const HitTestResult& result)
     Page* page = m_frame->page();
     if (!page)
         return NoCursorChange;
-#if OS(WIN)
     if (panScrollInProgress())
         return NoCursorChange;
-#endif
 
     Node* node = result.innerPossiblyPseudoNode();
     if (!node)
@@ -1413,7 +1416,7 @@ bool EventHandler::handleMouseMoveEvent(const PlatformMouseEvent& event)
     if (FrameView* frameView = m_frame->view())
         frameView->mouseMovedInContentArea();
 
-    hoveredNode.setToShadowHostIfInClosedShadowRoot();
+    hoveredNode.setToShadowHostIfInUserAgentShadowRoot();
     page->chrome().mouseDidMoveOverElement(hoveredNode);
     page->chrome().setToolTip(hoveredNode);
 
@@ -1520,8 +1523,7 @@ bool EventHandler::handleMouseMoveOrLeaveEvent(const PlatformMouseEvent& mouseEv
         if (FrameView* view = m_frame->view()) {
             OptionalCursor optionalCursor = selectCursor(mev.hitTestResult());
             if (optionalCursor.isCursorChange()) {
-                m_currentMouseCursor = optionalCursor.cursor();
-                view->setCursor(m_currentMouseCursor);
+                view->setCursor(optionalCursor.cursor());
             }
         }
     }
@@ -1926,13 +1928,11 @@ void EventHandler::sendMouseEventsForNodeTransition(Node* exitedNode, Node* ente
 {
     ASSERT(exitedNode != enteredNode);
 
-    // First, dispatch mouseout and mouseover events (which bubble to ancestors)
+    // First, dispatch mouseout event (which bubbles to ancestors)
     if (exitedNode)
         exitedNode->dispatchMouseEvent(mouseEvent, EventTypeNames::mouseout, 0, enteredNode);
-    if (enteredNode)
-        enteredNode->dispatchMouseEvent(mouseEvent, EventTypeNames::mouseover, 0, exitedNode);
 
-    // Then dispatch mouseenter and mouseleave events. These are non-bubbling events, and they are dispatched if there
+    // A note on mouseenter and mouseleave: These are non-bubbling events, and they are dispatched if there
     // is a capturing event handler on an ancestor or a normal event handler on the element itself. This special
     // handling is necessary to avoid O(n^2) capturing event handler checks.
     //
@@ -1993,6 +1993,10 @@ void EventHandler::sendMouseEventsForNodeTransition(Node* exitedNode, Node* ente
             exitedAncestors[j]->dispatchMouseEvent(mouseEvent, EventTypeNames::mouseleave, 0, enteredNode);
     }
 
+    // Dispatch mouseover event (which bubbles to ancestors) after the mouseleave events are sent.
+    if (enteredNode)
+        enteredNode->dispatchMouseEvent(mouseEvent, EventTypeNames::mouseover, 0, exitedNode);
+
     // Determine if there is a capturing mouseenter listener in an ancestor. This must be done /after/ dispatching the
     // mouseleave events because the handler for mouseleave might set a capturing mouseenter handler.
     bool enteredNodeHasCapturingAncestor = false;
@@ -2034,7 +2038,7 @@ bool EventHandler::handleMouseFocus(const MouseEventWithHitTestResults& targeted
     if (m_nodeUnderMouse)
         element = m_nodeUnderMouse->isElementNode() ? toElement(m_nodeUnderMouse) : m_nodeUnderMouse->parentOrShadowHostElement();
     for (; element; element = element->parentOrShadowHostElement()) {
-        if (element->isFocusable() && element->focused())
+        if (element->isFocusable() && element->isFocusedElementInDocument())
             return false;
         if (element->isMouseFocusable())
             break;
@@ -2093,9 +2097,6 @@ bool EventHandler::slideFocusOnShadowHostIfNecessary(const Element& element)
         ASSERT(page);
         Node* next = page->focusController().findFocusableNode(WebFocusTypeForward, *element.shadowRoot());
         if (next && next->isElementNode() && element.containsIncludingShadowDOM(next)) {
-            if (doc != next->document())
-                doc->setFocusedElement(nullptr);
-            page->focusController().setFocusedFrame(next->document().frame());
             // Use WebFocusTypeForward instead of WebFocusTypeMouse here to mean the focus has slided.
             toElement(next)->focus(false, WebFocusTypeForward);
             return true;
@@ -2812,6 +2813,59 @@ bool EventHandler::bestZoomableAreaForTouchPoint(const IntPoint& touchCenter, co
     return findBestZoomableArea(targetNode, targetArea, touchCenter, touchRect, WillBeHeapVector<RefPtrWillBeMember<Node>>(nodes));
 }
 
+// Update the hover and active state across all frames for this gesture.
+// This logic is different than the mouse case because mice send MouseLeave events to frames as they're exited.
+// With gestures, a single event conceptually both 'leaves' whatever frame currently had hover and enters a new frame
+void EventHandler::updateGestureHoverActiveState(const HitTestRequest& request, Element* innerElement)
+{
+    ASSERT(m_frame == m_frame->localFrameRoot());
+
+    WillBeHeapVector<LocalFrame*> newHoverFrameChain;
+    LocalFrame* newHoverFrameInDocument = innerElement ? innerElement->document().frame() : nullptr;
+    // Insert the ancestors of the frame having the new hovered node to the frame chain
+    // The frame chain doesn't include the main frame to avoid the redundant work that cleans the hover state.
+    // Because the hover state for the main frame is updated by calling Document::updateHoverActiveState
+    while (newHoverFrameInDocument && newHoverFrameInDocument != m_frame) {
+        newHoverFrameChain.append(newHoverFrameInDocument);
+        Frame* parentFrame = newHoverFrameInDocument->tree().parent();
+        newHoverFrameInDocument = parentFrame && parentFrame->isLocalFrame() ? toLocalFrame(parentFrame) : nullptr;
+    }
+
+    RefPtrWillBeRawPtr<Node> oldHoverNodeInCurDoc = m_frame->document()->hoverNode();
+    RefPtrWillBeRawPtr<Node> newInnermostHoverNode = innerElement;
+
+    if (newInnermostHoverNode != oldHoverNodeInCurDoc) {
+        size_t indexFrameChain = newHoverFrameChain.size();
+
+        // Clear the hover state on any frames which are no longer in the frame chain of the hovered elemen
+        while (oldHoverNodeInCurDoc && oldHoverNodeInCurDoc->isFrameOwnerElement()) {
+            LocalFrame* newHoverFrame = nullptr;
+            // If we can't get the frame from the new hover frame chain,
+            // the newHoverFrame will be null and the old hover state will be cleared.
+            if (indexFrameChain > 0)
+                newHoverFrame = newHoverFrameChain[--indexFrameChain];
+
+            HTMLFrameOwnerElement* owner = toHTMLFrameOwnerElement(oldHoverNodeInCurDoc.get());
+            if (!owner->contentFrame() || !owner->contentFrame()->isLocalFrame())
+                break;
+
+            LocalFrame* oldHoverFrame = toLocalFrame(owner->contentFrame());
+            Document* doc = oldHoverFrame->document();
+            if (!doc)
+                break;
+
+            oldHoverNodeInCurDoc = doc->hoverNode();
+            // If the old hovered frame is different from the new hovered frame.
+            // we should clear the old hovered node from the old hovered frame.
+            if (newHoverFrame != oldHoverFrame)
+                doc->updateHoverActiveState(request, nullptr);
+        }
+    }
+
+    // Recursively set the new active/hover states on every frame in the chain of innerElement.
+    m_frame->document()->updateHoverActiveState(request, innerElement);
+}
+
 GestureEventWithHitTestResults EventHandler::targetGestureEvent(const PlatformGestureEvent& gestureEvent, bool readOnly)
 {
     TRACE_EVENT0("input", "EventHandler::targetGestureEvent");
@@ -2841,7 +2895,7 @@ GestureEventWithHitTestResults EventHandler::targetGestureEvent(const PlatformGe
     // aren't passing a PlatformMouseEvent.
     HitTestRequest request(hitType | HitTestRequest::AllowChildFrameContent);
     if (!request.readOnly())
-        m_frame->document()->updateHoverActiveState(request, eventWithHitTestResults.hitTestResult().innerElement());
+        updateGestureHoverActiveState(request, eventWithHitTestResults.hitTestResult().innerElement());
 
     if (shouldKeepActiveForMinInterval) {
         m_lastDeferredTapElement = eventWithHitTestResults.hitTestResult().innerElement();
@@ -2952,18 +3006,17 @@ void EventHandler::applyTouchAdjustment(PlatformGestureEvent* gestureEvent, HitT
 
 bool EventHandler::sendContextMenuEvent(const PlatformMouseEvent& event)
 {
-    Document* doc = m_frame->document();
     FrameView* v = m_frame->view();
     if (!v)
         return false;
 
     // Clear mouse press state to avoid initiating a drag while context menu is up.
     m_mousePressed = false;
-    LayoutPoint viewportPos = v->rootFrameToContents(event.position());
+    LayoutPoint positionInContents = v->rootFrameToContents(event.position());
     HitTestRequest request(HitTestRequest::Active);
-    MouseEventWithHitTestResults mev = doc->prepareMouseEvent(request, viewportPos, event);
+    MouseEventWithHitTestResults mev = m_frame->document()->prepareMouseEvent(request, positionInContents, event);
 
-    if (!m_frame->selection().contains(viewportPos)
+    if (!m_frame->selection().contains(positionInContents)
         && !mev.scrollbar()
         // FIXME: In the editable case, word selection sometimes selects content that isn't underneath the mouse.
         // If the selection is non-editable, we do word selection to make it easier to use the contextual menu items
@@ -3021,8 +3074,10 @@ bool EventHandler::sendContextMenuEventForKey()
         locationInRootFrame = flooredIntPoint(pinchViewport.viewportCSSPixelsToRootFrame(clippedRect.center()));
     } else {
         locationInRootFrame = IntPoint(
-            rightAligned ? pinchViewport.visibleRect().maxX() - kContextMenuMargin : kContextMenuMargin,
-            kContextMenuMargin);
+            rightAligned
+                ? pinchViewport.visibleRect().maxX() - kContextMenuMargin
+                : pinchViewport.location().x() + kContextMenuMargin,
+            pinchViewport.location().y() + kContextMenuMargin);
     }
 
     m_frame->view()->setCursor(pointerCursor());
@@ -3081,6 +3136,10 @@ void EventHandler::scheduleHoverStateUpdate()
 
 void EventHandler::scheduleCursorUpdate()
 {
+    // We only want one timer for the page, rather than each frame having it's own timer
+    // competing which eachother (since there's only one mouse cursor).
+    ASSERT(m_frame == m_frame->localFrameRoot());
+
     if (!m_cursorUpdateTimer.isActive())
         m_cursorUpdateTimer.startOneShot(cursorUpdateInterval, FROM_HERE);
 }
@@ -4066,7 +4125,7 @@ bool EventHandler::passWheelEventToWidget(const PlatformWheelEvent& wheelEvent, 
     return toFrameView(&widget)->frame().eventHandler().handleWheelEvent(wheelEvent);
 }
 
-PassRefPtrWillBeRawPtr<DataTransfer> EventHandler::createDraggingDataTransfer() const
+DataTransfer* EventHandler::createDraggingDataTransfer() const
 {
     return DataTransfer::create(DataTransfer::DragAndDrop, DataTransferWritable, DataObject::create());
 }

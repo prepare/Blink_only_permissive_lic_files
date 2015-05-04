@@ -62,6 +62,14 @@ class CORE_EXPORT ExecutionContext
 public:
     DECLARE_VIRTUAL_TRACE();
 
+    // Used to specify whether |isPrivilegedContext| should walk the
+    // ancestor tree to decide whether to restrict usage of a powerful
+    // feature.
+    enum PrivilegeContextCheck {
+        StandardPrivilegeCheck,
+        WebCryptoPrivilegeCheck
+    };
+
     virtual bool isDocument() const { return false; }
     virtual bool isWorkerGlobalScope() const { return false; }
     virtual bool isDedicatedWorkerGlobalScope() const { return false; }
@@ -141,6 +149,10 @@ public:
     void consumeWindowInteraction();
     bool isWindowInteractionAllowed() const;
 
+    // Decides whether this context is privileged, as described in
+    // https://w3c.github.io/webappsec/specs/powerfulfeatures/#settings-privileged.
+    virtual bool isPrivilegedContext(String& errorMessage, const PrivilegeContextCheck = StandardPrivilegeCheck) = 0;
+
 protected:
     ExecutionContext();
     virtual ~ExecutionContext();
@@ -178,6 +190,7 @@ private:
     int m_windowInteractionTokens;
 
     Deque<OwnPtr<SuspendableTask>> m_suspendedTasks;
+    bool m_isRunSuspendableTasksScheduled;
 };
 
 } // namespace blink

@@ -34,6 +34,7 @@
 namespace blink {
 
 class ForceHorriblySlowRectMapping;
+class LayoutBlockFlow;
 class LayoutBox;
 class LayoutFlowThread;
 class LayoutObject;
@@ -80,7 +81,10 @@ public:
 
     ColumnInfo* columnInfo() const { return m_columnInfo; }
 
-    LayoutObject& layoutObject() const { return m_renderer; }
+    LayoutObject& layoutObject() const { return m_layoutObject; }
+
+    void setFormattingContext(LayoutBlockFlow* block) { m_formattingContext = block; }
+    LayoutBlockFlow* formattingContext() { return m_formattingContext; }
 
 private:
     friend class ForceHorriblySlowRectMapping;
@@ -105,7 +109,8 @@ private:
     // The offset of the start of the first page in the nearest enclosing pagination model.
     LayoutSize m_pageOffset;
 
-    LayoutObject& m_renderer;
+    LayoutObject& m_layoutObject;
+    LayoutBlockFlow* m_formattingContext;
 };
 
 } // namespace blink

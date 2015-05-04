@@ -12,11 +12,6 @@
 
 namespace blink {
 
-const AtomicString& RemoteDOMWindow::interfaceName() const
-{
-    return emptyAtom;
-}
-
 ExecutionContext* RemoteDOMWindow::executionContext() const
 {
     return nullptr;
@@ -342,16 +337,6 @@ int RemoteDOMWindow::webkitRequestAnimationFrame(FrameRequestCallback*)
 void RemoteDOMWindow::cancelAnimationFrame(int id)
 {
     ASSERT_NOT_REACHED();
-}
-
-String RemoteDOMWindow::sanitizedCrossDomainAccessErrorMessage(LocalDOMWindow* callingWindow)
-{
-    return String();
-}
-
-String RemoteDOMWindow::crossDomainAccessErrorMessage(LocalDOMWindow* callingWindow)
-{
-    return String();
 }
 
 RemoteDOMWindow::RemoteDOMWindow(RemoteFrame& frame)

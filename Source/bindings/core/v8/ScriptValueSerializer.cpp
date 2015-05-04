@@ -604,7 +604,7 @@ static bool isHostObject(v8::Local<v8::Object> object)
     // them; conveniently, this is also a quick way to detect DOM wrapper objects, because
     // the mechanism for these relies on data stored in these fields. We should
     // catch external array data as a special case.
-    return object->InternalFieldCount() || object->HasIndexedPropertiesInExternalArrayData();
+    return object->InternalFieldCount();
 }
 
 ScriptValueSerializer::ScriptValueSerializer(SerializedScriptValueWriter& writer, MessagePortArray* messagePorts, ArrayBufferArray* arrayBuffers, WebBlobInfoArray* blobInfo, BlobDataHandleMap& blobDataHandles, v8::TryCatch& tryCatch, ScriptState* scriptState)
@@ -1822,11 +1822,13 @@ bool ScriptValueDeserializer::completeDenseArray(uint32_t numProperties, uint32_
     if (length > stackDepth())
         return false;
     v8::Isolate* isolate = m_reader.scriptState()->isolate();
+    v8::Local<v8::Context> context = m_reader.scriptState()->context();
     for (unsigned i = 0, stackPos = stackDepth() - length; i < length; i++, stackPos++) {
         v8::Local<v8::Value> elem = element(stackPos);
         if (!elem->IsUndefined()) {
             // TODO(jsbell): Use DefineOwnProperty when exposed by v8. http://crbug.com/475206
-            array->ForceSet(v8::Integer::New(isolate, i), elem);
+            if (!v8CallBoolean(array->ForceSet(context, v8::Integer::New(isolate, i), elem)))
+                return false;
         }
     }
     pop(length);
@@ -1885,11 +1887,13 @@ bool ScriptValueDeserializer::initializeObject(v8::Local<v8::Object> object, uin
     unsigned length = 2 * numProperties;
     if (length > stackDepth())
         return false;
+    v8::Local<v8::Context> context = m_reader.scriptState()->context();
     for (unsigned i = stackDepth() - length; i < stackDepth(); i += 2) {
         v8::Local<v8::Value> propertyName = element(i);
         v8::Local<v8::Value> propertyValue = element(i + 1);
         // TODO(jsbell): Use DefineOwnProperty when exposed by v8. http://crbug.com/475206
-        object->ForceSet(propertyName, propertyValue);
+        if (!v8CallBoolean(object->ForceSet(context, propertyName, propertyValue)))
+            return false;
     }
     pop(length);
     *value = object;

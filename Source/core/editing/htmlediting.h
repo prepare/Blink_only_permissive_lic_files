@@ -43,7 +43,6 @@ class HTMLLIElement;
 class HTMLSpanElement;
 class HTMLUListElement;
 class Node;
-class Position;
 class PositionWithAffinity;
 class Range;
 class VisiblePosition;
@@ -86,11 +85,6 @@ int caretMaxOffset(const Node*);
 
 // boolean functions on Node
 
-inline bool isEmptyNonEditableNodeInEditable(const Node* node)
-{
-    return !node->hasChildren() && !node->hasEditableStyle() && node->parentNode() && node->parentNode()->hasEditableStyle();
-}
-
 // FIXME: editingIgnoresContent, canHaveChildrenForEditing, and isAtomicNode
 // should be renamed to reflect its usage.
 
@@ -98,7 +92,7 @@ inline bool isEmptyNonEditableNodeInEditable(const Node* node)
 // There are no VisiblePositions inside these nodes.
 inline bool editingIgnoresContent(const Node* node)
 {
-    return !node->canContainRangeEndPoint() || isEmptyNonEditableNodeInEditable(node);
+    return EditingStrategy::editingIgnoresContent(node);
 }
 
 inline bool canHaveChildrenForEditing(const Node* node)

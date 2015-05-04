@@ -91,8 +91,6 @@ public:
     void removeScriptToEvaluateOnLoad(ErrorString*, const String& identifier) override;
     void reload(ErrorString*, const bool* optionalIgnoreCache, const String* optionalScriptToEvaluateOnLoad) override;
     void navigate(ErrorString*, const String& url, String* frameId) override;
-    void getCookies(ErrorString*, RefPtr<TypeBuilder::Array<TypeBuilder::Page::Cookie> >& cookies) override;
-    void deleteCookie(ErrorString*, const String& cookieName, const String& url) override;
     void getResourceTree(ErrorString*, RefPtr<TypeBuilder::Page::FrameResourceTree>&) override;
     void getResourceContent(ErrorString*, const String& frameId, const String& url, PassRefPtrWillBeRawPtr<GetResourceContentCallback>) override;
     void searchInResource(ErrorString*, const String& frameId, const String& url, const String& query, const bool* optionalCaseSensitive, const bool* optionalIsRegex, RefPtr<TypeBuilder::Array<TypeBuilder::Debugger::SearchMatch>>&) override;
@@ -109,7 +107,6 @@ public:
     void didCommitLoad(LocalFrame*, DocumentLoader*);
     void frameAttachedToParent(LocalFrame*);
     void frameDetachedFromParent(LocalFrame*);
-    void loaderDetachedFromFrame(DocumentLoader*);
     void frameStartedLoading(LocalFrame*);
     void frameStoppedLoading(LocalFrame*);
     void frameScheduledNavigation(LocalFrame*, double delay);
@@ -127,17 +124,13 @@ public:
     void discardAgent() override;
 
     // Cross-agents API
+    static DocumentLoader* assertDocumentLoader(ErrorString*, LocalFrame*);
+    LocalFrame* frameForId(const String& frameId);
+    LocalFrame* assertFrame(ErrorString*, const String& frameId);
     FrameHost* frameHost();
     LocalFrame* inspectedFrame() const { return m_inspectedFrame.get(); }
-    String createIdentifier();
-    LocalFrame* frameForId(const String& frameId);
-    String frameId(LocalFrame*);
-    bool hasIdForFrame(LocalFrame*) const;
-    String loaderId(DocumentLoader*);
     LocalFrame* findFrameWithSecurityOrigin(const String& originRawString);
-    LocalFrame* assertFrame(ErrorString*, const String& frameId);
     bool screencastEnabled();
-    static DocumentLoader* assertDocumentLoader(ErrorString*, LocalFrame*);
     InspectorResourceContentLoader* resourceContentLoader() { return m_inspectorResourceContentLoader.get(); }
 
     DECLARE_VIRTUAL_TRACE();
@@ -161,9 +154,6 @@ private:
     long m_lastScriptIdentifier;
     String m_pendingScriptToEvaluateOnLoadOnce;
     String m_scriptToEvaluateOnLoadOnce;
-    HashMap<LocalFrame*, String> m_frameToIdentifier;
-    HashMap<String, LocalFrame*> m_identifierToFrame;
-    HashMap<DocumentLoader*, String> m_loaderToIdentifier;
     bool m_enabled;
     bool m_reloading;
 

@@ -17,39 +17,21 @@ LayoutAnalyzer::Scope::Scope(const LayoutObject& o)
     : m_layoutObject(o)
     , m_analyzer(o.frameView()->layoutAnalyzer())
 {
-    if (UNLIKELY(m_analyzer != nullptr))
-        m_analyzer->push(o);
+    m_analyzer.push(o);
 }
 
 LayoutAnalyzer::Scope::~Scope()
 {
-    if (UNLIKELY(m_analyzer != nullptr))
-        m_analyzer->pop(m_layoutObject);
+    m_analyzer.pop(m_layoutObject);
 }
 
 void LayoutAnalyzer::reset()
 {
     m_startMs = currentTimeMS();
-    m_counters.resize(NumCounters);
-    m_counters[LayoutBlockRectangleChanged] = 0;
-    m_counters[LayoutBlockRectangleDidNotChange] = 0;
-    m_counters[LayoutObjectsThatSpecifyColumns] = 0;
-    m_counters[LayoutAnalyzerStackMaximumDepth] = 0;
-    m_counters[LayoutObjectsThatAreFloating] = 0;
-    m_counters[LayoutObjectsThatHaveALayer] = 0;
-    m_counters[LayoutInlineObjectsThatAlwaysCreateLineBoxes] = 0;
-    m_counters[LayoutObjectsThatHadNeverHadLayout] = 0;
-    m_counters[LayoutObjectsThatAreOutOfFlowPositioned] = 0;
-    m_counters[LayoutObjectsThatNeedPositionedMovementLayout] = 0;
-    m_counters[PerformLayoutRootLayoutObjects] = 0;
-    m_counters[LayoutObjectsThatNeedLayoutForThemselves] = 0;
-    m_counters[LayoutObjectsThatNeedSimplifiedLayout] = 0;
-    m_counters[LayoutObjectsThatAreTableCells] = 0;
-    m_counters[LayoutObjectsThatAreTextAndCanNotUseTheSimpleFontCodePath] = 0;
-    m_counters[CharactersInLayoutObjectsThatAreTextAndCanNotUseTheSimpleFontCodePath] = 0;
-    m_counters[LayoutObjectsThatAreTextAndCanUseTheSimpleFontCodePath] = 0;
-    m_counters[CharactersInLayoutObjectsThatAreTextAndCanUseTheSimpleFontCodePath] = 0;
-    m_counters[TotalLayoutObjectsThatWereLaidOut] = 0;
+    m_depth = 0;
+    for (size_t i = 0; i < NumCounters; ++i) {
+        m_counters[i] = 0;
+    }
 }
 
 void LayoutAnalyzer::push(const LayoutObject& o)
@@ -84,39 +66,17 @@ void LayoutAnalyzer::push(const LayoutObject& o)
         }
     }
 
-    // This might be a root in a subtree layout, in which case the LayoutObject
-    // has a parent but the stack is empty. If a LayoutObject subclass forgets
-    // to call push() and is a root in a subtree layout, then this
-    // assert would only fail if that LayoutObject instance has any children
-    // that need layout and do call push().
-    // LayoutBlock::layoutPositionedObjects() hoists positioned descendants.
-    // LayoutBlockFlow::layoutInlineChildren() walks through inlines.
-    // LayoutTableSection::layoutRows() walks through rows.
-    // LayoutFlexibleBox::computeNextFlexLine() walks through OrderInterator.
-    if (!o.isPositioned()
-        && !o.isTableCell()
-        && !o.isSVGResourceContainer()
-        && (m_stack.size() != 0)
-        && !m_stack.peek()->isFlexibleBox()
-        && !(o.parent()->childrenInline()
-            && (o.isReplaced() || o.isFloating() || o.isOutOfFlowPositioned()))) {
-        ASSERT(o.parent() == m_stack.peek());
-    }
-    m_stack.push(&o);
+    ++m_depth;
 
-    // This refers to LayoutAnalyzer depth, not layout tree depth or DOM tree
-    // depth. LayoutAnalyzer depth is generally closer to C++ stack recursion
-    // depth. See above exceptions for when LayoutAnalyzer depth != layout tree
-    // depth.
-    if (m_stack.size() > m_counters[LayoutAnalyzerStackMaximumDepth])
-        m_counters[LayoutAnalyzerStackMaximumDepth] = m_stack.size();
-
+    // This refers to LayoutAnalyzer depth, which is generally closer to C++
+    // stack recursion depth, not layout tree depth or DOM tree depth.
+    m_counters[LayoutAnalyzerStackMaximumDepth] = max(m_counters[LayoutAnalyzerStackMaximumDepth], m_depth);
 }
 
 void LayoutAnalyzer::pop(const LayoutObject& o)
 {
-    ASSERT(m_stack.peek() == &o);
-    m_stack.pop();
+    ASSERT(m_depth > 0);
+    --m_depth;
 }
 
 void LayoutAnalyzer::recordCounters()

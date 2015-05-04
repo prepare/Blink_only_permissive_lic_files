@@ -12,7 +12,7 @@
 
 namespace blink {
 
-PassRefPtr<ScriptState> ScriptState::create(v8::Handle<v8::Context> context, PassRefPtr<DOMWrapperWorld> world)
+PassRefPtr<ScriptState> ScriptState::create(v8::Local<v8::Context> context, PassRefPtr<DOMWrapperWorld> world)
 {
     RefPtr<ScriptState> scriptState = adoptRef(new ScriptState(context, world));
     // This ref() is for keeping this ScriptState alive as long as the v8::Context is alive.
@@ -32,12 +32,14 @@ static void weakCallback(const v8::WeakCallbackInfo<ScriptState>& data)
     data.SetSecondPassCallback(derefCallback);
 }
 
-ScriptState::ScriptState(v8::Handle<v8::Context> context, PassRefPtr<DOMWrapperWorld> world)
+ScriptState::ScriptState(v8::Local<v8::Context> context, PassRefPtr<DOMWrapperWorld> world)
     : m_isolate(context->GetIsolate())
     , m_context(m_isolate, context)
     , m_world(world)
     , m_perContextData(V8PerContextData::create(context))
+#if ENABLE(ASSERT)
     , m_globalObjectDetached(false)
+#endif
 {
     ASSERT(m_world);
     m_context.setWeak(this, &weakCallback);
@@ -54,7 +56,9 @@ void ScriptState::detachGlobalObject()
 {
     ASSERT(!m_context.isEmpty());
     context()->DetachGlobal();
+#if ENABLE(ASSERT)
     m_globalObjectDetached = true;
+#endif
 }
 
 void ScriptState::disposePerContextData()

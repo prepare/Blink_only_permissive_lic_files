@@ -43,7 +43,7 @@ class PositionIteratorAlgorithm {
 public:
     using PositionType = typename Strategy::PositionType;
 
-    PositionIteratorAlgorithm(const PositionType&);
+    explicit PositionIteratorAlgorithm(const PositionType&);
     PositionIteratorAlgorithm();
 
     operator PositionType() const;
@@ -69,8 +69,10 @@ private:
 };
 
 extern template class PositionIteratorAlgorithm<EditingStrategy>;
+extern template class PositionIteratorAlgorithm<EditingInComposedTreeStrategy>;
 
 using PositionIterator = PositionIteratorAlgorithm<EditingStrategy>;
+using PositionIteratorInComposedTree = PositionIteratorAlgorithm<EditingInComposedTreeStrategy>;
 
 } // namespace blink
 

@@ -162,7 +162,6 @@ InspectorDebuggerAgent::InspectorDebuggerAgent(InjectedScriptManager* injectedSc
     , m_pendingTraceAsyncOperationCompleted(false)
     , m_startingStepIntoAsync(false)
 {
-    m_promiseTracker = PromiseTracker::create(this);
     m_v8AsyncCallTracker = V8AsyncCallTracker::create(this);
 }
 
@@ -175,6 +174,7 @@ InspectorDebuggerAgent::~InspectorDebuggerAgent()
 
 void InspectorDebuggerAgent::init()
 {
+    m_promiseTracker = PromiseTracker::create(this, scriptDebugServer().isolate());
     // FIXME: make breakReason optional so that there was no need to init it with "other".
     clearBreakDetails();
     m_state->setLong(DebuggerAgentState::pauseOnExceptionsState, ScriptDebugServer::DontPauseOnExceptions);
@@ -188,6 +188,7 @@ void InspectorDebuggerAgent::enable()
     // FIXME(WK44513): breakpoints activated flag should be synchronized between all front-ends
     scriptDebugServer().setBreakpointsActivated(true);
 
+    m_state->setBoolean(DebuggerAgentState::debuggerEnabled, true);
     if (m_listener)
         m_listener->debuggerWasEnabled();
 }
@@ -222,7 +223,6 @@ void InspectorDebuggerAgent::enable(ErrorString*)
         return;
 
     enable();
-    m_state->setBoolean(DebuggerAgentState::debuggerEnabled, true);
 
     ASSERT(frontend());
 }
@@ -569,7 +569,7 @@ PassRefPtr<TypeBuilder::Debugger::Location> InspectorDebuggerAgent::resolveBreak
     return location;
 }
 
-void InspectorDebuggerAgent::searchInContent(ErrorString* error, const String& scriptId, const String& query, const bool* const optionalCaseSensitive, const bool* const optionalIsRegex, RefPtr<Array<blink::TypeBuilder::Debugger::SearchMatch>>& results)
+void InspectorDebuggerAgent::searchInContent(ErrorString* error, const String& scriptId, const String& query, const bool* const optionalCaseSensitive, const bool* const optionalIsRegex, RefPtr<Array<TypeBuilder::Debugger::SearchMatch>>& results)
 {
     ScriptsMap::iterator it = m_scripts.find(scriptId);
     if (it != m_scripts.end())
@@ -999,15 +999,6 @@ void InspectorDebuggerAgent::disablePromiseTracker(ErrorString*)
 {
     m_state->setBoolean(DebuggerAgentState::promiseTrackerEnabled, false);
     promiseTracker().setEnabled(false, false);
-}
-
-void InspectorDebuggerAgent::getPromises(ErrorString* errorString, RefPtr<Array<PromiseDetails> >& promises)
-{
-    if (!promiseTracker().isEnabled()) {
-        *errorString = "Promise tracking is disabled";
-        return;
-    }
-    promises = promiseTracker().promises();
 }
 
 void InspectorDebuggerAgent::getPromiseById(ErrorString* errorString, int promiseId, const String* objectGroup, RefPtr<RemoteObject>& promise)

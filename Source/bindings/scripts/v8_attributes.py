@@ -49,7 +49,7 @@ def attribute_context(interface, attribute):
     base_idl_type = idl_type.base_type
     extended_attributes = attribute.extended_attributes
 
-    idl_type.add_includes_for_type()
+    idl_type.add_includes_for_type(extended_attributes)
     if idl_type.enum_values:
         includes.add('core/inspector/ConsoleMessage.h')
 
@@ -143,7 +143,6 @@ def attribute_context(interface, attribute):
         'measure_as': v8_utilities.measure_as(attribute, interface),  # [MeasureAs]
         'name': attribute.name,
         'only_exposed_to_private_script': is_only_exposed_to_private_script,
-        'per_context_enabled_function': v8_utilities.per_context_enabled_function_name(attribute),  # [PerContextEnabled]
         'private_script_v8_value_to_local_cpp_value': idl_type.v8_value_to_local_cpp_value(
             extended_attributes, 'v8Value', 'cppValue', bailout_return_value='false', isolate='scriptState->isolate()'),
         'property_attributes': property_attributes(interface, attribute),
@@ -518,23 +517,17 @@ def is_expose_js_accessors(interface, attribute):
         return False
 
     # These attributes must not be accessors on prototype chains.
-    if (attribute.is_static or
+    if (is_constructor_attribute(attribute) or
+            attribute.is_static or
             'Unforgeable' in attribute.extended_attributes or
             'OverrideBuiltins' in interface.extended_attributes):
         return False
 
     # FIXME: We should move all of the following DOM attributes to prototype
     # chains.
-    if (is_constructor_attribute(attribute) or
-            has_custom_getter(attribute) or
+    if (has_custom_getter(attribute) or
             has_custom_setter(attribute) or
-            interface.name == 'Window' or
-            v8_utilities.indexed_property_getter(interface) or
-            v8_utilities.indexed_property_setter(interface) or
-            v8_utilities.indexed_property_deleter(interface) or
-            v8_utilities.named_property_getter(interface) or
-            v8_utilities.named_property_setter(interface) or
-            v8_utilities.named_property_deleter(interface)):
+            interface.name == 'Window'):
         return False
 
     return is_accessor

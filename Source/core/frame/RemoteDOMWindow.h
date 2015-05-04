@@ -18,7 +18,6 @@ public:
     }
 
     // EventTarget overrides:
-    const AtomicString& interfaceName() const override;
     ExecutionContext* executionContext() const override;
 
     // DOMWindow overrides:
@@ -80,8 +79,6 @@ public:
     int requestAnimationFrame(FrameRequestCallback*) override;
     int webkitRequestAnimationFrame(FrameRequestCallback*) override;
     void cancelAnimationFrame(int id) override;
-    String sanitizedCrossDomainAccessErrorMessage(LocalDOMWindow* callingWindow) override;
-    String crossDomainAccessErrorMessage(LocalDOMWindow* callingWindow) override;
 
 private:
     explicit RemoteDOMWindow(RemoteFrame&);

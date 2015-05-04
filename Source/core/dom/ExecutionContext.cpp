@@ -35,7 +35,6 @@
 #include "core/html/PublicURLManager.h"
 #include "core/inspector/InspectorInstrumentation.h"
 #include "core/inspector/ScriptCallStack.h"
-#include "core/page/WindowFocusAllowedIndicator.h"
 #include "core/workers/WorkerGlobalScope.h"
 #include "core/workers/WorkerThread.h"
 #include "wtf/MainThread.h"
@@ -73,6 +72,7 @@ ExecutionContext::ExecutionContext()
     , m_activeDOMObjectsAreStopped(false)
     , m_strictMixedContentCheckingEnforced(false)
     , m_windowInteractionTokens(0)
+    , m_isRunSuspendableTasksScheduled(false)
 {
 }
 
@@ -127,6 +127,9 @@ void ExecutionContext::resumeScheduledTasks()
     resumeActiveDOMObjects();
     tasksWereResumed();
     // We need finish stack unwiding before running next task because it can suspend this context.
+    if (m_isRunSuspendableTasksScheduled)
+        return;
+    m_isRunSuspendableTasksScheduled = true;
     postTask(FROM_HERE, createSameThreadTask(&ExecutionContext::runSuspendableTasks, this));
 }
 
@@ -186,6 +189,7 @@ bool ExecutionContext::dispatchErrorEvent(PassRefPtrWillBeRawPtr<ErrorEvent> eve
 
 void ExecutionContext::runSuspendableTasks()
 {
+    m_isRunSuspendableTasksScheduled = false;
     while (!m_activeDOMObjectsAreSuspended && m_suspendedTasks.size()) {
         OwnPtr<SuspendableTask> task = m_suspendedTasks.takeFirst();
         task->run();
@@ -241,10 +245,7 @@ void ExecutionContext::consumeWindowInteraction()
 
 bool ExecutionContext::isWindowInteractionAllowed() const
 {
-    // FIXME: WindowFocusAllowedIndicator::windowFocusAllowed() is temporary,
-    // it will be removed as soon as WebScopedWindowFocusAllowedIndicator will
-    // be updated to not use WindowFocusAllowedIndicator.
-    return m_windowInteractionTokens > 0 || WindowFocusAllowedIndicator::windowFocusAllowed();
+    return m_windowInteractionTokens > 0;
 }
 
 void ExecutionContext::removeURLFromMemoryCache(const KURL& url)

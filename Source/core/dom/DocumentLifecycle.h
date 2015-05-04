@@ -63,7 +63,7 @@ public:
         PaintInvalidationClean,
 
         // Once the document starts shuting down, we cannot return
-        // to the style/layout/rendering states.
+        // to the style/layout/compositing states.
         Stopping,
         Stopped,
         Disposed,
@@ -122,7 +122,7 @@ public:
     State state() const { return m_state; }
 
     bool stateAllowsTreeMutations() const;
-    bool stateAllowsRenderTreeMutations() const;
+    bool stateAllowsLayoutTreeMutations() const;
     bool stateAllowsDetach() const;
     bool stateAllowsLayoutInvalidation() const;
 
@@ -155,7 +155,7 @@ inline bool DocumentLifecycle::stateAllowsTreeMutations() const
         && m_state != InCompositingUpdate;
 }
 
-inline bool DocumentLifecycle::stateAllowsRenderTreeMutations() const
+inline bool DocumentLifecycle::stateAllowsLayoutTreeMutations() const
 {
     return m_detachCount || m_state == InStyleRecalc;
 }

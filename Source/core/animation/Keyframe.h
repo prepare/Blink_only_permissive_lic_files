@@ -5,20 +5,21 @@
 #ifndef Keyframe_h
 #define Keyframe_h
 
-#include "core/CSSPropertyNames.h"
+#include "core/CoreExport.h"
 #include "core/animation/AnimationEffect.h"
 #include "core/animation/AnimationNode.h"
+#include "core/animation/PropertyHandle.h"
 #include "core/animation/animatable/AnimatableValue.h"
 
 namespace blink {
 
-using PropertySet = HashSet<CSSPropertyID>;
+using PropertyHandleSet = HashSet<PropertyHandle>;
 
 class Element;
 class ComputedStyle;
 
 // FIXME: Make Keyframe immutable
-class Keyframe : public RefCountedWillBeGarbageCollectedFinalized<Keyframe> {
+class CORE_EXPORT Keyframe : public RefCountedWillBeGarbageCollectedFinalized<Keyframe> {
 public:
     virtual ~Keyframe() { }
 
@@ -36,7 +37,7 @@ public:
         return a->offset() < b->offset();
     }
 
-    virtual PropertySet properties() const = 0;
+    virtual PropertyHandleSet properties() const = 0;
 
     virtual PassRefPtrWillBeRawPtr<Keyframe> clone() const = 0;
     PassRefPtrWillBeRawPtr<Keyframe> cloneWithOffset(double offset) const
@@ -64,10 +65,11 @@ public:
         virtual const PassRefPtrWillBeRawPtr<AnimatableValue> getAnimatableValue() const = 0;
 
         virtual bool isAnimatableValuePropertySpecificKeyframe() const { return false; }
-        virtual bool isStringPropertySpecificKeyframe() const { return false; }
+        virtual bool isCSSPropertySpecificKeyframe() const { return false; }
+        virtual bool isSVGPropertySpecificKeyframe() const { return false; }
 
         virtual PassOwnPtrWillBeRawPtr<PropertySpecificKeyframe> neutralKeyframe(double offset, PassRefPtr<TimingFunction> easing) const = 0;
-        virtual PassRefPtrWillBeRawPtr<Interpolation> maybeCreateInterpolation(CSSPropertyID, blink::Keyframe::PropertySpecificKeyframe& end, Element*, const ComputedStyle* baseStyle) const = 0;
+        virtual PassRefPtrWillBeRawPtr<Interpolation> maybeCreateInterpolation(PropertyHandle, Keyframe::PropertySpecificKeyframe& end, Element*, const ComputedStyle* baseStyle) const = 0;
 
         DEFINE_INLINE_VIRTUAL_TRACE() { }
 
@@ -79,7 +81,7 @@ public:
         AnimationEffect::CompositeOperation m_composite;
     };
 
-    virtual PassOwnPtrWillBeRawPtr<PropertySpecificKeyframe> createPropertySpecificKeyframe(CSSPropertyID) const = 0;
+    virtual PassOwnPtrWillBeRawPtr<PropertySpecificKeyframe> createPropertySpecificKeyframe(PropertyHandle) const = 0;
 
 protected:
     Keyframe()

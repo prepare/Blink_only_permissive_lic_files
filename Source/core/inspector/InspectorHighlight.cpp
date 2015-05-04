@@ -99,8 +99,8 @@ public:
 protected:
     virtual FloatPoint translatePoint(const FloatPoint& point)
     {
-        FloatPoint rendererPoint = m_shapeOutsideInfo.shapeToRendererPoint(point);
-        return m_view.contentsToViewport(roundedIntPoint(m_renderer.localToAbsolute(rendererPoint)));
+        FloatPoint layoutObjectPoint = m_shapeOutsideInfo.shapeToLayoutObjectPoint(point);
+        return m_view.contentsToViewport(roundedIntPoint(m_renderer.localToAbsolute(layoutObjectPoint)));
     }
 
 private:
@@ -261,7 +261,7 @@ PassRefPtr<JSONObject> buildElementInfo(Element* element)
 
     // Render the getBoundingClientRect() data in the tooltip
     // to be consistent with the rulers (see http://crbug.com/262338).
-    RefPtrWillBeRawPtr<ClientRect> boundingBox = element->getBoundingClientRect();
+    ClientRect* boundingBox = element->getBoundingClientRect();
     elementInfo->setString("nodeWidth", String::number(boundingBox->width()));
     elementInfo->setString("nodeHeight", String::number(boundingBox->height()));
 

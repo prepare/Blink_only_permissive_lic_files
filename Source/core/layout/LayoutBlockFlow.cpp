@@ -48,10 +48,11 @@
 #include "core/layout/line/LineBreaker.h"
 #include "core/layout/line/LineWidth.h"
 #include "core/paint/BlockFlowPainter.h"
+#include "core/paint/ClipScope.h"
 #include "core/paint/DeprecatedPaintLayer.h"
 #include "core/paint/LayoutObjectDrawingRecorder.h"
+#include "core/paint/PaintInfo.h"
 #include "platform/geometry/TransformState.h"
-#include "platform/graphics/paint/ClipRecorderStack.h"
 #include "platform/text/BidiTextRun.h"
 
 namespace blink {
@@ -173,9 +174,9 @@ LayoutBlockFlow::~LayoutBlockFlow()
 
 LayoutBlockFlow* LayoutBlockFlow::createAnonymous(Document* document)
 {
-    LayoutBlockFlow* renderer = new LayoutBlockFlow(0);
-    renderer->setDocumentForAnonymous(document);
-    return renderer;
+    LayoutBlockFlow* layoutBlockFlow = new LayoutBlockFlow(0);
+    layoutBlockFlow->setDocumentForAnonymous(document);
+    return layoutBlockFlow;
 }
 
 LayoutObject* LayoutBlockFlow::layoutSpecialExcludedChild(bool relayoutChildren, SubtreeLayoutScope& layoutScope)
@@ -380,9 +381,7 @@ void LayoutBlockFlow::layoutBlock(bool relayoutChildren)
     if (isHTMLDialogElement(node()) && isOutOfFlowPositioned())
         positionDialog();
 
-    LayoutAnalyzer* analyzer = frameView()->layoutAnalyzer();
-    if (UNLIKELY(analyzer != nullptr))
-        analyzer->increment((frameRect() == prevRect) ? LayoutAnalyzer::LayoutBlockRectangleDidNotChange : LayoutAnalyzer::LayoutBlockRectangleChanged);
+    frameView()->layoutAnalyzer().increment((frameRect() == prevRect) ? LayoutAnalyzer::LayoutBlockRectangleDidNotChange : LayoutAnalyzer::LayoutBlockRectangleChanged);
 
     clearNeedsLayout();
 }
@@ -402,6 +401,12 @@ inline bool LayoutBlockFlow::layoutBlockFlow(bool relayoutChildren, LayoutUnit &
         relayoutChildren = true;
 
     LayoutState state(*this, locationOffset(), pageLogicalHeight, pageLogicalHeightChanged, columnInfo(), logicalWidthChanged);
+    bool createsFormattingContext = createsNewFormattingContext();
+    if (createsFormattingContext) {
+        state.setFormattingContext(this);
+        if (relayoutChildren)
+            clearFormattingContextLowestFloatLogicalBottom();
+    }
 
     // We use four values, maxTopPos, maxTopNeg, maxBottomPos, and maxBottomNeg, to track
     // our current maximal positive and negative margins. These values are used when we
@@ -437,9 +442,15 @@ inline bool LayoutBlockFlow::layoutBlockFlow(bool relayoutChildren, LayoutUnit &
     else
         layoutBlockChildren(relayoutChildren, layoutScope, beforeEdge, afterEdge);
 
+    // We will not have a formatting context set if we are an SVG foreign object about to layout a document we contain.
+    if (view()->layoutState()->formattingContext())
+        view()->layoutState()->formattingContext()->setFormattingContextLowestFloatLogicalBottom(lowestFloatLogicalBottom());
     // Expand our intrinsic height to encompass floats.
-    if (lowestFloatLogicalBottom() > (logicalHeight() - afterEdge) && createsNewFormattingContext())
-        setLogicalHeight(lowestFloatLogicalBottom() + afterEdge);
+    if (createsFormattingContext) {
+        LayoutUnit lowestFloat = formattingContextLowestFloatLogicalBottom();
+        if (lowestFloat > (logicalHeight() - afterEdge))
+            setLogicalHeight(lowestFloat + afterEdge);
+    }
 
     if (LayoutMultiColumnFlowThread* flowThread = multiColumnFlowThread()) {
         if (flowThread->recalculateColumnHeights()) {
@@ -801,13 +812,13 @@ static inline LayoutUnit calculateMinimumPageHeight(const ComputedStyle& style, 
 void LayoutBlockFlow::adjustLinePositionForPagination(RootInlineBox& lineBox, LayoutUnit& delta, LayoutFlowThread* flowThread)
 {
     // FIXME: For now we paginate using line overflow. This ensures that lines don't overlap at all when we
-    // put a strut between them for pagination purposes. However, this really isn't the desired rendering, since
+    // put a strut between them for pagination purposes. However, this really isn't the desired layout, since
     // the line on the top of the next page will appear too far down relative to the same kind of line at the top
     // of the first column.
     //
-    // The rendering we would like to see is one where the lineTopWithLeading is at the top of the column, and any line overflow
+    // The layout we would like to see is one where the lineTopWithLeading is at the top of the column, and any line overflow
     // simply spills out above the top of the column. This effect would match what happens at the top of the first column.
-    // We can't achieve this rendering, however, until we stop columns from clipping to the column bounds (thus allowing
+    // We can't achieve this layout, however, until we stop columns from clipping to the column bounds (thus allowing
     // for overflow to occur), and then cache visible overflow for each column rect.
     //
     // Furthermore, the paint we have to do when a column has overflow has to be special. We need to exclude
@@ -913,7 +924,7 @@ void LayoutBlockFlow::rebuildFloatsFromIntruding()
         return;
     }
 
-    RendererToFloatInfoMap floatMap;
+    LayoutBoxToFloatInfoMap floatMap;
 
     if (m_floatingObjects) {
         if (childrenInline())
@@ -996,8 +1007,8 @@ void LayoutBlockFlow::rebuildFloatsFromIntruding()
             }
         }
 
-        RendererToFloatInfoMap::iterator end = floatMap.end();
-        for (RendererToFloatInfoMap::iterator it = floatMap.begin(); it != end; ++it) {
+        LayoutBoxToFloatInfoMap::iterator end = floatMap.end();
+        for (LayoutBoxToFloatInfoMap::iterator it = floatMap.begin(); it != end; ++it) {
             OwnPtr<FloatingObject>& floatingObject = it->value;
             if (!floatingObject->isDescendant()) {
                 changeLogicalTop = 0;
@@ -1967,8 +1978,8 @@ void LayoutBlockFlow::styleDidChange(StyleDifference diff, const ComputedStyle* 
 
                 if (currBlock->hasOverhangingFloats()) {
                     for (FloatingObjectSetIterator it = floatingObjectSet.begin(); it != end; ++it) {
-                        LayoutBox* renderer = (*it)->layoutObject();
-                        if (currBlock->hasOverhangingFloat(renderer)) {
+                        LayoutBox* layoutBox = (*it)->layoutObject();
+                        if (currBlock->hasOverhangingFloat(layoutBox)) {
                             parentBlockFlow = currBlock;
                             break;
                         }
@@ -1996,7 +2007,7 @@ void LayoutBlockFlow::styleDidChange(StyleDifference diff, const ComputedStyle* 
 
 void LayoutBlockFlow::updateBlockChildDirtyBitsBeforeLayout(bool relayoutChildren, LayoutBox& child)
 {
-    if (child.isLayoutMultiColumnSpannerPlaceholder() && toLayoutMultiColumnSpannerPlaceholder(child).rendererInFlowThread()->needsLayout()) {
+    if (child.isLayoutMultiColumnSpannerPlaceholder() && toLayoutMultiColumnSpannerPlaceholder(child).layoutObjectInFlowThread()->needsLayout()) {
         // The containing block of a spanner is the multicol container (|this| block), but the spanner
         // is laid out via its spanner set (|child|), so we need to make sure that we enter it.
         child.setChildNeedsLayout(MarkOnlyThis);
@@ -2034,7 +2045,7 @@ void LayoutBlockFlow::moveAllChildrenIncludingFloatsTo(LayoutBlock* toBlock, boo
     LayoutBlockFlow* toBlockFlow = toLayoutBlockFlow(toBlock);
     moveAllChildrenTo(toBlockFlow, fullRemoveInsert);
 
-    // When a portion of the render tree is being detached, anonymous blocks
+    // When a portion of the layout tree is being detached, anonymous blocks
     // will be combined as their children are deleted. In this process, the
     // anonymous block later in the tree is merged into the one preceeding it.
     // It can happen that the later block (this) contains floats that the
@@ -2089,9 +2100,9 @@ void LayoutBlockFlow::invalidatePaintForOverhangingFloats(bool paintAllDescendan
             && !floatingObject->layoutObject()->hasSelfPaintingLayer()
             && (floatingObject->shouldPaint() || (paintAllDescendants && floatingObject->layoutObject()->isDescendantOf(this)))) {
 
-            LayoutBox* floatingRenderer = floatingObject->layoutObject();
-            floatingRenderer->setShouldDoFullPaintInvalidation();
-            floatingRenderer->invalidatePaintForOverhangingFloats(false);
+            LayoutBox* floatingLayoutBox = floatingObject->layoutObject();
+            floatingLayoutBox->setShouldDoFullPaintInvalidation();
+            floatingLayoutBox->invalidatePaintForOverhangingFloats(false);
         }
     }
 }
@@ -2151,7 +2162,8 @@ void LayoutBlockFlow::paintSelection(const PaintInfo& paintInfo, const LayoutPoi
     BlockFlowPainter(*this).paintSelection(paintInfo, paintOffset);
 }
 
-void LayoutBlockFlow::clipOutFloatingObjects(const LayoutBlock* rootBlock, const PaintInfo* paintInfo, const LayoutPoint& rootBlockPhysicalPosition, const LayoutSize& offsetFromRootBlock) const
+void LayoutBlockFlow::clipOutFloatingObjects(const LayoutBlock* rootBlock, ClipScope& clipScope,
+    const LayoutPoint& rootBlockPhysicalPosition, const LayoutSize& offsetFromRootBlock) const
 {
     if (!m_floatingObjects)
         return;
@@ -2165,9 +2177,7 @@ void LayoutBlockFlow::clipOutFloatingObjects(const LayoutBlock* rootBlock, const
         rootBlock->flipForWritingMode(floatBox);
         floatBox.move(rootBlockPhysicalPosition.x(), rootBlockPhysicalPosition.y());
 
-        ASSERT(paintInfo->context->clipRecorderStack());
-        paintInfo->context->clipRecorderStack()->addClipRecorder(adoptPtr(new ClipRecorder(
-            *paintInfo->context, *this, paintInfo->displayItemTypeForClipping(), floatBox, SkRegion::kDifference_Op)));
+        clipScope.clip(floatBox, SkRegion::kDifference_Op);
     }
 }
 
@@ -2192,9 +2202,9 @@ void LayoutBlockFlow::clearFloats(EClear clear)
         setLogicalHeight(newY);
 }
 
-bool LayoutBlockFlow::containsFloat(LayoutBox* renderer) const
+bool LayoutBlockFlow::containsFloat(LayoutBox* layoutBox) const
 {
-    return m_floatingObjects && m_floatingObjects->set().contains<FloatingObjectHashTranslator>(renderer);
+    return m_floatingObjects && m_floatingObjects->set().contains<FloatingObjectHashTranslator>(layoutBox);
 }
 
 void LayoutBlockFlow::removeFloatingObjects()
@@ -2510,13 +2520,13 @@ bool LayoutBlockFlow::positionNewFloats(LineWidth* width)
     return true;
 }
 
-bool LayoutBlockFlow::hasOverhangingFloat(LayoutBox* renderer)
+bool LayoutBlockFlow::hasOverhangingFloat(LayoutBox* layoutBox)
 {
     if (!m_floatingObjects || hasColumns() || !parent())
         return false;
 
     const FloatingObjectSet& floatingObjectSet = m_floatingObjects->set();
-    FloatingObjectSetIterator it = floatingObjectSet.find<FloatingObjectHashTranslator>(renderer);
+    FloatingObjectSetIterator it = floatingObjectSet.find<FloatingObjectHashTranslator>(layoutBox);
     if (it == floatingObjectSet.end())
         return false;
 
@@ -2727,35 +2737,33 @@ GapRects LayoutBlockFlow::selectionGapRectsForPaintInvalidation(const LayoutBoxM
     return selectionGaps(this, offsetFromPaintInvalidationContainer, LayoutSize(), lastTop, lastLeft, lastRight);
 }
 
-static void clipOutPositionedObjects(const PaintInfo& paintInfo, const LayoutPoint& offset, TrackedRendererListHashSet* positionedObjects)
+static void clipOutPositionedObjects(ClipScope& clipScope, const LayoutPoint& offset, TrackedLayoutBoxListHashSet* positionedObjects)
 {
     if (!positionedObjects)
         return;
 
-    TrackedRendererListHashSet::const_iterator end = positionedObjects->end();
-    for (TrackedRendererListHashSet::const_iterator it = positionedObjects->begin(); it != end; ++it) {
+    TrackedLayoutBoxListHashSet::const_iterator end = positionedObjects->end();
+    for (TrackedLayoutBoxListHashSet::const_iterator it = positionedObjects->begin(); it != end; ++it) {
         LayoutBox* r = *it;
-        ASSERT(paintInfo.context->clipRecorderStack());
-        paintInfo.context->clipRecorderStack()->addClipRecorder(adoptPtr(new ClipRecorder(
-            *paintInfo.context, *r, paintInfo.displayItemTypeForClipping(),
-            LayoutRect(flooredIntPoint(r->location() + offset), flooredIntSize(r->size())), SkRegion::kDifference_Op)));
+        clipScope.clip(LayoutRect(flooredIntPoint(r->location() + offset), flooredIntSize(r->size())), SkRegion::kDifference_Op);
     }
 }
 
-GapRects LayoutBlockFlow::selectionGaps(const LayoutBlock* rootBlock, const LayoutPoint& rootBlockPhysicalPosition, const LayoutSize& offsetFromRootBlock,
-    LayoutUnit& lastLogicalTop, LayoutUnit& lastLogicalLeft, LayoutUnit& lastLogicalRight, const PaintInfo* paintInfo) const
+GapRects LayoutBlockFlow::selectionGaps(const LayoutBlock* rootBlock, const LayoutPoint& rootBlockPhysicalPosition,
+    const LayoutSize& offsetFromRootBlock, LayoutUnit& lastLogicalTop, LayoutUnit& lastLogicalLeft, LayoutUnit& lastLogicalRight,
+    const PaintInfo* paintInfo, ClipScope* clipScope) const
 {
     // IMPORTANT: Callers of this method that intend for painting to happen need to do a save/restore.
-    if (paintInfo) {
+    if (clipScope) {
         // Note that we don't clip out overflow for positioned objects.  We just stick to the border box.
         LayoutRect flippedBlockRect(LayoutPoint(offsetFromRootBlock), size());
         rootBlock->flipForWritingMode(flippedBlockRect);
         flippedBlockRect.moveBy(rootBlockPhysicalPosition);
-        clipOutPositionedObjects(*paintInfo, flippedBlockRect.location(), positionedObjects());
+        clipOutPositionedObjects(*clipScope, flippedBlockRect.location(), positionedObjects());
         if (isBody() || isDocumentElement()) // The <body> must make sure to examine its containingBlock's positioned objects.
             for (LayoutBlock* cb = containingBlock(); cb && !cb->isLayoutView(); cb = cb->containingBlock())
-                clipOutPositionedObjects(*paintInfo, cb->location(), cb->positionedObjects()); // FIXME: Not right for flipped writing modes.
-        clipOutFloatingObjects(rootBlock, paintInfo, rootBlockPhysicalPosition, offsetFromRootBlock);
+                clipOutPositionedObjects(*clipScope, cb->location(), cb->positionedObjects()); // FIXME: Not right for flipped writing modes.
+        clipOutFloatingObjects(rootBlock, *clipScope, rootBlockPhysicalPosition, offsetFromRootBlock);
     }
 
     GapRects result;
@@ -2980,6 +2988,24 @@ void LayoutBlockFlow::getSelectionGapInfo(SelectionState state, bool& leftGap, b
         || (state == LayoutObject::SelectionEnd && !ltr);
 }
 
+void LayoutBlockFlow::clearFormattingContextLowestFloatLogicalBottom()
+{
+    ASSERT(createsNewFormattingContext());
+    if (!m_rareData)
+        return;
+    m_rareData->m_lowestFloatLogicalBottom = LayoutUnit();
+}
+
+void LayoutBlockFlow::setFormattingContextLowestFloatLogicalBottom(LayoutUnit logicalBottom)
+{
+    ASSERT(createsNewFormattingContext());
+    if (!logicalBottom)
+        return;
+    if (!m_rareData)
+        m_rareData = adoptPtr(new LayoutBlockFlowRareData(this));
+    m_rareData->m_lowestFloatLogicalBottom = logicalBottom;
+}
+
 void LayoutBlockFlow::setPaginationStrut(LayoutUnit strut)
 {
     if (!m_rareData) {
@@ -2992,7 +3018,7 @@ void LayoutBlockFlow::setPaginationStrut(LayoutUnit strut)
 
 void LayoutBlockFlow::positionSpannerDescendant(LayoutMultiColumnSpannerPlaceholder& child)
 {
-    LayoutBox& spanner = *child.rendererInFlowThread();
+    LayoutBox& spanner = *child.layoutObjectInFlowThread();
     // FIXME: |spanner| is a descendant, but never a direct child, so the names here are bad, if
     // nothing else.
     setLogicalTopForChild(spanner, child.logicalTop());
@@ -3099,8 +3125,26 @@ void LayoutBlockFlow::createOrDestroyMultiColumnFlowThreadIfNeeded(const Compute
     if (type == NoFlowThread || multiColumnFlowThread())
         return;
 
+    // Ruby elements manage child insertion in a special way, and would mess up insertion of the
+    // flow thread. The flow thread needs to be a direct child of the multicol block (|this|).
+    if (isRuby())
+        return;
+
+    // Fieldsets look for a legend special child (layoutSpecialExcludedChild()). We currently only
+    // support one special child per layout object, and the flow thread would make for a second one.
+    if (isFieldset())
+        return;
+
+    // Form controls are replaced content, and are therefore not supposed to support multicol.
+    if (isFileUploadControl() || isTextControl() || isListBox())
+        return;
+
     LayoutMultiColumnFlowThread* flowThread = createMultiColumnFlowThread(type);
     addChild(flowThread);
+
+    // Check that addChild() put the flow thread as a direct child, and didn't do fancy things.
+    ASSERT(flowThread->parent() == this);
+
     flowThread->populate();
     LayoutBlockFlowRareData& rareData = ensureRareData();
     ASSERT(!rareData.m_multiColumnFlowThread);
@@ -3145,26 +3189,5 @@ void LayoutBlockFlow::positionDialog()
     setY(top);
     dialog->setCentered(top);
 }
-
-const char* LayoutBlockFlow::name() const
-{
-    if (isFloating())
-        return "LayoutBlockFlow (floating)";
-
-    if (style()) {
-        if (isAnonymousColumnsBlock())
-            return "LayoutBlockFlow (anonymous multi-column)";
-        if (isAnonymousColumnSpanBlock())
-            return "LayoutBlockFlow (anonymous multi-column span)";
-        if (isAnonymousBlock())
-            return "LayoutBlockFlow (anonymous)";
-    }
-    if (isAnonymous())
-        return "LayoutBlockFlow (anonymous)";
-    if (isRelPositioned())
-        return "LayoutBlockFlow (relative positioned)";
-    return "LayoutBlockFlow";
-}
-
 
 } // namespace blink

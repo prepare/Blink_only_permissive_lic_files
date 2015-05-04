@@ -78,12 +78,13 @@ v8::Local<v8::Object> V8PerContextData::createWrapperFromCacheSlowCase(const Wra
 
     v8::Context::Scope scope(context());
     v8::Local<v8::Function> function = constructorForType(type);
-    v8::Local<v8::Object> instanceTemplate = V8ObjectConstructor::newInstance(m_isolate, function);
-    if (!instanceTemplate.IsEmpty()) {
-        m_wrapperBoilerplates.Set(type, instanceTemplate);
-        return instanceTemplate->Clone();
-    }
-    return v8::Local<v8::Object>();
+    if (function.IsEmpty())
+        return v8::Local<v8::Object>();
+    v8::Local<v8::Object> instanceTemplate;
+    if (!V8ObjectConstructor::newInstance(m_isolate, function).ToLocal(&instanceTemplate))
+        return v8::Local<v8::Object>();
+    m_wrapperBoilerplates.Set(type, instanceTemplate);
+    return instanceTemplate->Clone();
 }
 
 v8::Local<v8::Function> V8PerContextData::constructorForTypeSlowCase(const WrapperTypeInfo* type)
@@ -95,10 +96,10 @@ v8::Local<v8::Function> V8PerContextData::constructorForTypeSlowCase(const Wrapp
     // We shouldn't reach this point for the types that are implemented in v8 suche as typed arrays and
     // hence don't have domTemplateFunction.
     ASSERT(type->domTemplateFunction);
-    v8::Handle<v8::FunctionTemplate> functionTemplate = type->domTemplate(m_isolate);
+    v8::Local<v8::FunctionTemplate> functionTemplate = type->domTemplate(m_isolate);
     // Getting the function might fail if we're running out of stack or memory.
-    v8::Local<v8::Function> function = functionTemplate->GetFunction();
-    if (function.IsEmpty())
+    v8::Local<v8::Function> function;
+    if (!functionTemplate->GetFunction(currentContext).ToLocal(&function))
         return v8::Local<v8::Function>();
 
     if (type->parentClass) {
@@ -113,7 +114,7 @@ v8::Local<v8::Function> V8PerContextData::constructorForTypeSlowCase(const Wrapp
     if (prototypeObject->InternalFieldCount() == v8PrototypeInternalFieldcount
         && type->wrapperTypePrototype == WrapperTypeInfo::WrapperTypeObjectPrototype)
         prototypeObject->SetAlignedPointerInInternalField(v8PrototypeTypeIndex, const_cast<WrapperTypeInfo*>(type));
-    type->installConditionallyEnabledMethods(prototypeObject, m_isolate);
+    type->preparePrototypeObject(m_isolate, prototypeObject);
     if (type->wrapperTypePrototype == WrapperTypeInfo::WrapperTypeExceptionPrototype) {
         if (!v8CallBoolean(prototypeObject->SetPrototype(currentContext, m_errorPrototype.newLocal(m_isolate))))
             return v8::Local<v8::Function>();
@@ -140,12 +141,12 @@ void V8PerContextData::addCustomElementBinding(CustomElementDefinition* definiti
     m_customElementBindings.append(binding);
 }
 
-v8::Handle<v8::Value> V8PerContextData::compiledPrivateScript(String className)
+v8::Local<v8::Value> V8PerContextData::compiledPrivateScript(String className)
 {
     return m_compiledPrivateScript.Get(className);
 }
 
-void V8PerContextData::setCompiledPrivateScript(String className, v8::Handle<v8::Value> compiledObject)
+void V8PerContextData::setCompiledPrivateScript(String className, v8::Local<v8::Value> compiledObject)
 {
     m_compiledPrivateScript.Set(className, compiledObject);
 }

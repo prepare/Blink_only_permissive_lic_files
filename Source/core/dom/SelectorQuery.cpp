@@ -118,7 +118,7 @@ void SelectorDataList::initialize(const CSSSelectorList& selectorList)
 
 inline bool SelectorDataList::selectorMatches(const CSSSelector& selector, Element& element, const ContainerNode& rootNode) const
 {
-    SelectorChecker selectorChecker(element.document(), SelectorChecker::QueryingRules);
+    SelectorChecker selectorChecker(SelectorChecker::QueryingRules);
     SelectorChecker::SelectorCheckingContext selectorCheckingContext(selector, &element, SelectorChecker::VisitedMatchDisabled);
     selectorCheckingContext.scope = !rootNode.isDocumentNode() ? &rootNode : 0;
     if (selectorCheckingContext.scope)
@@ -179,7 +179,10 @@ template <typename SelectorQueryTrait>
 void SelectorDataList::collectElementsByTagName(ContainerNode& rootNode, const QualifiedName& tagName,  typename SelectorQueryTrait::OutputType& output) const
 {
     for (Element& element : ElementTraversal::descendantsOf(rootNode)) {
-        if (SelectorChecker::tagMatches(element, tagName)) {
+        // querySelector*() doesn't allow namespaces and throws before it gets
+        // here so we can ignore them.
+        ASSERT(tagName.namespaceURI() == starAtom);
+        if (tagName == anyQName() || element.hasLocalName(tagName.localName())) {
             SelectorQueryTrait::appendElement(output, element);
             if (SelectorQueryTrait::shouldOnlyMatchFirstElement)
                 return;

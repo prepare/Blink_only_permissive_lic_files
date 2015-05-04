@@ -682,9 +682,24 @@ public:
         LegacyConst = 748,
         SVGFilterRes = 749,
         V8Permissions_Query_Method = 750,
+        // The above items are available in M43 branch.
+
         LegacyCSSValueIntrinsic = 751,
         LegacyCSSValueMinIntrinsic = 752,
         WebkitCanvas = 753,
+        V8HTMLInputElement_Autocapitalize_AttributeGetter = 754,
+        V8HTMLInputElement_Autocapitalize_AttributeSetter = 755,
+        V8HTMLTextAreaElement_Autocapitalize_AttributeGetter = 756,
+        V8HTMLTextAreaElement_Autocapitalize_AttributeSetter = 757,
+        SVGHrefBaseVal = 758,
+        SVGHrefAnimVal = 759,
+        V8CSSRuleList_Item_Method = 760,
+        V8MediaList_Item_Method = 761,
+        V8StyleSheetList_Item_Method = 762,
+        StyleSheetListAnonymousNamedGetter = 763,
+        AutocapitalizeAttribute = 764,
+        FullscreenSecureOrigin = 765,
+        FullscreenInsecureOrigin = 766,
 
         // Add new features immediately above this line. Don't change assigned
         // numbers of any item, and don't reuse removed slots.
@@ -744,40 +759,39 @@ public:
 
     class CountBits {
     public:
-        bool recordMeasurement(Feature feature)
+        CountBits() : m_bits(NumberOfFeatures) { }
+
+        bool hasRecordedMeasurement(Feature feature) const
         {
             if (UseCounter::m_muteCount)
                 return false;
             ASSERT(feature != PageDestruction); // PageDestruction is reserved as a scaling factor.
             ASSERT(feature < NumberOfFeatures);
-            if (!m_bits) {
-                m_bits = adoptPtr(new BitVector(NumberOfFeatures));
-                m_bits->clearAll();
-            }
 
-            if (m_bits->quickGet(feature))
-                return false;
-
-            m_bits->quickSet(feature);
-            return true;
+            return m_bits.quickGet(feature);
         }
+
+        void recordMeasurement(Feature feature)
+        {
+            if (UseCounter::m_muteCount)
+                return;
+            ASSERT(feature != PageDestruction); // PageDestruction is reserved as a scaling factor.
+            ASSERT(feature < NumberOfFeatures);
+
+            m_bits.quickSet(feature);
+        }
+
         void updateMeasurements();
 
-        // NOTE: only for use in testing.
-        bool hasRecordedMeasurement(Feature feature) const
-        {
-            ASSERT(feature >= 0 && feature < NumberOfFeatures);
-            return m_bits->get(feature);
-        }
-
     private:
-        OwnPtr<BitVector> m_bits;
+        BitVector m_bits;
     };
 
-private:
+protected:
+    friend class UseCounterTest;
     static int m_muteCount;
 
-    bool recordMeasurement(Feature feature) { return m_countBits.recordMeasurement(feature); }
+    void recordMeasurement(Feature feature) { m_countBits.recordMeasurement(feature); }
     void updateMeasurements();
 
     bool hasRecordedMeasurement(Feature feature) const { return m_countBits.hasRecordedMeasurement(feature); }

@@ -135,9 +135,9 @@ LayoutSize MultiColumnFragmentainerGroup::flowThreadTranslationAtOffset(LayoutUn
     unsigned columnIndex = columnIndexAtOffset(offsetInFlowThread);
     LayoutRect portionRect(flowThreadPortionRectAt(columnIndex));
     m_columnSet.flipForWritingMode(portionRect);
-    LayoutRect columnRect(columnRectAt(columnIndex));
-    m_columnSet.flipForWritingMode(columnRect);
-    return columnRect.location() - portionRect.location();
+    LayoutSize translation(translationAtColumn(columnIndex));
+    // TODO(mstensho): need a rectangle (not a point) to flip for writing mode here, once we get support for multiple rows.
+    return toLayoutPoint(translation) - portionRect.location();
 }
 
 LayoutUnit MultiColumnFragmentainerGroup::columnLogicalTopForOffset(LayoutUnit offsetInFlowThread) const
@@ -196,7 +196,7 @@ void MultiColumnFragmentainerGroup::collectLayerFragments(DeprecatedPaintLayerFr
     bool isHorizontalWritingMode = m_columnSet.isHorizontalWritingMode();
 
     // Put the layer bounds into flow thread-local coordinates by flipping it first. Since we're in
-    // a renderer, most rectangles are represented this way.
+    // a layoutObject, most rectangles are represented this way.
     LayoutRect layerBoundsInFlowThread(layerBoundingBox);
     flowThread->flipForWritingMode(layerBoundsInFlowThread);
 
@@ -278,7 +278,7 @@ void MultiColumnFragmentainerGroup::collectLayerFragments(DeprecatedPaintLayerFr
         fragment.paginationOffset = translationOffset;
 
         LayoutRect flippedFlowThreadOverflowPortion(flowThreadOverflowPortion);
-        // Flip it into more a physical (RenderLayer-style) rectangle.
+        // Flip it into more a physical (DeprecatedPaintLayer-style) rectangle.
         flowThread->flipForWritingMode(flippedFlowThreadOverflowPortion);
         fragment.paginationClip = flippedFlowThreadOverflowPortion;
         fragments.append(fragment);
@@ -337,7 +337,7 @@ LayoutUnit MultiColumnFragmentainerGroup::calculateMaxColumnHeight() const
     LayoutUnit availableHeight = m_columnSet.multiColumnFlowThread()->columnHeightAvailable();
     LayoutUnit maxColumnHeight = availableHeight ? availableHeight : LayoutFlowThread::maxLogicalHeight();
     if (!multicolStyle.logicalMaxHeight().isMaxSizeNone()) {
-        LayoutUnit logicalMaxHeight = multicolBlock->computeContentLogicalHeight(multicolStyle.logicalMaxHeight(), -1);
+        LayoutUnit logicalMaxHeight = multicolBlock->computeContentLogicalHeight(MaxSize, multicolStyle.logicalMaxHeight(), -1);
         if (logicalMaxHeight != -1 && maxColumnHeight > logicalMaxHeight)
             maxColumnHeight = logicalMaxHeight;
     }
@@ -436,6 +436,23 @@ LayoutUnit MultiColumnFragmentainerGroup::calculateColumnHeight(BalancedColumnHe
         return m_columnHeight; // So bail out rather than looping infinitely.
 
     return m_columnHeight + m_minSpaceShortage;
+}
+
+LayoutSize MultiColumnFragmentainerGroup::translationAtColumn(unsigned columnIndex) const
+{
+    LayoutUnit logicalTopOffset;
+    LayoutUnit logicalLeftOffset;
+    LayoutUnit columnGap = m_columnSet.columnGap();
+    if (m_columnSet.multiColumnFlowThread()->progressionIsInline()) {
+        logicalLeftOffset = columnIndex * (m_columnSet.pageLogicalWidth() + columnGap);
+        if (!m_columnSet.style()->isLeftToRightDirection())
+            logicalLeftOffset = -logicalLeftOffset;
+    } else {
+        logicalTopOffset = columnIndex * (m_columnHeight + columnGap);
+    }
+
+    LayoutSize offset(logicalLeftOffset, logicalTopOffset);
+    return m_columnSet.isHorizontalWritingMode() ? offset : offset.transposedSize();
 }
 
 LayoutRect MultiColumnFragmentainerGroup::columnRectAt(unsigned columnIndex) const

@@ -5,6 +5,7 @@
 #ifndef NthIndexCache_h
 #define NthIndexCache_h
 
+#include "core/CoreExport.h"
 #include "core/dom/Element.h"
 #include "core/dom/ElementTraversal.h"
 #include "platform/heap/Handle.h"
@@ -16,7 +17,7 @@ namespace blink {
 
 class Document;
 
-class NthIndexCache final {
+class CORE_EXPORT NthIndexCache final {
     STACK_ALLOCATED();
     WTF_MAKE_NONCOPYABLE(NthIndexCache);
 public:
@@ -45,7 +46,6 @@ private:
     };
 
     NthIndexData& ensureNthIndexDataFor(Node&);
-    inline unsigned nthIndex(Element&);
 
     using ParentMap = WillBeHeapHashMap<RefPtrWillBeMember<Node>, OwnPtrWillBeMember<NthIndexData>>;
 
@@ -56,6 +56,8 @@ private:
 
 inline unsigned NthIndexCache::NthIndexData::nthIndex(Element& element)
 {
+    if (element.isPseudoElement())
+        return 1;
     if (!m_count)
         return cacheNthIndices(element);
 
@@ -70,6 +72,8 @@ inline unsigned NthIndexCache::NthIndexData::nthIndex(Element& element)
 
 inline unsigned NthIndexCache::NthIndexData::nthLastIndex(Element& element)
 {
+    if (element.isPseudoElement())
+        return 1;
     unsigned index = nthIndex(element);
     return m_count - index + 1;
 }

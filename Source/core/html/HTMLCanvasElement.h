@@ -57,7 +57,7 @@ class ImageBuffer;
 class ImageBufferSurface;
 class IntSize;
 
-class CanvasObserver : public WillBeGarbageCollectedMixin {
+class CORE_EXPORT CanvasObserver : public WillBeGarbageCollectedMixin {
     DECLARE_EMPTY_VIRTUAL_DESTRUCTOR_WILL_BE_REMOVED(CanvasObserver);
 public:
     virtual void canvasChanged(HTMLCanvasElement*, const FloatRect& changedRect) = 0;
@@ -167,8 +167,7 @@ public:
 
     DECLARE_VIRTUAL_TRACE();
 
-    // Methods used for testing
-    void createImageBufferUsingSurface(PassOwnPtr<ImageBufferSurface>);
+    void createImageBufferUsingSurfaceForTesting(PassOwnPtr<ImageBufferSurface>);
 
 protected:
     virtual void didMoveToNewDocument(Document& oldDocument) override;

@@ -35,6 +35,7 @@
 #include "core/html/canvas/CanvasRenderingContext.h"
 #include "core/html/canvas/WebGLContextAttributes.h"
 #include "core/html/canvas/WebGLExtensionName.h"
+#include "core/html/canvas/WebGLTexture.h"
 #include "core/html/canvas/WebGLVertexArrayObjectOES.h"
 #include "core/layout/LayoutBoxModelObject.h"
 #include "core/page/Page.h"
@@ -97,7 +98,6 @@ class WebGLShader;
 class WebGLShaderPrecisionFormat;
 class WebGLSharedObject;
 class WebGLSharedWebGraphicsContext3D;
-class WebGLTexture;
 class WebGLUniformLocation;
 class WebGLVertexArrayObjectOES;
 
@@ -117,7 +117,7 @@ public:
 
     static unsigned getWebGLVersion(const CanvasRenderingContext*);
 
-    static PassOwnPtr<blink::WebGraphicsContext3D> createWebGraphicsContext3D(HTMLCanvasElement*, WebGLContextAttributes, unsigned webGLVersion);
+    static PassOwnPtr<WebGraphicsContext3D> createWebGraphicsContext3D(HTMLCanvasElement*, WebGLContextAttributes, unsigned webGLVersion);
     static void forceNextWebGLContextCreationToFail();
 
     int drawingBufferWidth() const;
@@ -202,7 +202,7 @@ public:
     void getContextAttributes(Nullable<WebGLContextAttributes>&);
     GLenum getError();
     ScriptValue getExtension(ScriptState*, const String& name);
-    ScriptValue getFramebufferAttachmentParameter(ScriptState*, GLenum target, GLenum attachment, GLenum pname);
+    virtual ScriptValue getFramebufferAttachmentParameter(ScriptState*, GLenum target, GLenum attachment, GLenum pname);
     virtual ScriptValue getParameter(ScriptState*, GLenum pname);
     ScriptValue getProgramParameter(ScriptState*, WebGLProgram*, GLenum pname);
     String getProgramInfoLog(WebGLProgram*);
@@ -212,7 +212,7 @@ public:
     PassRefPtrWillBeRawPtr<WebGLShaderPrecisionFormat> getShaderPrecisionFormat(GLenum shaderType, GLenum precisionType);
     String getShaderSource(WebGLShader*);
     Nullable<Vector<String>> getSupportedExtensions();
-    ScriptValue getTexParameter(ScriptState*, GLenum target, GLenum pname);
+    virtual ScriptValue getTexParameter(ScriptState*, GLenum target, GLenum pname);
     ScriptValue getUniform(ScriptState*, WebGLProgram*, const WebGLUniformLocation*);
     PassRefPtrWillBeRawPtr<WebGLUniformLocation> getUniformLocation(WebGLProgram*, const String&);
     ScriptValue getVertexAttrib(ScriptState*, GLuint index, GLenum pname);
@@ -351,7 +351,7 @@ public:
     void forceRestoreContext();
     void loseContextImpl(LostContextMode, AutoRecoveryMethod);
 
-    blink::WebGraphicsContext3D* webContext() const { return drawingBuffer()->context(); }
+    WebGraphicsContext3D* webContext() const { return drawingBuffer()->context(); }
     WebGLContextGroup* contextGroup() const { return m_contextGroup.get(); }
     Extensions3DUtil* extensionsUtil();
 
@@ -384,11 +384,14 @@ public:
     public:
         RefPtrWillBeMember<WebGLTexture> m_texture2DBinding;
         RefPtrWillBeMember<WebGLTexture> m_textureCubeMapBinding;
+        RefPtrWillBeMember<WebGLTexture> m_texture3DBinding;
+        RefPtrWillBeMember<WebGLTexture> m_texture2DArrayBinding;
 
         DECLARE_TRACE();
     };
 
     void setFilterQuality(SkFilterQuality);
+    bool isWebGL2OrHigher() { return version() >= 2; }
 
 protected:
     friend class WebGLDrawBuffers;
@@ -406,8 +409,8 @@ protected:
     friend class ScopedTexture2DRestorer;
     friend class ScopedFramebufferRestorer;
 
-    WebGLRenderingContextBase(HTMLCanvasElement*, PassOwnPtr<blink::WebGraphicsContext3D>, const WebGLContextAttributes&);
-    PassRefPtr<DrawingBuffer> createDrawingBuffer(PassOwnPtr<blink::WebGraphicsContext3D>);
+    WebGLRenderingContextBase(HTMLCanvasElement*, PassOwnPtr<WebGraphicsContext3D>, const WebGLContextAttributes&);
+    PassRefPtr<DrawingBuffer> createDrawingBuffer(PassOwnPtr<WebGraphicsContext3D>);
     void setupFlags();
 
 #if ENABLE(OILPAN)
@@ -419,10 +422,8 @@ protected:
     virtual bool isAccelerated() const override { return true; }
     virtual void setIsHidden(bool) override;
     bool paintRenderingResultsToCanvas(SourceDrawingBuffer) override;
-    virtual blink::WebLayer* platformLayer() const override;
+    virtual WebLayer* platformLayer() const override;
     void stop() override;
-
-    bool isWebGL2OrHigher() { return version() >= 2; }
 
     void addSharedObject(WebGLSharedObject*);
     void addContextObject(WebGLContextObject*);
@@ -431,8 +432,8 @@ protected:
     void destroyContext();
     void markContextChanged(ContentChangeType);
 
-    // Query if the GL implementation is NPOT strict.
-    bool isGLES2NPOTStrict() { return m_isGLES2NPOTStrict; }
+    // Query if the context is NPOT strict.
+    bool isNPOTStrict() { return !isWebGL2OrHigher(); }
     // Query if depth_stencil buffer is supported.
     bool isDepthStencilSupported() { return m_isDepthStencilSupported; }
 
@@ -591,7 +592,6 @@ protected:
     GLint m_stencilFuncRef, m_stencilFuncRefBack; // Note that these are the user specified values, not the internal clamped value.
     GLuint m_stencilFuncMask, m_stencilFuncMaskBack;
 
-    bool m_isGLES2NPOTStrict;
     bool m_isDepthStencilSupported;
 
     bool m_synthesizedErrorsToConsole;
@@ -796,7 +796,7 @@ protected:
     // Helper function to check target and texture bound to the target.
     // Generate GL errors and return 0 if target is invalid or texture bound is
     // null.  Otherwise, return the texture bound to the target.
-    WebGLTexture* validateTextureBinding(const char* functionName, GLenum target, bool useSixEnumsForCubeMap);
+    virtual WebGLTexture* validateTextureBinding(const char* functionName, GLenum target, bool useSixEnumsForCubeMap);
 
     // Helper function to check input format/type for functions {copy}Tex{Sub}Image.
     // Generates GL error and returns false if parameters are invalid.
@@ -880,6 +880,12 @@ protected:
     // Helper function to print warnings to console. Currently
     // used only to warn about use of obsolete functions.
     void printWarningToConsole(const String&);
+
+    // Helper function to validate the target for checkFramebufferStatus and validateFramebufferFuncParameters.
+    virtual bool validateFramebufferTarget(GLenum target);
+
+    // Get the framebuffer bound to given target
+    virtual WebGLFramebuffer* getFramebufferBinding(GLenum target);
 
     // Helper function to validate input parameters for framebuffer functions.
     // Generate GL error if parameters are illegal.

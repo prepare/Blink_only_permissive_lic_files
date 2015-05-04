@@ -336,7 +336,7 @@ void FrameLoader::receivedFirstData()
     HistoryCommitType historyCommitType = loadTypeToCommitType(m_loadType);
     if (historyCommitType == StandardCommit && (m_documentLoader->urlForHistory().isEmpty() || (opener() && !m_currentItem && m_documentLoader->originalRequest().url().isEmpty())))
         historyCommitType = HistoryInertCommit;
-    else if (historyCommitType == InitialCommitInChildFrame && (!m_frame->tree().top()->isLocalFrame() || MixedContentChecker::isMixedContent(toLocalFrame(m_frame->tree().top())->document()->securityOrigin(), m_documentLoader->url())))
+    else if (historyCommitType == InitialCommitInChildFrame && MixedContentChecker::isMixedContent(m_frame->tree().top()->securityContext()->securityOrigin(), m_documentLoader->url()))
         historyCommitType = HistoryInertCommit;
     setHistoryItemStateForCommit(historyCommitType);
 
@@ -353,12 +353,17 @@ void FrameLoader::receivedFirstData()
 
 void FrameLoader::didBeginDocument(bool dispatch)
 {
+    ASSERT(m_frame);
+    ASSERT(m_frame->document());
+    ASSERT(m_frame->document()->fetcher());
     m_frame->document()->setReadyState(Document::Loading);
 
     if (dispatch)
         dispatchDidClearDocumentOfWindowObject();
 
     m_frame->document()->initContentSecurityPolicy(m_documentLoader ? m_documentLoader->releaseContentSecurityPolicy() : ContentSecurityPolicy::create());
+    if (m_documentLoader)
+        m_frame->document()->setClientHintsPreferences(m_documentLoader->clientHintsPreferences());
 
     Settings* settings = m_frame->document()->settings();
     if (settings) {
@@ -488,15 +493,15 @@ void FrameLoader::checkCompleted()
 
     m_frame->navigationScheduler().startTimer();
 
-    // Retry restoring scroll offset since finishing the load event disables content
-    // size clamping.
-    restoreScrollPositionAndViewState();
     if (m_frame->view())
         m_frame->view()->handleLoadCompleted();
 
     if (shouldSendCompleteNotifications(m_frame)) {
         m_loadType = FrameLoadTypeStandard;
         m_progressTracker->progressCompleted();
+        // Retry restoring scroll offset since finishing loading disables content
+        // size clamping.
+        restoreScrollPositionAndViewState();
         m_frame->localDOMWindow()->finishedLoading();
 
         // Report mobile vs. desktop page statistics. This will only report on Android.
@@ -787,10 +792,12 @@ void FrameLoader::load(const FrameLoadRequest& passedRequest)
     FrameLoadType newLoadType = determineFrameLoadType(request);
     NavigationPolicy policy = navigationPolicyForRequest(request);
     if (shouldOpenInNewWindow(targetFrame.get(), request, policy)) {
-        if (policy == NavigationPolicyDownload)
+        if (policy == NavigationPolicyDownload) {
             client()->loadURLExternally(request.resourceRequest(), NavigationPolicyDownload);
-        else
+        } else {
+            request.resourceRequest().setFrameType(WebURLRequest::FrameTypeAuxiliary);
             createWindowForRequest(request, *m_frame, policy, request.shouldSendReferrer());
+        }
         return;
     }
 
@@ -976,6 +983,9 @@ void FrameLoader::commitProvisionalLoad()
         // Document, since no child frames should be attached. The assert below
         // enforces this invariant.
         m_frame->detachChildren();
+        // If detachChildren() detaches this frame, abandon the current load.
+        if (!client())
+            return;
         m_frame->document()->detach();
     }
     ASSERT(m_frame->tree().childCount() == 0);
@@ -1022,7 +1032,7 @@ void FrameLoader::restoreScrollPositionAndViewState()
     // because that may be because the page will never reach its previous
     // height.
     bool canRestoreWithoutClamping = view->clampOffsetAtScale(m_currentItem->scrollPoint(), 1) == m_currentItem->scrollPoint();
-    bool canRestoreWithoutAnnoyingUser = !view->wasScrolledByUser() && (canRestoreWithoutClamping || m_frame->document()->loadEventFinished());
+    bool canRestoreWithoutAnnoyingUser = !view->wasScrolledByUser() && (canRestoreWithoutClamping || m_frame->isLoading());
     if (!canRestoreWithoutAnnoyingUser)
         return;
 
@@ -1040,7 +1050,9 @@ void FrameLoader::restoreScrollPositionAndViewState()
 
         m_frame->host()->pinchViewport().setLocation(pinchViewportOffset);
     } else {
-        view->setScrollPositionNonProgrammatically(m_currentItem->scrollPoint());
+        IntPoint adjustedScrollPosition = view->adjustScrollPositionWithinRange(m_currentItem->scrollPoint());
+        if (adjustedScrollPosition != view->scrollPosition())
+            view->notifyScrollPositionChanged(adjustedScrollPosition);
     }
 
     if (m_frame->isMainFrame()) {
