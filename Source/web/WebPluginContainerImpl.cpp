@@ -95,6 +95,8 @@
 #include "web/WebViewImpl.h"
 #include "wtf/Assertions.h"
 
+#include <base/debug/stack_trace.h>
+
 namespace blink {
 
 // Public methods --------------------------------------------------------------
@@ -105,10 +107,10 @@ void WebPluginContainerImpl::setFrameRect(const IntRect& frameRect)
     reportGeometry();
 }
 
-void WebPluginContainerImpl::layoutWidgetIfPossible()
+void WebPluginContainerImpl::layoutIfNeeded()
 {
     RELEASE_ASSERT(m_webPlugin);
-    m_webPlugin->layoutPluginIfNeeded();
+    m_webPlugin->layoutIfNeeded();
 }
 
 void WebPluginContainerImpl::paint(GraphicsContext* context, const IntRect& rect)
@@ -137,7 +139,9 @@ void WebPluginContainerImpl::paint(GraphicsContext* context, const IntRect& rect
     WebCanvas* canvas = context->canvas();
 
     IntRect windowRect = view->contentsToRootFrame(rect);
+    m_isInPaint = true;
     m_webPlugin->paint(canvas, windowRect);
+    m_isInPaint = false;
 
     context->restore();
 }
@@ -157,22 +161,13 @@ void WebPluginContainerImpl::invalidateRect(const IntRect& rect)
         layoutObject->borderTop() + layoutObject->paddingTop());
 
     m_pendingInvalidationRect.unite(dirtyRect);
-}
 
-void WebPluginContainerImpl::issuePaintInvalidations()
-{
-    if (m_pendingInvalidationRect.isEmpty())
-        return;
-
-    LayoutBox* layoutObject = toLayoutBox(m_element->layoutObject());
-    if (!layoutObject)
-        return;
-
-    // For querying DeprecatedPaintLayer::compositingState().
-    // This code should be correct.
-    DisableCompositingQueryAsserts disabler;
-    layoutObject->invalidatePaintRectangle(LayoutRect(m_pendingInvalidationRect));
-    m_pendingInvalidationRect = IntRect();
+    // Check layout before setting needs layout, as this method may be called
+    // while layout is in progress and we do not wish to layout again in that case.
+    // TODO(schenney): Investigate how to fix this. See comment #15 and #16 on
+    // https://codereview.chromium.org/1076283002/,  crbug.com/476660
+    if (!m_isInPaint && !layoutObject->needsLayout())
+        layoutObject->setNeedsLayout("Plugin Paint Invalidation");
 }
 
 void WebPluginContainerImpl::setFocus(bool focused, WebFocusType focusType)
@@ -467,10 +462,10 @@ v8::Local<v8::Object> WebPluginContainerImpl::v8ObjectForElement()
     if (!scriptState->contextIsValid())
         return v8::Local<v8::Object>();
 
-    v8::Handle<v8::Value> v8value = toV8(m_element.get(), scriptState->context()->Global(), scriptState->isolate());
+    v8::Local<v8::Value> v8value = toV8(m_element.get(), scriptState->context()->Global(), scriptState->isolate());
     ASSERT(v8value->IsObject());
 
-    return v8::Handle<v8::Object>::Cast(v8value);
+    return v8::Local<v8::Object>::Cast(v8value);
 }
 
 WebString WebPluginContainerImpl::executeScriptURL(const WebURL& url, bool popupsAllowed)
@@ -492,7 +487,7 @@ WebString WebPluginContainerImpl::executeScriptURL(const WebURL& url, bool popup
     // Failure is reported as a null string.
     if (result.IsEmpty() || !result->IsString())
         return WebString();
-    return toCoreString(v8::Handle<v8::String>::Cast(result));
+    return toCoreString(v8::Local<v8::String>::Cast(result));
 }
 
 void WebPluginContainerImpl::loadFrameRequest(const WebURLRequest& request, const WebString& target, bool notifyNeeded, void* notifyData)
@@ -523,6 +518,9 @@ void WebPluginContainerImpl::zoomLevelChanged(double zoomLevel)
 
 bool WebPluginContainerImpl::isRectTopmost(const WebRect& rect)
 {
+    if (!m_element || !m_element->document().isActive())
+        return false;
+
     LocalFrame* frame = m_element->document().frame();
     if (!frame)
         return false;
@@ -704,14 +702,6 @@ void WebPluginContainerImpl::willEndLiveResize()
         m_scrollbarGroup->willEndLiveResize();
 }
 
-bool WebPluginContainerImpl::paintCustomOverhangArea(GraphicsContext* context, const IntRect& horizontalOverhangArea, const IntRect& verticalOverhangArea, const IntRect& dirtyRect)
-{
-    Color fillColor(0xCC, 0xCC, 0xCC);
-    context->fillRect(intersection(horizontalOverhangArea, dirtyRect), fillColor);
-    context->fillRect(intersection(verticalOverhangArea, dirtyRect), fillColor);
-    return true;
-}
-
 // Private methods -------------------------------------------------------------
 
 WebPluginContainerImpl::WebPluginContainerImpl(HTMLPlugInElement* element, WebPlugin* webPlugin)
@@ -719,6 +709,7 @@ WebPluginContainerImpl::WebPluginContainerImpl(HTMLPlugInElement* element, WebPl
     , m_element(element)
     , m_webPlugin(webPlugin)
     , m_webLayer(nullptr)
+    , m_isInPaint(false)
     , m_touchEventRequestType(TouchEventRequestTypeNone)
     , m_wantsWheelEvents(false)
 #if ENABLE(OILPAN)
@@ -980,6 +971,19 @@ void WebPluginContainerImpl::focusPlugin()
         currentPage->focusController().setFocusedElement(m_element, &containingFrame);
     else
         containingFrame.document()->setFocusedElement(m_element);
+}
+
+void WebPluginContainerImpl::issuePaintInvalidations()
+{
+    if (m_pendingInvalidationRect.isEmpty())
+        return;
+
+    LayoutBox* layoutObject = toLayoutBox(m_element->layoutObject());
+    if (!layoutObject)
+        return;
+
+    layoutObject->invalidatePaintRectangle(LayoutRect(m_pendingInvalidationRect));
+    m_pendingInvalidationRect = IntRect();
 }
 
 void WebPluginContainerImpl::calculateGeometry(IntRect& windowRect, IntRect& clipRect, IntRect& unobscuredRect, Vector<IntRect>& cutOutRects)

@@ -78,13 +78,13 @@ public:
     virtual bool supportsInputMethod() const override;
     virtual bool canProcessDrag() const override;
     virtual bool wantsWheelEvents() override;
+    virtual void layoutIfNeeded() override;
+    virtual void invalidatePaintIfNeeded() override { issuePaintInvalidations(); }
 
     // Widget methods
     virtual void setFrameRect(const IntRect&) override;
-    virtual void layoutWidgetIfPossible() override;
     virtual void paint(GraphicsContext*, const IntRect&) override;
     virtual void invalidateRect(const IntRect&) override;
-    virtual void issuePaintInvalidations() override final;
     virtual void setFocus(bool, WebFocusType) override;
     virtual void show() override;
     virtual void hide() override;
@@ -163,8 +163,6 @@ public:
     void willStartLiveResize();
     void willEndLiveResize();
 
-    bool paintCustomOverhangArea(GraphicsContext*, const IntRect&, const IntRect&, const IntRect&);
-
     DECLARE_VIRTUAL_TRACE();
     virtual void dispose() override;
 
@@ -188,6 +186,8 @@ private:
 
     void focusPlugin();
 
+    void issuePaintInvalidations();
+
     void calculateGeometry(
         IntRect& windowRect,
         IntRect& clipRect,
@@ -204,6 +204,9 @@ private:
     WebLayer* m_webLayer;
 
     IntRect m_pendingInvalidationRect;
+
+    // TODO(schenney) Needed while layout is still called during paint in some plugins
+    bool m_isInPaint;
 
     // The associated scrollbar group object, created lazily. Used for Pepper
     // scrollbars.

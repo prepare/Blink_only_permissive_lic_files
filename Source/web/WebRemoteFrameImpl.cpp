@@ -281,14 +281,14 @@ void WebRemoteFrameImpl::executeScriptInIsolatedWorld(
     ASSERT_NOT_REACHED();
 }
 
-v8::Handle<v8::Value> WebRemoteFrameImpl::callFunctionEvenIfScriptDisabled(
-    v8::Handle<v8::Function>,
-    v8::Handle<v8::Value>,
+v8::Local<v8::Value> WebRemoteFrameImpl::callFunctionEvenIfScriptDisabled(
+    v8::Local<v8::Function>,
+    v8::Local<v8::Value>,
     int argc,
-    v8::Handle<v8::Value> argv[])
+    v8::Local<v8::Value> argv[])
 {
     ASSERT_NOT_REACHED();
-    return v8::Handle<v8::Value>();
+    return v8::Local<v8::Value>();
 }
 
 v8::Local<v8::Context> WebRemoteFrameImpl::mainWorldScriptContext() const

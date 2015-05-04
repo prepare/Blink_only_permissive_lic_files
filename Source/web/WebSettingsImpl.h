@@ -138,6 +138,7 @@ public:
     virtual void setSansSerifFontFamily(const WebString&, UScriptCode = USCRIPT_COMMON) override;
     virtual void setSelectTrailingWhitespaceEnabled(bool override);
     virtual void setSelectionIncludesAltImageText(bool) override;
+    virtual void setSelectionStrategy(SelectionStrategyType) override;
     virtual void setSerifFontFamily(const WebString&, UScriptCode = USCRIPT_COMMON) override;
     virtual void setShouldPrintBackgrounds(bool) override;
     virtual void setShouldClearDocumentBackground(bool) override;
@@ -145,7 +146,6 @@ public:
     virtual void setShowContextMenuOnMouseUp(bool) override;
     virtual void setShowFPSCounter(bool) override;
     virtual void setShowPaintRects(bool) override;
-    virtual void setShrinksStandaloneImagesToFit(bool) override;
     virtual void setShrinksViewportContentToFit(bool) override;
     virtual void setSmartInsertDeleteEnabled(bool) override;
     virtual void setSpatialNavigationEnabled(bool) override;

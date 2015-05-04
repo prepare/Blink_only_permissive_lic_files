@@ -124,11 +124,11 @@ public:
     virtual void requestExecuteScriptInIsolatedWorld(
         int worldID, const WebScriptSource* sourceIn, unsigned numSources,
         int extensionGroup, bool userGesture, WebScriptExecutionCallback*) override;
-    virtual v8::Handle<v8::Value> callFunctionEvenIfScriptDisabled(
-        v8::Handle<v8::Function>,
-        v8::Handle<v8::Value>,
+    virtual v8::Local<v8::Value> callFunctionEvenIfScriptDisabled(
+        v8::Local<v8::Function>,
+        v8::Local<v8::Value>,
         int argc,
-        v8::Handle<v8::Value> argv[]) override;
+        v8::Local<v8::Value> argv[]) override;
     virtual v8::Local<v8::Context> mainWorldScriptContext() const override;
     virtual void reload(bool ignoreCache) override;
     virtual void reloadWithOverrideURL(const WebURL& overrideUrl, bool ignoreCache) override;
@@ -172,7 +172,7 @@ public:
     virtual bool selectWordAroundCaret() override;
     virtual void selectRange(const WebPoint& base, const WebPoint& extent) override;
     virtual void selectRange(const WebRange&) override;
-    virtual void moveRangeSelectionExtent(const WebPoint&, WebFrame::TextGranularity = CharacterGranularity) override;
+    virtual void moveRangeSelectionExtent(const WebPoint&) override;
     virtual void moveRangeSelection(const WebPoint& base, const WebPoint& extent, WebFrame::TextGranularity = CharacterGranularity) override;
     virtual void moveCaretSelection(const WebPoint&) override;
     virtual bool setEditableSelectionOffsets(int start, int end) override;
@@ -239,7 +239,7 @@ public:
     virtual void addStyleSheetByURL(const WebString& url) override;
     virtual void navigateToSandboxedMarkup(const WebData& markup) override;
     virtual void sendOrientationChangeEvent() override;
-    virtual void willShowInstallBannerPrompt(const WebString& platform, WebAppBannerPromptReply*) override;
+    virtual void willShowInstallBannerPrompt(const WebVector<WebString>& platforms, WebAppBannerPromptReply*) override;
     void requestRunTask(WebSuspendableTask*) const override;
 
     void willBeDetached();
@@ -319,12 +319,6 @@ public:
     // Returns the text finder object if it already exists.
     // Otherwise creates it and then returns.
     TextFinder& ensureTextFinder();
-
-    // Invalidates vertical scrollbar only.
-    void invalidateScrollbar() const;
-
-    // Invalidates both content area and the scrollbar.
-    void invalidateAll() const;
 
     // Returns a hit-tested VisiblePosition for the given point
     VisiblePosition visiblePositionForViewportPoint(const WebPoint&);

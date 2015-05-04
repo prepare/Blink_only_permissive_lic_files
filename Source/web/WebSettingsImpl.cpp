@@ -310,11 +310,6 @@ void WebSettingsImpl::setDOMPasteAllowed(bool enabled)
     m_settings->setDOMPasteAllowed(enabled);
 }
 
-void WebSettingsImpl::setShrinksStandaloneImagesToFit(bool shrinkImages)
-{
-    m_settings->setShrinksStandaloneImagesToFit(shrinkImages);
-}
-
 void WebSettingsImpl::setShrinksViewportContentToFit(bool shrinkViewportContent)
 {
     m_shrinksViewportContentToFit = shrinkViewportContent;
@@ -755,6 +750,12 @@ void WebSettingsImpl::setSelectionIncludesAltImageText(bool enabled)
 {
     m_settings->setSelectionIncludesAltImageText(enabled);
 }
+
+void WebSettingsImpl::setSelectionStrategy(SelectionStrategyType strategy)
+{
+    m_settings->setSelectionStrategy(static_cast<SelectionStrategy>(strategy));
+}
+
 
 void WebSettingsImpl::setSmartInsertDeleteEnabled(bool enabled)
 {

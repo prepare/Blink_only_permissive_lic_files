@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -28,43 +28,32 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#include "public/web/WebMIDIClientMock.h"
-
-#include "modules/webmidi/MIDIAccess.h"
-#include "modules/webmidi/MIDIClientMock.h"
-#include "public/web/WebMIDIPermissionRequest.h"
-
-namespace blink {
-
-WebMIDIClientMock::WebMIDIClientMock()
+/**
+ * @constructor
+ * @extends {WebInspector.VBox}
+ */
+WebInspector.EmptyWidget = function(text)
 {
-    m_clientMock.reset(new MIDIClientMock());
+    WebInspector.VBox.call(this);
+    this.registerRequiredCSS("ui/emptyWidget.css");
+    this.element.classList.add("empty-view");
+    this.textElement = this.element.createChild("span");
+    this._text = text;
 }
 
-WebMIDIClientMock::~WebMIDIClientMock()
-{
-    m_clientMock.reset(0);
+WebInspector.EmptyWidget.prototype = {
+    wasShown: function()
+    {
+        this.textElement.textContent = this._text;
+    },
+
+    set text(text)
+    {
+        this._text = text;
+        if (this.isShowing())
+            this.textElement.textContent = this._text;
+    },
+
+    __proto__: WebInspector.VBox.prototype
 }
 
-void WebMIDIClientMock::setSysexPermission(bool allowed)
-{
-    m_clientMock->setSysexPermission(allowed);
-}
-
-void WebMIDIClientMock::resetMock()
-{
-    m_clientMock->resetMock();
-}
-
-void WebMIDIClientMock::requestSysexPermission(const WebMIDIPermissionRequest& request)
-{
-    m_clientMock->requestSysexPermission(request.midiAccessInitializer());
-}
-
-void WebMIDIClientMock::cancelSysexPermissionRequest(const WebMIDIPermissionRequest& request)
-{
-    m_clientMock->cancelSysexPermissionRequest(request.midiAccessInitializer());
-}
-
-} // namespace blink

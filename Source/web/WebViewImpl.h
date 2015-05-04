@@ -161,7 +161,6 @@ public:
     virtual bool isWebView() const { return true; }
     virtual void setMainFrame(WebFrame*) override;
     virtual void setCredentialManagerClient(WebCredentialManagerClient*) override;
-    virtual void setDevToolsAgentClient(WebDevToolsAgentClient*) override;
     virtual void setPrerendererClient(WebPrerendererClient*) override;
     virtual void setSpellCheckClient(WebSpellCheckClient*) override;
     virtual WebSettings* settings() override;
@@ -253,7 +252,6 @@ public:
     virtual unsigned long createUniqueIdentifierForRequest() override;
     void enableDeviceEmulation(const WebDeviceEmulationParams&) override;
     void disableDeviceEmulation() override;
-    virtual WebDevToolsAgent* devToolsAgent() override;
     virtual WebAXObject accessibilityObject() override;
     virtual void setSelectionColors(unsigned activeBackgroundColor,
                                     unsigned activeForegroundColor,
@@ -332,7 +330,7 @@ public:
         return m_page.get();
     }
 
-    WebDevToolsAgentImpl* devToolsAgentImpl();
+    WebDevToolsAgentImpl* mainFrameDevToolsAgentImpl();
 
     InspectorOverlay* inspectorOverlay();
 
@@ -649,7 +647,7 @@ private:
     OwnPtr<WebSettingsImpl> m_webSettings;
 
     // A copy of the web drop data object we received from the browser.
-    RefPtrWillBePersistent<DataObject> m_currentDragData;
+    Persistent<DataObject> m_currentDragData;
 
     // The point relative to the client area where the mouse was last pressed
     // down. This is used by the drag client to determine what was under the
@@ -740,9 +738,6 @@ private:
     GraphicsLayer* m_rootGraphicsLayer;
     GraphicsLayer* m_rootTransformLayer;
     OwnPtr<GraphicsLayerFactory> m_graphicsLayerFactory;
-    bool m_isAcceleratedCompositingActive;
-    bool m_layerTreeViewCommitsDeferred;
-    bool m_layerTreeViewClosed;
     bool m_matchesHeuristicsForGpuRasterization;
     // If true, the graphics context is being restored.
     bool m_recreatingGraphicsContext;
@@ -758,10 +753,7 @@ private:
     OwnPtrWillBePersistent<FullscreenController> m_fullscreenController;
 
     bool m_showFPSCounter;
-    bool m_showPaintRects;
-    bool m_showDebugBorders;
     bool m_continuousPaintingEnabled;
-    bool m_showScrollBottleneckRects;
     WebColor m_baseBackgroundColor;
     WebColor m_backgroundColorOverride;
     float m_zoomFactorOverride;

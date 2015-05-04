@@ -157,6 +157,7 @@
 #include "modules/presentation/PresentationController.h"
 #include "modules/push_messaging/PushController.h"
 #include "modules/screen_orientation/ScreenOrientationController.h"
+#include "modules/vr/VRController.h"
 #include "platform/ScriptForbiddenScope.h"
 #include "platform/TraceEvent.h"
 #include "platform/UserGestureIndicator.h"
@@ -481,7 +482,7 @@ public:
         m_pageRects.fill(IntRect(printRect), m_plugin->printBegin(m_printParams));
     }
 
-    virtual void computePageRectsWithPageSize(const FloatSize& pageSizeInPixels, bool allowHorizontalTiling) override
+    virtual void computePageRectsWithPageSize(const FloatSize& pageSizeInPixels) override
     {
         ASSERT_NOT_REACHED();
     }
@@ -895,12 +896,14 @@ void WebLocalFrameImpl::requestExecuteScriptInIsolatedWorld(int worldID, const W
     SuspendableScriptExecutor::createAndRun(frame(), worldID, createSourcesVector(sourcesIn, numSources), extensionGroup, userGesture, callback);
 }
 
-v8::Handle<v8::Value> WebLocalFrameImpl::callFunctionEvenIfScriptDisabled(v8::Handle<v8::Function> function, v8::Handle<v8::Value> receiver, int argc, v8::Handle<v8::Value> argv[])
+// TODO(bashi): Consider returning MaybeLocal.
+v8::Local<v8::Value> WebLocalFrameImpl::callFunctionEvenIfScriptDisabled(v8::Local<v8::Function> function, v8::Local<v8::Value> receiver, int argc, v8::Local<v8::Value> argv[])
 {
     ASSERT(frame());
-    // TODO(bashi): Change the signature of callFunctionEvenIfScriptDisabled()
-    // so that it takes v8::Local instead of v8::Handle.
-    return frame()->script().callFunction(v8::Local<v8::Function>(function), v8::Local<v8::Value>(receiver), argc, static_cast<v8::Local<v8::Value>*>(argv));
+    v8::Local<v8::Value> result;
+    if (!frame()->script().callFunction(function, receiver, argc, static_cast<v8::Local<v8::Value>*>(argv)).ToLocal(&result))
+        return v8::Local<v8::Value>();
+    return result;
 }
 
 v8::Local<v8::Context> WebLocalFrameImpl::mainWorldScriptContext() const
@@ -1244,12 +1247,9 @@ void WebLocalFrameImpl::selectRange(const WebRange& webRange)
         frame()->selection().setSelectedRange(range.get(), VP_DEFAULT_AFFINITY, FrameSelection::NonDirectional, NotUserTriggered);
 }
 
-void WebLocalFrameImpl::moveRangeSelectionExtent(const WebPoint& pointInViewport, WebFrame::TextGranularity granularity)
+void WebLocalFrameImpl::moveRangeSelectionExtent(const WebPoint& point)
 {
-    blink::TextGranularity blinkGranularity = blink::CharacterGranularity;
-    if (granularity == WebFrame::WordGranularity)
-        blinkGranularity = blink::WordGranularity;
-    frame()->selection().moveRangeSelectionExtent(visiblePositionForViewportPoint(pointInViewport), blinkGranularity);
+    frame()->selection().moveRangeSelectionExtent(visiblePositionForViewportPoint(point));
 }
 
 void WebLocalFrameImpl::moveRangeSelection(const WebPoint& baseInViewport, const WebPoint& extentInViewport, WebFrame::TextGranularity granularity)
@@ -1504,7 +1504,6 @@ void WebLocalFrameImpl::setTickmarks(const WebVector<WebRect>& tickmarks)
         for (size_t i = 0; i < tickmarks.size(); ++i)
             tickmarksConverted[i] = tickmarks[i];
         frameView()->setTickmarks(tickmarksConverted);
-        invalidateScrollbar();
     }
 }
 
@@ -1653,6 +1652,8 @@ void WebLocalFrameImpl::setCoreFrame(PassRefPtrWillBeRawPtr<LocalFrame> frame)
             PresentationController::provideTo(*m_frame, m_client ? m_client->presentationClient() : nullptr);
         if (RuntimeEnabledFeatures::permissionsEnabled())
             PermissionController::provideTo(*m_frame, m_client ? m_client->permissionClient() : nullptr);
+        if (RuntimeEnabledFeatures::webVREnabled())
+            VRController::provideTo(*m_frame, m_client ? m_client->webVRClient() : nullptr);
     }
 }
 
@@ -2026,12 +2027,12 @@ void WebLocalFrameImpl::sendOrientationChangeEvent()
         frame()->localDOMWindow()->sendOrientationChangeEvent();
 }
 
-void WebLocalFrameImpl::willShowInstallBannerPrompt(const WebString& platform, WebAppBannerPromptReply* reply)
+void WebLocalFrameImpl::willShowInstallBannerPrompt(const WebVector<WebString>& platforms, WebAppBannerPromptReply* reply)
 {
     if (!RuntimeEnabledFeatures::appBannerEnabled() || !frame())
         return;
 
-    AppBannerController::willShowInstallBannerPrompt(frame(), platform, reply);
+    AppBannerController::willShowInstallBannerPrompt(frame(), platforms, reply);
 }
 
 void WebLocalFrameImpl::requestRunTask(WebSuspendableTask* task) const
@@ -2083,24 +2084,6 @@ TextFinder& WebLocalFrameImpl::ensureTextFinder()
         m_textFinder = TextFinder::create(*this);
 
     return *m_textFinder;
-}
-
-void WebLocalFrameImpl::invalidateScrollbar() const
-{
-    ASSERT(frame() && frame()->view());
-    FrameView* view = frame()->view();
-    // Invalidate the vertical scroll bar region for the view.
-    Scrollbar* scrollbar = view->verticalScrollbar();
-    if (scrollbar)
-        scrollbar->invalidate();
-}
-
-void WebLocalFrameImpl::invalidateAll() const
-{
-    ASSERT(frame() && frame()->view());
-    FrameView* view = frame()->view();
-    view->invalidateRect(view->frameRect());
-    invalidateScrollbar();
 }
 
 void WebLocalFrameImpl::setFrameWidget(WebFrameWidgetImpl* frameWidget)

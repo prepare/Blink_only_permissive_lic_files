@@ -218,20 +218,22 @@ void WebPopupMenuImpl::paintContents(WebCanvas* canvas, const WebRect& rect, Web
         return;
 
     OwnPtr<GraphicsContext> context;
-    GraphicsContext::DisabledMode disabledMode;
-    if (paintingControl == PaintingControlSetting::DisplayListConstructionDisabled)
+    GraphicsContext::DisabledMode disabledMode = GraphicsContext::NothingDisabled;
+    if (paintingControl == PaintingControlSetting::DisplayListPaintingDisabled
+        || paintingControl == PaintingControlSetting::DisplayListConstructionDisabled)
         disabledMode = GraphicsContext::FullyDisabled;
-    else
-        disabledMode = GraphicsContext::NothingDisabled;
 
-    if (displayItemList())
-        context = adoptPtr(new GraphicsContext(displayItemList(), disabledMode));
-    else
+    DisplayItemList* itemList = displayItemList();
+    if (itemList) {
+        context = adoptPtr(new GraphicsContext(itemList, disabledMode));
+        itemList->setDisplayItemConstructionIsDisabled(paintingControl == PaintingControlSetting::DisplayListConstructionDisabled);
+    } else {
         context = GraphicsContext::deprecatedCreateWithCanvas(canvas, disabledMode);
+    }
     m_widget->paint(context.get(), rect);
 
-    if (DisplayItemList* displayItemList = this->displayItemList())
-        displayItemList->commitNewDisplayItems();
+    if (itemList)
+        itemList->commitNewDisplayItems();
 }
 
 void WebPopupMenuImpl::paintContents(WebDisplayItemList* webDisplayItemList, const WebRect& clip, WebContentLayerClient::PaintingControlSetting paintingControl)
@@ -239,12 +241,13 @@ void WebPopupMenuImpl::paintContents(WebDisplayItemList* webDisplayItemList, con
     if (!m_widget)
         return;
 
-    if (paintingControl == WebContentLayerClient::DisplayListCachingDisabled && m_displayItemList)
+    if (paintingControl != WebContentLayerClient::PaintDefaultBehavior && m_displayItemList)
         m_displayItemList->invalidateAll();
 
     paintContents(static_cast<WebCanvas*>(nullptr), clip, paintingControl);
 
-    for (const auto& item : displayItemList()->displayItems())
+    RELEASE_ASSERT(m_displayItemList);
+    for (const auto& item : m_displayItemList->displayItems())
         item->appendToWebDisplayItemList(webDisplayItemList);
 }
 

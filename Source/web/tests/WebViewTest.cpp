@@ -51,8 +51,10 @@
 #include "core/paint/DeprecatedPaintLayer.h"
 #include "core/paint/DeprecatedPaintLayerPainter.h"
 #include "platform/KeyboardCodes.h"
+#include "platform/UserGestureIndicator.h"
 #include "platform/geometry/IntSize.h"
 #include "platform/graphics/Color.h"
+#include "platform/graphics/GraphicsContext.h"
 #include "platform/testing/URLTestHelpers.h"
 #include "platform/testing/UnitTestHelpers.h"
 #include "public/platform/Platform.h"
@@ -242,8 +244,9 @@ TEST_F(WebViewTest, SaveImageAt)
 
     std::string url = m_baseURL + "image-with-data-url.html";
     URLTestHelpers::registerMockedURLLoad(toKURL(url), "image-with-data-url.html");
-    WebView* webView = m_webViewHelper.initializeAndLoad(url, true, 0, &client);
+    WebViewImpl* webView = m_webViewHelper.initializeAndLoad(url, true, 0, &client);
     webView->resize(WebSize(400, 400));
+    webView->layout();
 
     client.reset();
     webView->saveImageAt(WebPoint(1, 1));
@@ -254,8 +257,42 @@ TEST_F(WebViewTest, SaveImageAt)
     webView->saveImageAt(WebPoint(1, 2));
     EXPECT_EQ(WebString(), client.result());
 
+    webView->setPageScaleFactor(4);
+    webView->setPinchViewportOffset(WebFloatPoint(1, 1));
+
+    client.reset();
+    webView->saveImageAt(WebPoint(3, 3));
+    EXPECT_EQ(WebString::fromUTF8("data:image/gif;base64"
+        ",R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs="), client.result());
+
     m_webViewHelper.reset(); // Explicitly reset to break dependency on locally scoped client.
 };
+
+TEST_F(WebViewTest, SaveImageWithImageMap)
+{
+    SaveImageFromDataURLWebViewClient client;
+
+    std::string url = m_baseURL + "image-map.html";
+    URLTestHelpers::registerMockedURLLoad(toKURL(url), "image-map.html");
+    WebView* webView = m_webViewHelper.initializeAndLoad(url, true, 0, &client);
+    webView->resize(WebSize(400, 400));
+
+    client.reset();
+    webView->saveImageAt(WebPoint(25, 25));
+    EXPECT_EQ(WebString::fromUTF8("data:image/gif;base64"
+        ",R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs="), client.result());
+
+    client.reset();
+    webView->saveImageAt(WebPoint(75, 25));
+    EXPECT_EQ(WebString::fromUTF8("data:image/gif;base64"
+        ",R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs="), client.result());
+
+    client.reset();
+    webView->saveImageAt(WebPoint(125, 25));
+    EXPECT_EQ(WebString(), client.result());
+
+    m_webViewHelper.reset(); // Explicitly reset to break dependency on locally scoped client.
+}
 
 TEST_F(WebViewTest, CopyImageAt)
 {
@@ -263,7 +300,12 @@ TEST_F(WebViewTest, CopyImageAt)
     URLTestHelpers::registerMockedURLLoad(toKURL(url), "canvas-copy-image.html");
     WebView* webView = m_webViewHelper.initializeAndLoad(url, true, 0);
     webView->resize(WebSize(400, 400));
+
+    uint64_t sequence = Platform::current()->clipboard()->sequenceNumber(WebClipboard::BufferStandard);
+
     webView->copyImageAt(WebPoint(50, 50));
+
+    EXPECT_NE(sequence, Platform::current()->clipboard()->sequenceNumber(WebClipboard::BufferStandard));
 
     WebData data = Platform::current()->clipboard()->readImage(WebClipboard::Buffer());
     WebImage image = WebImage::fromData(data, WebSize());
@@ -271,6 +313,129 @@ TEST_F(WebViewTest, CopyImageAt)
     SkAutoLockPixels autoLock(image.getSkBitmap());
     EXPECT_EQ(SkColorSetARGB(255, 255, 0, 0), image.getSkBitmap().getColor(0, 0));
 };
+
+TEST_F(WebViewTest, CopyImageAtWithPinchZoom)
+{
+    std::string url = m_baseURL + "canvas-copy-image.html";
+    URLTestHelpers::registerMockedURLLoad(toKURL(url), "canvas-copy-image.html");
+    WebViewImpl* webView = m_webViewHelper.initializeAndLoad(url, true, 0);
+    webView->resize(WebSize(400, 400));
+    webView->layout();
+    webView->setPageScaleFactor(2);
+    webView->setPinchViewportOffset(WebFloatPoint(200, 200));
+
+    uint64_t sequence = Platform::current()->clipboard()->sequenceNumber(WebClipboard::BufferStandard);
+
+    webView->copyImageAt(WebPoint(0, 0));
+
+    EXPECT_NE(sequence, Platform::current()->clipboard()->sequenceNumber(WebClipboard::BufferStandard));
+
+    WebData data = Platform::current()->clipboard()->readImage(WebClipboard::Buffer());
+    WebImage image = WebImage::fromData(data, WebSize());
+
+    SkAutoLockPixels autoLock(image.getSkBitmap());
+    EXPECT_EQ(SkColorSetARGB(255, 255, 0, 0), image.getSkBitmap().getColor(0, 0));
+};
+
+TEST_F(WebViewTest, CopyImageWithImageMap)
+{
+    SaveImageFromDataURLWebViewClient client;
+
+    std::string url = m_baseURL + "image-map.html";
+    URLTestHelpers::registerMockedURLLoad(toKURL(url), "image-map.html");
+    WebView* webView = m_webViewHelper.initializeAndLoad(url, true, 0, &client);
+    webView->resize(WebSize(400, 400));
+
+    client.reset();
+    webView->saveImageAt(WebPoint(25, 25));
+    EXPECT_EQ(WebString::fromUTF8("data:image/gif;base64"
+        ",R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs="), client.result());
+
+    client.reset();
+    webView->saveImageAt(WebPoint(75, 25));
+    EXPECT_EQ(WebString::fromUTF8("data:image/gif;base64"
+        ",R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs="), client.result());
+
+    client.reset();
+    webView->saveImageAt(WebPoint(125, 25));
+    EXPECT_EQ(WebString(), client.result());
+
+    m_webViewHelper.reset(); // Explicitly reset to break dependency on locally scoped client.
+}
+
+static bool hitTestIsContentEditable(WebView* view, int x, int y)
+{
+    WebPoint hitPoint(x, y);
+    WebHitTestResult hitTestResult = view->hitTestResultAt(hitPoint);
+    return hitTestResult.isContentEditable();
+}
+
+static std::string hitTestElementId(WebView* view, int x, int y)
+{
+    WebPoint hitPoint(x, y);
+    WebHitTestResult hitTestResult = view->hitTestResultAt(hitPoint);
+    return hitTestResult.node().to<WebElement>().getAttribute("id").utf8();
+}
+
+TEST_F(WebViewTest, HitTestContentEditableImageMaps)
+{
+    std::string url = m_baseURL + "content-editable-image-maps.html";
+    URLTestHelpers::registerMockedURLLoad(toKURL(url), "content-editable-image-maps.html");
+    WebView* webView = m_webViewHelper.initializeAndLoad(url, true, 0);
+    webView->resize(WebSize(500, 500));
+
+    EXPECT_EQ("areaANotEditable", hitTestElementId(webView, 25, 25));
+    EXPECT_FALSE(hitTestIsContentEditable(webView, 25, 25));
+    EXPECT_EQ("imageANotEditable", hitTestElementId(webView, 75, 25));
+    EXPECT_FALSE(hitTestIsContentEditable(webView, 75, 25));
+
+    EXPECT_EQ("areaBNotEditable", hitTestElementId(webView, 25, 125));
+    EXPECT_FALSE(hitTestIsContentEditable(webView, 25, 125));
+    EXPECT_EQ("imageBEditable", hitTestElementId(webView, 75, 125));
+    EXPECT_TRUE(hitTestIsContentEditable(webView, 75, 125));
+
+    EXPECT_EQ("areaCNotEditable", hitTestElementId(webView, 25, 225));
+    EXPECT_FALSE(hitTestIsContentEditable(webView, 25, 225));
+    EXPECT_EQ("imageCNotEditable", hitTestElementId(webView, 75, 225));
+    EXPECT_FALSE(hitTestIsContentEditable(webView, 75, 225));
+
+    EXPECT_EQ("areaDEditable", hitTestElementId(webView, 25, 325));
+    EXPECT_TRUE(hitTestIsContentEditable(webView, 25, 325));
+    EXPECT_EQ("imageDNotEditable", hitTestElementId(webView, 75, 325));
+    EXPECT_FALSE(hitTestIsContentEditable(webView, 75, 325));
+}
+
+static std::string hitTestAbsoluteUrl(WebView* view, int x, int y)
+{
+    WebPoint hitPoint(x, y);
+    WebHitTestResult hitTestResult = view->hitTestResultAt(hitPoint);
+    return hitTestResult.absoluteImageURL().string().utf8();
+}
+
+static WebElement hitTestUrlElement(WebView* view, int x, int y)
+{
+    WebPoint hitPoint(x, y);
+    WebHitTestResult hitTestResult = view->hitTestResultAt(hitPoint);
+    return hitTestResult.urlElement();
+}
+
+TEST_F(WebViewTest, ImageMapUrls)
+{
+    std::string url = m_baseURL + "image-map.html";
+    URLTestHelpers::registerMockedURLLoad(toKURL(url), "image-map.html");
+    WebView* webView = m_webViewHelper.initializeAndLoad(url, true, 0);
+    webView->resize(WebSize(400, 400));
+
+    std::string imageUrl = "data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=";
+
+    EXPECT_EQ("area", hitTestElementId(webView, 25, 25));
+    EXPECT_EQ("area", hitTestUrlElement(webView, 25, 25).getAttribute("id").utf8());
+    EXPECT_EQ(imageUrl, hitTestAbsoluteUrl(webView, 25, 25));
+
+    EXPECT_EQ("image", hitTestElementId(webView, 75, 25));
+    EXPECT_TRUE(hitTestUrlElement(webView, 75, 25).isNull());
+    EXPECT_EQ(imageUrl, hitTestAbsoluteUrl(webView, 75, 25));
+}
 
 TEST_F(WebViewTest, SetBaseBackgroundColor)
 {
@@ -1396,6 +1561,7 @@ class MockAutofillClient : public WebAutofillClient {
 public:
     MockAutofillClient()
         : m_ignoreTextChanges(false)
+        , m_textChangesFromUserGesture(0)
         , m_textChangesWhileIgnored(0)
         , m_textChangesWhileNotIgnored(0)
         , m_userGestureNotificationsCount(0) { }
@@ -1409,6 +1575,9 @@ public:
             ++m_textChangesWhileIgnored;
         else
             ++m_textChangesWhileNotIgnored;
+
+        if (UserGestureIndicator::processingUserGesture())
+            ++m_textChangesFromUserGesture;
     }
     virtual void firstUserGestureObserved() override { ++m_userGestureNotificationsCount; }
 
@@ -1418,12 +1587,14 @@ public:
         m_textChangesWhileNotIgnored = 0;
     }
 
+    int textChangesFromUserGesture() { return m_textChangesFromUserGesture; }
     int textChangesWhileIgnored() { return m_textChangesWhileIgnored; }
     int textChangesWhileNotIgnored() { return m_textChangesWhileNotIgnored; }
     int getUserGestureNotificationsCount() { return m_userGestureNotificationsCount; }
 
 private:
     bool m_ignoreTextChanges;
+    int m_textChangesFromUserGesture;
     int m_textChangesWhileIgnored;
     int m_textChangesWhileNotIgnored;
     int m_userGestureNotificationsCount;
@@ -1815,6 +1986,41 @@ TEST_F(WebViewTest, SmartClipData)
     webView->resize(WebSize(500, 500));
     webView->layout();
     WebRect cropRect(300, 125, 152, 50);
+    webView->extractSmartClipData(cropRect, clipText, clipHtml, clipRect);
+    EXPECT_STREQ(kExpectedClipText, clipText.utf8().c_str());
+    EXPECT_STREQ(kExpectedClipHtml, clipHtml.utf8().c_str());
+}
+
+TEST_F(WebViewTest, SmartClipDataWithPinchZoom)
+{
+    static const char* kExpectedClipText = "\nPrice 10,000,000won";
+    static const char* kExpectedClipHtml =
+        "<div id=\"div4\" style=\"padding: 10px; margin: 10px; border: 2px "
+        "solid rgb(135, 206, 235); float: left; width: 190px; height: 30px; "
+        "color: rgb(0, 0, 0); font-family: myahem; font-size: 8px; font-style: "
+        "normal; font-variant: normal; font-weight: normal; letter-spacing: "
+        "normal; line-height: normal; orphans: auto; text-align: start; "
+        "text-indent: 0px; text-transform: none; white-space: normal; widows: "
+        "1; word-spacing: 0px; -webkit-text-stroke-width: 0px;\">Air "
+        "conditioner</div><div id=\"div5\" style=\"padding: 10px; margin: "
+        "10px; border: 2px solid rgb(135, 206, 235); float: left; width: "
+        "190px; height: 30px; color: rgb(0, 0, 0); font-family: myahem; "
+        "font-size: 8px; font-style: normal; font-variant: normal; "
+        "font-weight: normal; letter-spacing: normal; line-height: normal; "
+        "orphans: auto; text-align: start; text-indent: 0px; text-transform: "
+        "none; white-space: normal; widows: 1; word-spacing: 0px; "
+        "-webkit-text-stroke-width: 0px;\">Price 10,000,000won</div>";
+    WebString clipText;
+    WebString clipHtml;
+    WebRect clipRect;
+    URLTestHelpers::registerMockedURLFromBaseURL(WebString::fromUTF8(m_baseURL.c_str()), WebString::fromUTF8("Ahem.ttf"));
+    URLTestHelpers::registerMockedURLFromBaseURL(WebString::fromUTF8(m_baseURL.c_str()), WebString::fromUTF8("smartclip.html"));
+    WebView* webView = m_webViewHelper.initializeAndLoad(m_baseURL + "smartclip.html");
+    webView->resize(WebSize(500, 500));
+    webView->layout();
+    webView->setPageScaleFactor(1.5);
+    webView->setPinchViewportOffset(WebFloatPoint(167, 100));
+    WebRect cropRect(200, 38, 228, 75);
     webView->extractSmartClipData(cropRect, clipText, clipHtml, clipRect);
     EXPECT_STREQ(kExpectedClipText, clipText.utf8().c_str());
     EXPECT_STREQ(kExpectedClipHtml, clipHtml.utf8().c_str());
@@ -2301,6 +2507,23 @@ TEST_F(WebViewTest, FirstUserGestureObservedGestureTap)
     EXPECT_TRUE(tapElementById(webView, WebInputEvent::GestureTap, WebString::fromUTF8("target")));
 
     EXPECT_EQ(1, client.getUserGestureNotificationsCount());
+    frame->setAutofillClient(0);
+}
+
+TEST_F(WebViewTest, CompositionIsUserGesture)
+{
+    URLTestHelpers::registerMockedURLFromBaseURL(WebString::fromUTF8(m_baseURL.c_str()), WebString::fromUTF8("input_field_populated.html"));
+    WebView* webView = m_webViewHelper.initializeAndLoad(m_baseURL + "input_field_populated.html");
+    WebLocalFrameImpl* frame = toWebLocalFrameImpl(webView->mainFrame());
+    MockAutofillClient client;
+    frame->setAutofillClient(&client);
+    webView->setInitialFocus(false);
+
+    EXPECT_TRUE(webView->setComposition(WebString::fromUTF8(std::string("hello").c_str()), WebVector<WebCompositionUnderline>(), 3, 3));
+    EXPECT_EQ(1, client.textChangesFromUserGesture());
+    EXPECT_FALSE(UserGestureIndicator::processingUserGesture());
+    EXPECT_TRUE(frame->hasMarkedText());
+
     frame->setAutofillClient(0);
 }
 

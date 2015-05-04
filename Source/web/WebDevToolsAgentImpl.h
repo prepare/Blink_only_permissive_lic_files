@@ -60,6 +60,7 @@ class PlatformTouchEvent;
 class WebDevToolsAgentClient;
 class WebFrameWidgetImpl;
 class WebInputEvent;
+class WebLayerTreeView;
 class WebLocalFrameImpl;
 class WebString;
 class WebViewImpl;
@@ -92,6 +93,7 @@ public:
     bool screencastEnabled();
     void willAddPageOverlay(const GraphicsLayer*);
     void didRemovePageOverlay(const GraphicsLayer*);
+    void layerTreeViewChanged(WebLayerTreeView*);
 
     // WebDevToolsAgent implementation.
     void attach(const WebString& hostId) override;
@@ -101,7 +103,6 @@ public:
     void dispatchOnInspectorBackend(const WebString& message) override;
     void inspectElementAt(const WebPoint&) override;
     void evaluateInWebInspector(long callId, const WebString& script) override;
-    void setLayerTreeId(int) override;
 
 private:
     WebDevToolsAgentImpl(WebLocalFrameImpl*, WebDevToolsAgentClient*, InspectorOverlay*);

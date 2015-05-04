@@ -691,8 +691,8 @@ void WebFrameWidgetImpl::handleMouseDown(LocalFrame& mainFrame, const WebMouseEv
     if (event.button == WebMouseEvent::ButtonLeft) {
         point = m_localRoot->frameView()->rootFrameToContents(point);
         HitTestResult result(m_localRoot->frame()->eventHandler().hitTestResultAtPoint(point));
-        result.setToShadowHostIfInClosedShadowRoot();
-        Node* hitNode = result.innerNonSharedNode();
+        result.setToShadowHostIfInUserAgentShadowRoot();
+        Node* hitNode = result.innerNode();
 
         if (!result.scrollbar() && hitNode && hitNode->layoutObject() && hitNode->layoutObject()->isEmbeddedObject()) {
             m_mouseCaptureNode = hitNode;
@@ -943,6 +943,9 @@ void WebFrameWidgetImpl::initializeLayerTreeView()
         m_client->initializeLayerTreeView();
         m_layerTreeView = m_client->layerTreeView();
     }
+
+    if (WebDevToolsAgentImpl* devTools = m_localRoot->devToolsAgentImpl())
+        devTools->layerTreeViewChanged(m_layerTreeView);
 
     m_page->settings().setAcceleratedCompositingEnabled(m_layerTreeView);
 

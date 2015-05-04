@@ -143,11 +143,6 @@ void WebRuntimeFeatures::enableImageColorProfiles(bool enable)
     RuntimeEnabledFeatures::setImageColorProfilesEnabled(enable);
 }
 
-void WebRuntimeFeatures::enableLocalStorage(bool enable)
-{
-    RuntimeEnabledFeatures::setLocalStorageEnabled(enable);
-}
-
 void WebRuntimeFeatures::enableMediaPlayer(bool enable)
 {
     RuntimeEnabledFeatures::setMediaEnabled(enable);
@@ -196,11 +191,6 @@ void WebRuntimeFeatures::enableOrientationEvent(bool enable)
 void WebRuntimeFeatures::enablePagePopup(bool enable)
 {
     RuntimeEnabledFeatures::setPagePopupEnabled(enable);
-}
-
-void WebRuntimeFeatures::enablePeerConnection(bool enable)
-{
-    RuntimeEnabledFeatures::setPeerConnectionEnabled(enable);
 }
 
 void WebRuntimeFeatures::enableRequestAutocomplete(bool enable)
@@ -333,9 +323,9 @@ void WebRuntimeFeatures::enableUnsafeES3APIs(bool enable)
     RuntimeEnabledFeatures::setUnsafeES3APIsEnabled(enable);
 }
 
-void WebRuntimeFeatures::enableVRDevice(bool enable)
+void WebRuntimeFeatures::enableWebVR(bool enable)
 {
-    RuntimeEnabledFeatures::setVRDeviceEnabled(enable);
+    RuntimeEnabledFeatures::setWebVREnabled(enable);
 }
 
 } // namespace blink
