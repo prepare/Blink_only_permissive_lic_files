@@ -44,11 +44,10 @@ class AudioContext;
 
 class AudioBufferSourceHandler final : public AudioScheduledSourceHandler {
 public:
-    static AudioBufferSourceHandler* create(AudioNode&, float sampleRate, AudioParamHandler& playbackRate);
+    static PassRefPtr<AudioBufferSourceHandler> create(AudioNode&, float sampleRate, AudioParamHandler& playbackRate, AudioParamHandler& detune);
     virtual ~AudioBufferSourceHandler();
 
     // AudioHandler
-    virtual void dispose() override;
     virtual void process(size_t framesToProcess) override;
 
     // setBuffer() is called on the main thread. This is the buffer we use for playback.
@@ -88,10 +87,8 @@ public:
 
     void handleStoppableSourceNode();
 
-    DECLARE_VIRTUAL_TRACE();
-
 private:
-    AudioBufferSourceHandler(AudioNode&, float sampleRate, AudioParamHandler& playbackRate);
+    AudioBufferSourceHandler(AudioNode&, float sampleRate, AudioParamHandler& playbackRate, AudioParamHandler& detune);
     void startSource(double when, double grainOffset, double grainDuration, bool isDurationGiven, ExceptionState&);
 
     // Returns true on success.
@@ -104,13 +101,16 @@ private:
     void clampGrainParameters(const AudioBuffer*);
 
     // m_buffer holds the sample data which this node outputs.
-    Member<AudioBuffer> m_buffer;
+    // This Persistent doesn't make a reference cycle including
+    // AudioBufferSourceNode.
+    Persistent<AudioBuffer> m_buffer;
 
     // Pointers for the buffer and destination.
     OwnPtr<const float*[]> m_sourceChannels;
     OwnPtr<float*[]> m_destinationChannels;
 
     RefPtr<AudioParamHandler> m_playbackRate;
+    RefPtr<AudioParamHandler> m_detune;
 
     // If m_isLooping is false, then this node will be done playing and become inactive after it reaches the end of the sample data in the buffer.
     // If true, it will wrap around to the start of the buffer each time it reaches the end.
@@ -129,19 +129,21 @@ private:
     double m_grainDuration; // in seconds
     // True if grainDuration is given explicitly (via 3 arg start method).
     bool m_isDurationGiven;
-    // totalPitchRate() returns the instantaneous pitch rate (non-time preserving).
-    // It incorporates the base pitch rate, any sample-rate conversion factor from the buffer, and any doppler shift from an associated panner node.
-    double totalPitchRate();
+
+    // Compute playback rate (k-rate) by incorporating the sample rate conversion
+    // factor, the doppler shift from the associated panner node, and the value
+    // of playbackRate and detune AudioParams.
+    double computePlaybackRate();
 
     // We optionally keep track of a panner node which has a doppler shift that
     // is incorporated into the pitch rate.
-    // This RefPtr is connection reference. We must call AudioNode::
-    // makeConnection() after ref(), and call AudioNode::breakConnection()
+    // This RefPtr is connection reference. We must call AudioHandler::
+    // makeConnection() after ref(), and call AudioHandler::breakConnection()
     // before deref().
-    // Oilpan: This holds connection references. We must call
-    // AudioNode::makeConnection when we add an AudioNode to this, and must call
-    // AudioNode::breakConnection() when we remove an AudioNode from this.
-    Member<PannerHandler> m_pannerNode;
+    // TODO(tkent): This is always null because setPannerNode is never
+    // called. If we revive setPannerNode, this should be a raw pointer and
+    // AudioBufferSourceNode should have Member<PannerNode>.
+    RefPtr<PannerHandler> m_pannerNode;
 
     // This synchronizes process() with setBuffer() which can cause dynamic channel count changes.
     mutable Mutex m_processLock;
@@ -157,6 +159,7 @@ public:
     AudioBuffer* buffer() const;
     void setBuffer(AudioBuffer*, ExceptionState&);
     AudioParam* playbackRate() const;
+    AudioParam* detune() const;
     bool loop() const;
     void setLoop(bool);
     double loopStart() const;
@@ -172,8 +175,8 @@ public:
 private:
     AudioBufferSourceNode(AudioContext&, float sampleRate);
 
-    // Used for the "playbackRate" attributes.
     Member<AudioParam> m_playbackRate;
+    Member<AudioParam> m_detune;
 };
 
 } // namespace blink

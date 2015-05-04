@@ -375,10 +375,13 @@ bool SecurityOrigin::canDisplay(const KURL& url) const
     return true;
 }
 
-bool SecurityOrigin::canAccessFeatureRequiringSecureOrigin(String& errorMessage) const
+bool SecurityOrigin::isPotentiallyTrustworthy(String& errorMessage) const
 {
     ASSERT(m_protocol != "data");
     if (SchemeRegistry::shouldTreatURLSchemeAsSecure(m_protocol) || isLocal() || isLocalhost())
+        return true;
+
+    if (SecurityPolicy::isOriginWhiteListedTrustworthy(*this))
         return true;
 
     errorMessage = "Only secure origins are allowed (see: https://goo.gl/Y0ZkNV).";

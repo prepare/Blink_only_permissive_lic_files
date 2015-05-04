@@ -38,14 +38,14 @@ WebInspector.Layers3DView = function(layerViewHost)
 {
     WebInspector.VBox.call(this);
     this.element.classList.add("layers-3d-view");
-    this._emptyView = new WebInspector.EmptyView(WebInspector.UIString("Layer information is not yet available."));
+    this._emptyWidget = new WebInspector.EmptyWidget(WebInspector.UIString("Layer information is not yet available."));
 
     this._layerViewHost = layerViewHost;
     this._layerViewHost.registerView(this);
 
     this._transformController = new WebInspector.TransformController(this.element);
     this._transformController.addEventListener(WebInspector.TransformController.Events.TransformChanged, this._update, this);
-    this._initStatusBar();
+    this._initToolbar();
 
     this._canvasElement = this.element.createChild("canvas");
     this._canvasElement.tabIndex = 0;
@@ -644,10 +644,10 @@ WebInspector.Layers3DView.prototype = {
             return;
         }
         if (!this._layerTree || !this._layerTree.root()) {
-            this._emptyView.show(this.element);
+            this._emptyWidget.show(this.element);
             return;
         }
-        this._emptyView.detach();
+        this._emptyWidget.detach();
 
         var gl = this._initGLIfNecessary();
         this._resizeCanvas();
@@ -699,25 +699,25 @@ WebInspector.Layers3DView.prototype = {
      * @param {string} caption
      * @param {string} name
      * @param {boolean} value
-     * @param {!WebInspector.StatusBar} statusBar
+     * @param {!WebInspector.Toolbar} toolbar
      * @return {!WebInspector.Setting}
      */
-    _createVisibilitySetting: function(caption, name, value, statusBar)
+    _createVisibilitySetting: function(caption, name, value, toolbar)
     {
-        var checkbox = new WebInspector.StatusBarCheckbox(WebInspector.UIString(caption));
-        statusBar.appendStatusBarItem(checkbox);
+        var checkbox = new WebInspector.ToolbarCheckbox(WebInspector.UIString(caption));
+        toolbar.appendToolbarItem(checkbox);
         var setting = WebInspector.settings.createSetting(name, value);
         WebInspector.SettingsUI.bindCheckbox(checkbox.inputElement, setting);
         setting.addChangeListener(this._update, this);
         return setting;
     },
 
-    _initStatusBar: function()
+    _initToolbar: function()
     {
-        this._panelStatusBar = this._transformController.statusBar();
-        this.element.appendChild(this._panelStatusBar.element);
-        this._showSlowScrollRectsSetting = this._createVisibilitySetting("Slow scroll rects", "frameViewerShowSlowScrollRects", true, this._panelStatusBar);
-        this._showPaintsSetting = this._createVisibilitySetting("Paints", "frameViewerShowPaints", true, this._panelStatusBar);
+        this._panelToolbar = this._transformController.toolbar();
+        this.element.appendChild(this._panelToolbar.element);
+        this._showSlowScrollRectsSetting = this._createVisibilitySetting("Slow scroll rects", "frameViewerShowSlowScrollRects", true, this._panelToolbar);
+        this._showPaintsSetting = this._createVisibilitySetting("Paints", "frameViewerShowPaints", true, this._panelToolbar);
         WebInspector.moduleSetting("frameViewerHideChromeWindow").addChangeListener(this._update, this);
     },
 

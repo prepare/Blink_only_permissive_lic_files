@@ -47,10 +47,17 @@ const double DefaultGrainDuration = 0.020; // 20ms
 // to minimize linear interpolation aliasing.
 const double MaxRate = 1024;
 
-AudioBufferSourceHandler::AudioBufferSourceHandler(AudioNode& node, float sampleRate, AudioParamHandler& playbackRate)
+// Number of extra frames to use when determining if a source node can be stopped.  This should be
+// at least one rendering quantum, but we add one more quantum for good measure.  This doesn't need
+// to be extra precise, just more than one rendering quantum.  See |handleStoppableSourceNode()|.
+// FIXME: Expose the rendering quantum somehow instead of hardwiring a value here.
+const int kExtraStopFrames = 256;
+
+AudioBufferSourceHandler::AudioBufferSourceHandler(AudioNode& node, float sampleRate, AudioParamHandler& playbackRate, AudioParamHandler& detune)
     : AudioScheduledSourceHandler(NodeTypeAudioBufferSource, node, sampleRate)
     , m_buffer(nullptr)
     , m_playbackRate(playbackRate)
+    , m_detune(detune)
     , m_isLooping(false)
     , m_loopStart(0)
     , m_loopEnd(0)
@@ -66,26 +73,20 @@ AudioBufferSourceHandler::AudioBufferSourceHandler(AudioNode& node, float sample
     initialize();
 }
 
-AudioBufferSourceHandler* AudioBufferSourceHandler::create(AudioNode& node, float sampleRate, AudioParamHandler& playbackRate)
+PassRefPtr<AudioBufferSourceHandler> AudioBufferSourceHandler::create(AudioNode& node, float sampleRate, AudioParamHandler& playbackRate, AudioParamHandler& detune)
 {
-    return new AudioBufferSourceHandler(node, sampleRate, playbackRate);
+    return adoptRef(new AudioBufferSourceHandler(node, sampleRate, playbackRate, detune));
 }
 
 AudioBufferSourceHandler::~AudioBufferSourceHandler()
 {
-    ASSERT(!isInitialized());
-}
-
-void AudioBufferSourceHandler::dispose()
-{
     clearPannerNode();
     uninitialize();
-    AudioScheduledSourceHandler::dispose();
 }
 
 void AudioBufferSourceHandler::process(size_t framesToProcess)
 {
-    AudioBus* outputBus = output(0)->bus();
+    AudioBus* outputBus = output(0).bus();
 
     if (!isInitialized()) {
         outputBus->zero();
@@ -229,10 +230,10 @@ bool AudioBufferSourceHandler::renderFromBuffer(AudioBus* bus, unsigned destinat
     if (loop() && m_virtualReadIndex >= virtualEndFrame)
         m_virtualReadIndex = (m_loopStart < 0) ? 0 : (m_loopStart * buffer()->sampleRate());
 
-    double pitchRate = totalPitchRate();
+    double computedPlaybackRate = computePlaybackRate();
 
     // Sanity check that our playback rate isn't larger than the loop size.
-    if (pitchRate > virtualDeltaFrames)
+    if (computedPlaybackRate > virtualDeltaFrames)
         return false;
 
     // Get local copy.
@@ -248,9 +249,9 @@ bool AudioBufferSourceHandler::renderFromBuffer(AudioBus* bus, unsigned destinat
     ASSERT(virtualDeltaFrames >= 0);
     ASSERT(virtualEndFrame >= 0);
 
-    // Optimize for the very common case of playing back with pitchRate == 1.
+    // Optimize for the very common case of playing back with computedPlaybackRate == 1.
     // We can avoid the linear interpolation.
-    if (pitchRate == 1 && virtualReadIndex == floor(virtualReadIndex)
+    if (computedPlaybackRate == 1 && virtualReadIndex == floor(virtualReadIndex)
         && virtualDeltaFrames == floor(virtualDeltaFrames)
         && virtualEndFrame == floor(virtualEndFrame)) {
         unsigned readIndex = static_cast<unsigned>(virtualReadIndex);
@@ -314,7 +315,7 @@ bool AudioBufferSourceHandler::renderFromBuffer(AudioBus* bus, unsigned destinat
             }
             writeIndex++;
 
-            virtualReadIndex += pitchRate;
+            virtualReadIndex += computedPlaybackRate;
 
             // Wrap-around, retaining sub-sample position since virtualReadIndex is floating-point.
             if (virtualReadIndex >= virtualEndFrame) {
@@ -368,7 +369,7 @@ void AudioBufferSourceHandler::setBuffer(AudioBuffer* buffer, ExceptionState& ex
             return;
         }
 
-        output(0)->setNumberOfChannels(numberOfChannels);
+        output(0).setNumberOfChannels(numberOfChannels);
 
         m_sourceChannels = adoptArrayPtr(new const float* [numberOfChannels]);
         m_destinationChannels = adoptArrayPtr(new float* [numberOfChannels]);
@@ -388,7 +389,7 @@ void AudioBufferSourceHandler::setBuffer(AudioBuffer* buffer, ExceptionState& ex
 
 unsigned AudioBufferSourceHandler::numberOfChannels()
 {
-    return output(0)->numberOfChannels();
+    return output(0).numberOfChannels();
 }
 
 void AudioBufferSourceHandler::clampGrainParameters(const AudioBuffer* buffer)
@@ -452,21 +453,30 @@ void AudioBufferSourceHandler::startSource(double when, double grainOffset, doub
     if (when < 0) {
         exceptionState.throwDOMException(
             InvalidStateError,
-            "Start time must be a non-negative number: " + String::number(when));
+            ExceptionMessages::indexExceedsMinimumBound(
+                "start time",
+                when,
+                0.0));
         return;
     }
 
     if (grainOffset < 0) {
         exceptionState.throwDOMException(
             InvalidStateError,
-            "Offset must be a non-negative number: " + String::number(grainOffset));
+            ExceptionMessages::indexExceedsMinimumBound(
+                "offset",
+                grainOffset,
+                0.0));
         return;
     }
 
     if (grainDuration < 0) {
         exceptionState.throwDOMException(
             InvalidStateError,
-            "Duration must be a non-negative number: " + String::number(grainDuration));
+            ExceptionMessages::indexExceedsMinimumBound(
+                "duration",
+                grainDuration,
+                0.0));
         return;
     }
 
@@ -474,6 +484,12 @@ void AudioBufferSourceHandler::startSource(double when, double grainOffset, doub
     m_isGrain = true;
     m_grainOffset = grainOffset;
     m_grainDuration = grainDuration;
+
+    // The node is started. Add a reference to keep us alive so that audio
+    // will eventually get played even if Javascript should drop all references
+    // to this node. The reference will get dropped when the source has finished
+    // playing.
+    context()->notifySourceNodeStartedProcessing(node());
 
     // If |when| < currentTime, the source must start now according to the spec.
     // So just set startTime to currentTime in this case to start the source now.
@@ -485,34 +501,41 @@ void AudioBufferSourceHandler::startSource(double when, double grainOffset, doub
     m_playbackState = SCHEDULED_STATE;
 }
 
-double AudioBufferSourceHandler::totalPitchRate()
+double AudioBufferSourceHandler::computePlaybackRate()
 {
-    double dopplerRate = 1.0;
+    double dopplerRate = 1;
     if (m_pannerNode)
         dopplerRate = m_pannerNode->dopplerRate();
 
     // Incorporate buffer's sample-rate versus AudioContext's sample-rate.
-    // Normally it's not an issue because buffers are loaded at the AudioContext's sample-rate, but we can handle it in any case.
+    // Normally it's not an issue because buffers are loaded at the
+    // AudioContext's sample-rate, but we can handle it in any case.
     double sampleRateFactor = 1.0;
-    if (buffer())
-        sampleRateFactor = buffer()->sampleRate() / sampleRate();
+    if (buffer()) {
+        // Use doubles to compute this to full accuracy.
+        sampleRateFactor = buffer()->sampleRate() / static_cast<double>(sampleRate());
+    }
 
-    double basePitchRate = m_playbackRate->value();
+    // Use finalValue() to incorporate changes of AudioParamTimeline and
+    // AudioSummingJunction from m_playbackRate AudioParam.
+    double basePlaybackRate = m_playbackRate->finalValue();
 
-    double totalRate = dopplerRate * sampleRateFactor * basePitchRate;
+    double finalPlaybackRate = dopplerRate * sampleRateFactor * basePlaybackRate;
 
-    // Sanity check the total rate.  It's very important that the resampler not get any bad rate values.
-    totalRate = std::max(0.0, totalRate);
-    if (!totalRate)
-        totalRate = 1; // zero rate is considered illegal
-    totalRate = std::min(MaxRate, totalRate);
+    // Take the detune value into account for the final playback rate.
+    finalPlaybackRate *= pow(2, m_detune->finalValue() / 1200);
 
-    bool isTotalRateValid = !std::isnan(totalRate) && !std::isinf(totalRate);
-    ASSERT(isTotalRateValid);
-    if (!isTotalRateValid)
-        totalRate = 1.0;
+    // Sanity check the total rate.  It's very important that the resampler not
+    // get any bad rate values.
+    finalPlaybackRate = clampTo(finalPlaybackRate, 0.0, MaxRate);
 
-    return totalRate;
+    bool isPlaybackRateValid = !std::isnan(finalPlaybackRate) && !std::isinf(finalPlaybackRate);
+    ASSERT(isPlaybackRateValid);
+
+    if (!isPlaybackRateValid)
+        finalPlaybackRate = 1.0;
+
+    return finalPlaybackRate;
 }
 
 bool AudioBufferSourceHandler::propagatesSilence() const
@@ -523,7 +546,7 @@ bool AudioBufferSourceHandler::propagatesSilence() const
 void AudioBufferSourceHandler::setPannerNode(PannerHandler* pannerNode)
 {
     if (m_pannerNode != pannerNode && !hasFinished()) {
-        PannerHandler* oldPannerNode(m_pannerNode.release());
+        RefPtr<PannerHandler> oldPannerNode(m_pannerNode.release());
         m_pannerNode = pannerNode;
         if (pannerNode)
             pannerNode->makeConnection();
@@ -542,10 +565,20 @@ void AudioBufferSourceHandler::clearPannerNode()
 
 void AudioBufferSourceHandler::handleStoppableSourceNode()
 {
-    // If the source node is not looping, and we have a buffer, we can determine when the
-    // source would stop playing.
+    // If the source node is not looping, and we have a buffer, we can determine when the source
+    // would stop playing.  This is intended to handle the (uncommon) scenario where start() has
+    // been called but is never connected to the destination (directly or indirectly).  By stopping
+    // the node, the node can be collected.  Otherwise, the node will never get collected, leaking
+    // memory.
     if (!loop() && buffer() && isPlayingOrScheduled()) {
-        double stopTime = m_startTime + buffer()->duration();
+        // See crbug.com/478301. If a source node is started via start(), the source may not start
+        // at that time but one quantum (128 frames) later.  But we compute the stop time based on
+        // the start time and the duration, so we end up stopping one quantum early.  Thus, add a
+        // little extra time; we just need to stop the source sometime after it should have stopped
+        // if it hadn't already.  We don't need to be super precise on when to stop.
+        double extraStopTime = kExtraStopFrames / static_cast<double>(context()->sampleRate());
+        double stopTime = m_startTime + buffer()->duration() + extraStopTime;
+
         if (context()->currentTime() > stopTime) {
             // The context time has passed the time when the source nodes should have stopped
             // playing. Stop the node now and deref it. (But don't run the onEnded event because the
@@ -562,19 +595,13 @@ void AudioBufferSourceHandler::finish()
     AudioScheduledSourceHandler::finish();
 }
 
-DEFINE_TRACE(AudioBufferSourceHandler)
-{
-    visitor->trace(m_buffer);
-    visitor->trace(m_pannerNode);
-    AudioScheduledSourceHandler::trace(visitor);
-}
-
 // ----------------------------------------------------------------
 AudioBufferSourceNode::AudioBufferSourceNode(AudioContext& context, float sampleRate)
     : AudioScheduledSourceNode(context)
     , m_playbackRate(AudioParam::create(context, 1.0))
+    , m_detune(AudioParam::create(context, 0.0))
 {
-    setHandler(AudioBufferSourceHandler::create(*this, sampleRate, m_playbackRate->handler()));
+    setHandler(AudioBufferSourceHandler::create(*this, sampleRate, m_playbackRate->handler(), m_detune->handler()));
 }
 
 AudioBufferSourceNode* AudioBufferSourceNode::create(AudioContext& context, float sampleRate)
@@ -585,6 +612,7 @@ AudioBufferSourceNode* AudioBufferSourceNode::create(AudioContext& context, floa
 DEFINE_TRACE(AudioBufferSourceNode)
 {
     visitor->trace(m_playbackRate);
+    visitor->trace(m_detune);
     AudioScheduledSourceNode::trace(visitor);
 }
 
@@ -606,6 +634,11 @@ void AudioBufferSourceNode::setBuffer(AudioBuffer* newBuffer, ExceptionState& ex
 AudioParam* AudioBufferSourceNode::playbackRate() const
 {
     return m_playbackRate;
+}
+
+AudioParam* AudioBufferSourceNode::detune() const
+{
+    return m_detune;
 }
 
 bool AudioBufferSourceNode::loop() const

@@ -228,13 +228,8 @@ WebInspector.ObjectPropertyTreeElement.prototype = {
         var separatorElement = createElementWithClass("span", "object-properties-section-separator");
         separatorElement.textContent = ": ";
 
-        if (this.property.value && this.property.value.customPreview()) {
-            this.nameElement.classList.add("custom-formatted-property");
-            separatorElement.classList.add("custom-formatted-property");
-            this.valueElement = WebInspector.CustomPreviewSection.createInShadow(this.property.value);
-            this.valueElement.classList.add("object-properties-section-custom-section");
-        } else  if (this.property.value) {
-            this.valueElement = WebInspector.ObjectPropertiesSection.createValueElement(this.property.value, this.property.wasThrown, this.listItemElement);
+        if (this.property.value) {
+            this.valueElement = WebInspector.ObjectPropertiesSection.createValueElementWithCustomSupport(this.property.value, this.property.wasThrown, this.listItemElement);
             this.valueElement.addEventListener("contextmenu", this._contextMenuFired.bind(this, this.property.value), false);
         } else if (this.property.getter) {
             this.valueElement = WebInspector.ObjectPropertyTreeElement.createRemoteObjectAccessorPropertySpan(this.property.parentObject, [this.property.name], this._onInvokeGetterClick.bind(this));
@@ -1045,6 +1040,37 @@ WebInspector.ObjectPropertiesSection.createNameElement = function(name)
 }
 
 /**
+ * @param {?string=} description
+ * @return {string} valueText
+ */
+WebInspector.ObjectPropertiesSection.valueTextForFunctionDescription = function(description)
+{
+    var matches = /function\s([^)]*)/.exec(description);
+    if (!matches) {
+        // process shorthand methods
+        matches = /[^(]*(\([^)]*)/.exec(description);
+    }
+    var match = matches ? matches[1] : null;
+    return match ? match.replace(/\n/g, " ") + ")" : (description || "");
+}
+
+/**
+ * @param {!WebInspector.RemoteObject} value
+ * @param {boolean} wasThrown
+ * @param {!Element=} parentElement
+ * @return {!Element}
+ */
+WebInspector.ObjectPropertiesSection.createValueElementWithCustomSupport = function(value, wasThrown, parentElement)
+{
+    if (value.customPreview()) {
+        var result = WebInspector.CustomPreviewSection.createInShadow(value);
+        result.classList.add("object-properties-section-custom-section");
+        return result
+    }
+    return WebInspector.ObjectPropertiesSection.createValueElement(value, wasThrown, parentElement);
+}
+
+/**
  * @param {!WebInspector.RemoteObject} value
  * @param {boolean} wasThrown
  * @param {!Element=} parentElement
@@ -1069,8 +1095,7 @@ WebInspector.ObjectPropertiesSection.createValueElement = function(value, wasThr
         valueText = description.replace(/\n/g, "\u21B5");
         suffix = "\"";
     } else if (type === "function") {
-        var match = /function\s([^)]*)/.exec(description)[1];
-        valueText = match ? match.replace(/\n/g, " ") + ")" : (description || "");
+        valueText = WebInspector.ObjectPropertiesSection.valueTextForFunctionDescription(description);
     } else if (type !== "object" || subtype !== "node") {
         valueText = description;
     }
@@ -1106,12 +1131,12 @@ WebInspector.ObjectPropertiesSection.createValueElement = function(value, wasThr
 
     function mouseMove()
     {
-        value.target().domModel.highlightObjectAsDOMNode(value);
+        WebInspector.DOMModel.highlightObjectAsDOMNode(value);
     }
 
     function mouseLeave()
     {
-        value.target().domModel.hideDOMNodeHighlight();
+        WebInspector.DOMModel.hideDOMNodeHighlight();
     }
 
     return valueElement;
@@ -1132,8 +1157,8 @@ WebInspector.ObjectPropertiesSection.formatObjectAsFunction = function(func, ele
     function didGetDetails(response)
     {
         if (!response) {
-            var match = /function\s([^)]*)/.exec(func.description)[1];
-            element.createTextChild(match ? match.replace(/\n/g, " ") + ")" : (func.description || ""));
+            var valueText = WebInspector.ObjectPropertiesSection.valueTextForFunctionDescription(func.description);
+            element.createTextChild(valueText);
             return;
         }
 

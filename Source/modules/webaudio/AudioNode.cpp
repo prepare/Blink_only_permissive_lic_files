@@ -46,7 +46,7 @@ unsigned AudioHandler::s_instanceCount = 0;
 AudioHandler::AudioHandler(NodeType nodeType, AudioNode& node, float sampleRate)
     : m_isInitialized(false)
     , m_nodeType(NodeTypeUnknown)
-    , m_node(node)
+    , m_node(&node)
     , m_context(node.context())
     , m_sampleRate(sampleRate)
     , m_lastProcessingTime(-1)
@@ -71,6 +71,9 @@ AudioHandler::AudioHandler(NodeType nodeType, AudioNode& node, float sampleRate)
 
 AudioHandler::~AudioHandler()
 {
+    ASSERT(isMainThread());
+    // dispose() should be called.
+    ASSERT(!node());
     --s_instanceCount;
 #if DEBUG_AUDIONODE_REFERENCES
     --s_nodeCount[nodeType()];
@@ -98,10 +101,22 @@ void AudioHandler::dispose()
     ASSERT(isMainThread());
     ASSERT(context()->isGraphOwner());
 
-    context()->handler().removeChangedChannelCountMode(this);
-    context()->handler().removeAutomaticPullNode(this);
+    context()->deferredTaskHandler().removeChangedChannelCountMode(this);
+    context()->deferredTaskHandler().removeAutomaticPullNode(this);
     for (auto& output : m_outputs)
         output->dispose();
+    m_node = nullptr;
+}
+
+AudioNode* AudioHandler::node() const
+{
+    ASSERT(isMainThread());
+    return m_node;
+}
+
+AudioContext* AudioHandler::context() const
+{
+    return m_context;
 }
 
 String AudioHandler::nodeTypeName() const
@@ -179,18 +194,356 @@ void AudioHandler::addOutput(unsigned numberOfChannels)
     node()->didAddOutput(numberOfOutputs());
 }
 
-AudioNodeInput* AudioHandler::input(unsigned i)
+AudioNodeInput& AudioHandler::input(unsigned i)
 {
-    if (i < m_inputs.size())
-        return m_inputs[i].get();
-    return nullptr;
+    return *m_inputs[i];
 }
 
-AudioNodeOutput* AudioHandler::output(unsigned i)
+AudioNodeOutput& AudioHandler::output(unsigned i)
 {
-    if (i < m_outputs.size())
-        return m_outputs[i].get();
-    return nullptr;
+    return *m_outputs[i];
+}
+
+unsigned long AudioHandler::channelCount()
+{
+    return m_channelCount;
+}
+
+void AudioHandler::setChannelCount(unsigned long channelCount, ExceptionState& exceptionState)
+{
+    ASSERT(isMainThread());
+    AudioContext::AutoLocker locker(context());
+
+    if (channelCount > 0 && channelCount <= AudioContext::maxNumberOfChannels()) {
+        if (m_channelCount != channelCount) {
+            m_channelCount = channelCount;
+            if (m_channelCountMode != Max)
+                updateChannelsForInputs();
+        }
+    } else {
+        exceptionState.throwDOMException(
+            NotSupportedError,
+            ExceptionMessages::indexOutsideRange<unsigned long>(
+                "channel count",
+                channelCount,
+                1,
+                ExceptionMessages::InclusiveBound,
+                AudioContext::maxNumberOfChannels(),
+                ExceptionMessages::InclusiveBound));
+    }
+}
+
+String AudioHandler::channelCountMode()
+{
+    switch (m_channelCountMode) {
+    case Max:
+        return "max";
+    case ClampedMax:
+        return "clamped-max";
+    case Explicit:
+        return "explicit";
+    }
+    ASSERT_NOT_REACHED();
+    return "";
+}
+
+void AudioHandler::setChannelCountMode(const String& mode, ExceptionState& exceptionState)
+{
+    ASSERT(isMainThread());
+    AudioContext::AutoLocker locker(context());
+
+    ChannelCountMode oldMode = m_channelCountMode;
+
+    if (mode == "max") {
+        m_newChannelCountMode = Max;
+    } else if (mode == "clamped-max") {
+        m_newChannelCountMode = ClampedMax;
+    } else if (mode == "explicit") {
+        m_newChannelCountMode = Explicit;
+    } else {
+        ASSERT_NOT_REACHED();
+    }
+
+    if (m_newChannelCountMode != oldMode)
+        context()->deferredTaskHandler().addChangedChannelCountMode(this);
+}
+
+String AudioHandler::channelInterpretation()
+{
+    switch (m_channelInterpretation) {
+    case AudioBus::Speakers:
+        return "speakers";
+    case AudioBus::Discrete:
+        return "discrete";
+    }
+    ASSERT_NOT_REACHED();
+    return "";
+}
+
+void AudioHandler::setChannelInterpretation(const String& interpretation, ExceptionState& exceptionState)
+{
+    ASSERT(isMainThread());
+    AudioContext::AutoLocker locker(context());
+
+    if (interpretation == "speakers") {
+        m_channelInterpretation = AudioBus::Speakers;
+    } else if (interpretation == "discrete") {
+        m_channelInterpretation = AudioBus::Discrete;
+    } else {
+        ASSERT_NOT_REACHED();
+    }
+}
+
+void AudioHandler::updateChannelsForInputs()
+{
+    for (auto& input : m_inputs)
+        input->changedOutputs();
+}
+
+void AudioHandler::processIfNecessary(size_t framesToProcess)
+{
+    ASSERT(context()->isAudioThread());
+
+    if (!isInitialized())
+        return;
+
+    // Ensure that we only process once per rendering quantum.
+    // This handles the "fanout" problem where an output is connected to multiple inputs.
+    // The first time we're called during this time slice we process, but after that we don't want to re-process,
+    // instead our output(s) will already have the results cached in their bus;
+    double currentTime = context()->currentTime();
+    if (m_lastProcessingTime != currentTime) {
+        m_lastProcessingTime = currentTime; // important to first update this time because of feedback loops in the rendering graph
+
+        pullInputs(framesToProcess);
+
+        bool silentInputs = inputsAreSilent();
+        if (!silentInputs)
+            m_lastNonSilentTime = (context()->currentSampleFrame() + framesToProcess) / static_cast<double>(m_sampleRate);
+
+        if (silentInputs && propagatesSilence()) {
+            silenceOutputs();
+        } else {
+            process(framesToProcess);
+            unsilenceOutputs();
+        }
+    }
+}
+
+void AudioHandler::checkNumberOfChannelsForInput(AudioNodeInput* input)
+{
+    ASSERT(context()->isAudioThread());
+    ASSERT(context()->isGraphOwner());
+
+    ASSERT(m_inputs.contains(input));
+    if (!m_inputs.contains(input))
+        return;
+
+    input->updateInternalBus();
+}
+
+double AudioHandler::tailTime() const
+{
+    return 0;
+}
+
+double AudioHandler::latencyTime() const
+{
+    return 0;
+}
+
+bool AudioHandler::propagatesSilence() const
+{
+    return m_lastNonSilentTime + latencyTime() + tailTime() < context()->currentTime();
+}
+
+void AudioHandler::pullInputs(size_t framesToProcess)
+{
+    ASSERT(context()->isAudioThread());
+
+    // Process all of the AudioNodes connected to our inputs.
+    for (auto& input : m_inputs)
+        input->pull(0, framesToProcess);
+}
+
+bool AudioHandler::inputsAreSilent()
+{
+    for (auto& input : m_inputs) {
+        if (!input->bus()->isSilent())
+            return false;
+    }
+    return true;
+}
+
+void AudioHandler::silenceOutputs()
+{
+    for (auto& output : m_outputs)
+        output->bus()->zero();
+}
+
+void AudioHandler::unsilenceOutputs()
+{
+    for (auto& output : m_outputs)
+        output->bus()->clearSilentFlag();
+}
+
+void AudioHandler::enableOutputsIfNecessary()
+{
+    if (m_isDisabled && m_connectionRefCount > 0) {
+        ASSERT(isMainThread());
+        AudioContext::AutoLocker locker(context());
+
+        m_isDisabled = false;
+        for (auto& output : m_outputs)
+            output->enable();
+    }
+}
+
+void AudioHandler::disableOutputsIfNecessary()
+{
+    // Disable outputs if appropriate. We do this if the number of connections is 0 or 1. The case
+    // of 0 is from deref() where there are no connections left. The case of 1 is from
+    // AudioNodeInput::disable() where we want to disable outputs when there's only one connection
+    // left because we're ready to go away, but can't quite yet.
+    if (m_connectionRefCount <= 1 && !m_isDisabled) {
+        // Still may have JavaScript references, but no more "active" connection references, so put all of our outputs in a "dormant" disabled state.
+        // Garbage collection may take a very long time after this time, so the "dormant" disabled nodes should not bog down the rendering...
+
+        // As far as JavaScript is concerned, our outputs must still appear to be connected.
+        // But internally our outputs should be disabled from the inputs they're connected to.
+        // disable() can recursively deref connections (and call disable()) down a whole chain of connected nodes.
+
+        // FIXME: we special case the convolver and delay since they have a significant tail-time and shouldn't be disconnected simply
+        // because they no longer have any input connections. This needs to be handled more generally where AudioNodes have
+        // a tailTime attribute. Then the AudioNode only needs to remain "active" for tailTime seconds after there are no
+        // longer any active connections.
+        if (nodeType() != NodeTypeConvolver && nodeType() != NodeTypeDelay) {
+            m_isDisabled = true;
+            clearInternalStateWhenDisabled();
+            for (auto& output : m_outputs)
+                output->disable();
+        }
+    }
+}
+
+void AudioHandler::makeConnection()
+{
+    atomicIncrement(&m_connectionRefCount);
+
+#if DEBUG_AUDIONODE_REFERENCES
+    fprintf(stderr, "%p: %2d: AudioNode::ref   %3d [%3d]\n",
+        this, nodeType(), m_connectionRefCount, s_nodeCount[nodeType()]);
+#endif
+    // See the disabling code in disableOutputsIfNecessary(). This handles
+    // the case where a node is being re-connected after being used at least
+    // once and disconnected. In this case, we need to re-enable.
+    enableOutputsIfNecessary();
+}
+
+void AudioHandler::breakConnection()
+{
+    // The actual work for deref happens completely within the audio context's
+    // graph lock. In the case of the audio thread, we must use a tryLock to
+    // avoid glitches.
+    bool hasLock = false;
+    if (context()->isAudioThread()) {
+        // Real-time audio thread must not contend lock (to avoid glitches).
+        hasLock = context()->tryLock();
+    } else {
+        context()->lock();
+        hasLock = true;
+    }
+
+    if (hasLock) {
+        breakConnectionWithLock();
+        context()->unlock();
+    } else {
+        // We were unable to get the lock, so put this in a list to finish up
+        // later.
+        ASSERT(context()->isAudioThread());
+        context()->deferredTaskHandler().addDeferredBreakConnection(*this);
+    }
+}
+
+void AudioHandler::breakConnectionWithLock()
+{
+    atomicDecrement(&m_connectionRefCount);
+
+#if DEBUG_AUDIONODE_REFERENCES
+    fprintf(stderr, "%p: %2d: AudioNode::deref %3d [%3d]\n",
+        this, nodeType(), m_connectionRefCount, s_nodeCount[nodeType()]);
+#endif
+
+    if (!m_connectionRefCount)
+        disableOutputsIfNecessary();
+}
+
+#if DEBUG_AUDIONODE_REFERENCES
+
+bool AudioHandler::s_isNodeCountInitialized = false;
+int AudioHandler::s_nodeCount[NodeTypeEnd];
+
+void AudioHandler::printNodeCounts()
+{
+    fprintf(stderr, "\n\n");
+    fprintf(stderr, "===========================\n");
+    fprintf(stderr, "AudioNode: reference counts\n");
+    fprintf(stderr, "===========================\n");
+
+    for (unsigned i = 0; i < NodeTypeEnd; ++i)
+        fprintf(stderr, "%2d: %d\n", i, s_nodeCount[i]);
+
+    fprintf(stderr, "===========================\n\n\n");
+}
+
+#endif // DEBUG_AUDIONODE_REFERENCES
+
+void AudioHandler::updateChannelCountMode()
+{
+    m_channelCountMode = m_newChannelCountMode;
+    updateChannelsForInputs();
+}
+
+// ----------------------------------------------------------------
+
+AudioNode::AudioNode(AudioContext& context)
+    : m_context(context)
+    , m_handler(nullptr)
+{
+    ThreadState::current()->registerPreFinalizer(*this);
+}
+
+void AudioNode::dispose()
+{
+    ASSERT(isMainThread());
+    AudioContext::AutoLocker locker(context());
+    handler().dispose();
+    if (context()->contextState() == AudioContext::Running)
+        context()->deferredTaskHandler().addRenderingOrphanHandler(m_handler.release());
+}
+
+void AudioNode::setHandler(PassRefPtr<AudioHandler> handler)
+{
+    ASSERT(handler);
+    m_handler = handler;
+}
+
+AudioHandler& AudioNode::handler() const
+{
+    return *m_handler;
+}
+
+DEFINE_TRACE(AudioNode)
+{
+    visitor->trace(m_context);
+    visitor->trace(m_connectedNodes);
+    visitor->trace(m_connectedParams);
+    RefCountedGarbageCollectedEventTargetWithInlineData<AudioNode>::trace(visitor);
+}
+
+AudioContext* AudioNode::context() const
+{
+    return m_context;
 }
 
 void AudioNode::connect(AudioNode* destination, unsigned outputIndex, unsigned inputIndex, ExceptionState& exceptionState)
@@ -234,7 +587,7 @@ void AudioNode::connect(AudioNode* destination, unsigned outputIndex, unsigned i
         return;
     }
 
-    destination->handler().input(inputIndex)->connect(*handler().output(outputIndex));
+    destination->handler().input(inputIndex).connect(handler().output(outputIndex));
     if (!m_connectedNodes[outputIndex])
         m_connectedNodes[outputIndex] = new HeapHashSet<Member<AudioNode>>();
     m_connectedNodes[outputIndex]->add(destination);
@@ -276,7 +629,7 @@ void AudioNode::connect(AudioParam* param, unsigned outputIndex, ExceptionState&
         return;
     }
 
-    param->handler().connect(*handler().output(outputIndex));
+    param->handler().connect(handler().output(outputIndex));
     if (!m_connectedParams[outputIndex])
         m_connectedParams[outputIndex] = new HeapHashSet<Member<AudioParam>>();
     m_connectedParams[outputIndex]->add(param);
@@ -284,28 +637,28 @@ void AudioNode::connect(AudioParam* param, unsigned outputIndex, ExceptionState&
 
 void AudioNode::disconnectAllFromOutput(unsigned outputIndex)
 {
-    handler().output(outputIndex)->disconnectAll();
+    handler().output(outputIndex).disconnectAll();
     m_connectedNodes[outputIndex] = nullptr;
     m_connectedParams[outputIndex] = nullptr;
 }
 
 bool AudioNode::disconnectFromOutputIfConnected(unsigned outputIndex, AudioNode& destination, unsigned inputIndexOfDestination)
 {
-    AudioNodeOutput* output = handler().output(outputIndex);
-    AudioNodeInput& input = *destination.handler().input(inputIndexOfDestination);
-    if (!output->isConnectedToInput(input))
+    AudioNodeOutput& output = handler().output(outputIndex);
+    AudioNodeInput& input = destination.handler().input(inputIndexOfDestination);
+    if (!output.isConnectedToInput(input))
         return false;
-    output->disconnectInput(input);
+    output.disconnectInput(input);
     m_connectedNodes[outputIndex]->remove(&destination);
     return true;
 }
 
 bool AudioNode::disconnectFromOutputIfConnected(unsigned outputIndex, AudioParam& param)
 {
-    AudioNodeOutput* output = handler().output(outputIndex);
-    if (!output->isConnectedToAudioParam(param.handler()))
+    AudioNodeOutput& output = handler().output(outputIndex);
+    if (!output.isConnectedToAudioParam(param.handler()))
         return false;
-    output->disconnectAudioParam(param.handler());
+    output.disconnectAudioParam(param.handler());
     m_connectedParams[outputIndex]->remove(&param);
     return true;
 }
@@ -503,359 +856,6 @@ void AudioNode::disconnectWithoutException(unsigned outputIndex)
     if (outputIndex >= handler().numberOfOutputs())
         return;
     disconnectAllFromOutput(outputIndex);
-}
-
-unsigned long AudioHandler::channelCount()
-{
-    return m_channelCount;
-}
-
-void AudioHandler::setChannelCount(unsigned long channelCount, ExceptionState& exceptionState)
-{
-    ASSERT(isMainThread());
-    AudioContext::AutoLocker locker(context());
-
-    if (channelCount > 0 && channelCount <= AudioContext::maxNumberOfChannels()) {
-        if (m_channelCount != channelCount) {
-            m_channelCount = channelCount;
-            if (m_channelCountMode != Max)
-                updateChannelsForInputs();
-        }
-    } else {
-        exceptionState.throwDOMException(
-            NotSupportedError,
-            "channel count (" + String::number(channelCount) + ") must be between 1 and " + String::number(AudioContext::maxNumberOfChannels()) + ".");
-    }
-}
-
-String AudioHandler::channelCountMode()
-{
-    switch (m_channelCountMode) {
-    case Max:
-        return "max";
-    case ClampedMax:
-        return "clamped-max";
-    case Explicit:
-        return "explicit";
-    }
-    ASSERT_NOT_REACHED();
-    return "";
-}
-
-void AudioHandler::setChannelCountMode(const String& mode, ExceptionState& exceptionState)
-{
-    ASSERT(isMainThread());
-    AudioContext::AutoLocker locker(context());
-
-    ChannelCountMode oldMode = m_channelCountMode;
-
-    if (mode == "max") {
-        m_newChannelCountMode = Max;
-    } else if (mode == "clamped-max") {
-        m_newChannelCountMode = ClampedMax;
-    } else if (mode == "explicit") {
-        m_newChannelCountMode = Explicit;
-    } else {
-        ASSERT_NOT_REACHED();
-    }
-
-    if (m_newChannelCountMode != oldMode)
-        context()->handler().addChangedChannelCountMode(this);
-}
-
-String AudioHandler::channelInterpretation()
-{
-    switch (m_channelInterpretation) {
-    case AudioBus::Speakers:
-        return "speakers";
-    case AudioBus::Discrete:
-        return "discrete";
-    }
-    ASSERT_NOT_REACHED();
-    return "";
-}
-
-void AudioHandler::setChannelInterpretation(const String& interpretation, ExceptionState& exceptionState)
-{
-    ASSERT(isMainThread());
-    AudioContext::AutoLocker locker(context());
-
-    if (interpretation == "speakers") {
-        m_channelInterpretation = AudioBus::Speakers;
-    } else if (interpretation == "discrete") {
-        m_channelInterpretation = AudioBus::Discrete;
-    } else {
-        ASSERT_NOT_REACHED();
-    }
-}
-
-void AudioHandler::updateChannelsForInputs()
-{
-    for (unsigned i = 0; i < m_inputs.size(); ++i)
-        input(i)->changedOutputs();
-}
-
-void AudioHandler::processIfNecessary(size_t framesToProcess)
-{
-    ASSERT(context()->isAudioThread());
-
-    if (!isInitialized())
-        return;
-
-    // Ensure that we only process once per rendering quantum.
-    // This handles the "fanout" problem where an output is connected to multiple inputs.
-    // The first time we're called during this time slice we process, but after that we don't want to re-process,
-    // instead our output(s) will already have the results cached in their bus;
-    double currentTime = context()->currentTime();
-    if (m_lastProcessingTime != currentTime) {
-        m_lastProcessingTime = currentTime; // important to first update this time because of feedback loops in the rendering graph
-
-        pullInputs(framesToProcess);
-
-        bool silentInputs = inputsAreSilent();
-        if (!silentInputs)
-            m_lastNonSilentTime = (context()->currentSampleFrame() + framesToProcess) / static_cast<double>(m_sampleRate);
-
-        if (silentInputs && propagatesSilence()) {
-            silenceOutputs();
-        } else {
-            process(framesToProcess);
-            unsilenceOutputs();
-        }
-    }
-}
-
-void AudioHandler::checkNumberOfChannelsForInput(AudioNodeInput* input)
-{
-    ASSERT(context()->isAudioThread());
-    ASSERT(context()->isGraphOwner());
-
-    ASSERT(m_inputs.contains(input));
-    if (!m_inputs.contains(input))
-        return;
-
-    input->updateInternalBus();
-}
-
-double AudioHandler::tailTime() const
-{
-    return 0;
-}
-
-double AudioHandler::latencyTime() const
-{
-    return 0;
-}
-
-bool AudioHandler::propagatesSilence() const
-{
-    return m_lastNonSilentTime + latencyTime() + tailTime() < context()->currentTime();
-}
-
-void AudioHandler::pullInputs(size_t framesToProcess)
-{
-    ASSERT(context()->isAudioThread());
-
-    // Process all of the AudioNodes connected to our inputs.
-    for (unsigned i = 0; i < m_inputs.size(); ++i)
-        input(i)->pull(0, framesToProcess);
-}
-
-bool AudioHandler::inputsAreSilent()
-{
-    for (unsigned i = 0; i < m_inputs.size(); ++i) {
-        if (!input(i)->bus()->isSilent())
-            return false;
-    }
-    return true;
-}
-
-void AudioHandler::silenceOutputs()
-{
-    for (unsigned i = 0; i < m_outputs.size(); ++i)
-        output(i)->bus()->zero();
-}
-
-void AudioHandler::unsilenceOutputs()
-{
-    for (unsigned i = 0; i < m_outputs.size(); ++i)
-        output(i)->bus()->clearSilentFlag();
-}
-
-void AudioHandler::enableOutputsIfNecessary()
-{
-    if (m_isDisabled && m_connectionRefCount > 0) {
-        ASSERT(isMainThread());
-        AudioContext::AutoLocker locker(context());
-
-        m_isDisabled = false;
-        for (unsigned i = 0; i < m_outputs.size(); ++i)
-            output(i)->enable();
-    }
-}
-
-void AudioHandler::disableOutputsIfNecessary()
-{
-    // Disable outputs if appropriate. We do this if the number of connections is 0 or 1. The case
-    // of 0 is from deref() where there are no connections left. The case of 1 is from
-    // AudioNodeInput::disable() where we want to disable outputs when there's only one connection
-    // left because we're ready to go away, but can't quite yet.
-    if (m_connectionRefCount <= 1 && !m_isDisabled) {
-        // Still may have JavaScript references, but no more "active" connection references, so put all of our outputs in a "dormant" disabled state.
-        // Garbage collection may take a very long time after this time, so the "dormant" disabled nodes should not bog down the rendering...
-
-        // As far as JavaScript is concerned, our outputs must still appear to be connected.
-        // But internally our outputs should be disabled from the inputs they're connected to.
-        // disable() can recursively deref connections (and call disable()) down a whole chain of connected nodes.
-
-        // FIXME: we special case the convolver and delay since they have a significant tail-time and shouldn't be disconnected simply
-        // because they no longer have any input connections. This needs to be handled more generally where AudioNodes have
-        // a tailTime attribute. Then the AudioNode only needs to remain "active" for tailTime seconds after there are no
-        // longer any active connections.
-        if (nodeType() != NodeTypeConvolver && nodeType() != NodeTypeDelay) {
-            m_isDisabled = true;
-            clearInternalStateWhenDisabled();
-            for (unsigned i = 0; i < m_outputs.size(); ++i)
-                output(i)->disable();
-        }
-    }
-}
-
-void AudioHandler::makeConnection()
-{
-    atomicIncrement(&m_connectionRefCount);
-
-#if DEBUG_AUDIONODE_REFERENCES
-    fprintf(stderr, "%p: %2d: AudioNode::ref   %3d [%3d]\n",
-        this, nodeType(), m_connectionRefCount, s_nodeCount[nodeType()]);
-#endif
-    // See the disabling code in disableOutputsIfNecessary(). This handles
-    // the case where a node is being re-connected after being used at least
-    // once and disconnected. In this case, we need to re-enable.
-    enableOutputsIfNecessary();
-}
-
-void AudioHandler::breakConnection()
-{
-    // The actual work for deref happens completely within the audio context's
-    // graph lock. In the case of the audio thread, we must use a tryLock to
-    // avoid glitches.
-    bool hasLock = false;
-    if (context()->isAudioThread()) {
-        // Real-time audio thread must not contend lock (to avoid glitches).
-        hasLock = context()->tryLock();
-    } else {
-        context()->lock();
-        hasLock = true;
-    }
-
-    if (hasLock) {
-        breakConnectionWithLock();
-        context()->unlock();
-    } else {
-        // We were unable to get the lock, so put this in a list to finish up
-        // later.
-        ASSERT(context()->isAudioThread());
-        context()->handler().addDeferredBreakConnection(*this);
-    }
-}
-
-void AudioHandler::breakConnectionWithLock()
-{
-    atomicDecrement(&m_connectionRefCount);
-
-#if DEBUG_AUDIONODE_REFERENCES
-    fprintf(stderr, "%p: %2d: AudioNode::deref %3d [%3d]\n",
-        this, nodeType(), m_connectionRefCount, s_nodeCount[nodeType()]);
-#endif
-
-    if (!m_connectionRefCount)
-        disableOutputsIfNecessary();
-}
-
-#if DEBUG_AUDIONODE_REFERENCES
-
-bool AudioHandler::s_isNodeCountInitialized = false;
-int AudioHandler::s_nodeCount[NodeTypeEnd];
-
-void AudioHandler::printNodeCounts()
-{
-    fprintf(stderr, "\n\n");
-    fprintf(stderr, "===========================\n");
-    fprintf(stderr, "AudioNode: reference counts\n");
-    fprintf(stderr, "===========================\n");
-
-    for (unsigned i = 0; i < NodeTypeEnd; ++i)
-        fprintf(stderr, "%2d: %d\n", i, s_nodeCount[i]);
-
-    fprintf(stderr, "===========================\n\n\n");
-}
-
-#endif // DEBUG_AUDIONODE_REFERENCES
-
-DEFINE_TRACE(AudioHandler)
-{
-    visitor->trace(m_node);
-    visitor->trace(m_context);
-    // TODO(tkent): Oilpan: renderingOutputs should not be strong references.
-    // This is a short-term workaround to avoid crashes, and causes AudioNode
-    // leaks.
-    {
-        AudioContext::AutoLocker locker(context()->handler());
-        for (const OwnPtr<AudioNodeInput>& input : m_inputs) {
-            for (unsigned i = 0; i < input->numberOfRenderingConnections(); ++i)
-                visitor->trace(input->renderingOutput(i)->node());
-        }
-    }
-}
-
-void AudioHandler::updateChannelCountMode()
-{
-    m_channelCountMode = m_newChannelCountMode;
-    updateChannelsForInputs();
-}
-
-// ----------------------------------------------------------------
-
-AudioNode::AudioNode(AudioContext& context)
-    : m_context(context)
-    , m_handler(nullptr)
-{
-    m_context->registerLiveNode(*this);
-    ThreadState::current()->registerPreFinalizer(*this);
-}
-
-void AudioNode::dispose()
-{
-    ASSERT(isMainThread());
-    context()->unregisterLiveNode(*this);
-    AudioContext::AutoLocker locker(context());
-    handler().dispose();
-}
-
-void AudioNode::setHandler(AudioHandler* handler)
-{
-    ASSERT(handler);
-    m_handler = handler;
-}
-
-AudioHandler& AudioNode::handler() const
-{
-    return *m_handler;
-}
-
-DEFINE_TRACE(AudioNode)
-{
-    visitor->trace(m_context);
-    visitor->trace(m_handler);
-    visitor->trace(m_connectedNodes);
-    visitor->trace(m_connectedParams);
-    RefCountedGarbageCollectedEventTargetWithInlineData<AudioNode>::trace(visitor);
-}
-
-AudioContext* AudioNode::context() const
-{
-    return m_context;
 }
 
 unsigned AudioNode::numberOfInputs() const

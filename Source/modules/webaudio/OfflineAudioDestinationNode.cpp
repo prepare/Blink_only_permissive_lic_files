@@ -46,9 +46,9 @@ OfflineAudioDestinationHandler::OfflineAudioDestinationHandler(AudioNode& node, 
     m_renderBus = AudioBus::create(renderTarget->numberOfChannels(), renderQuantumSize);
 }
 
-OfflineAudioDestinationHandler* OfflineAudioDestinationHandler::create(AudioNode& node, AudioBuffer* renderTarget)
+PassRefPtr<OfflineAudioDestinationHandler> OfflineAudioDestinationHandler::create(AudioNode& node, AudioBuffer* renderTarget)
 {
-    return new OfflineAudioDestinationHandler(node, renderTarget);
+    return adoptRef(new OfflineAudioDestinationHandler(node, renderTarget));
 }
 
 OfflineAudioDestinationHandler::~OfflineAudioDestinationHandler()
@@ -90,9 +90,8 @@ void OfflineAudioDestinationHandler::startRendering()
 
     if (!m_startedRendering) {
         m_startedRendering = true;
-        context()->notifyNodeStartedProcessing(node());
-        m_renderThread = adoptPtr(blink::Platform::current()->createThread("Offline Audio Renderer"));
-        m_renderThread->postTask(FROM_HERE, new Task(bind(&OfflineAudioDestinationHandler::offlineRender, this)));
+        m_renderThread = adoptPtr(Platform::current()->createThread("Offline Audio Renderer"));
+        m_renderThread->postTask(FROM_HERE, new Task(threadSafeBind(&OfflineAudioDestinationHandler::offlineRender, PassRefPtr<OfflineAudioDestinationHandler>(this))));
     }
 }
 
@@ -104,7 +103,6 @@ void OfflineAudioDestinationHandler::stopRendering()
 void OfflineAudioDestinationHandler::offlineRender()
 {
     offlineRenderInternal();
-    context()->notifyNodeFinishedProcessing(node());
     context()->handlePostRenderTasks();
 }
 
@@ -154,18 +152,14 @@ void OfflineAudioDestinationHandler::offlineRenderInternal()
 
     // Our work is done. Let the AudioContext know.
     if (context()->executionContext())
-        context()->executionContext()->postTask(FROM_HERE, createCrossThreadTask(&OfflineAudioDestinationHandler::notifyComplete, this));
+        context()->executionContext()->postTask(FROM_HERE, createCrossThreadTask(&OfflineAudioDestinationHandler::notifyComplete, PassRefPtr<OfflineAudioDestinationHandler>(this)));
 }
 
 void OfflineAudioDestinationHandler::notifyComplete()
 {
-    context()->fireCompletionEvent();
-}
-
-DEFINE_TRACE(OfflineAudioDestinationHandler)
-{
-    visitor->trace(m_renderTarget);
-    AudioDestinationHandler::trace(visitor);
+    // The AudioContext might be gone.
+    if (context())
+        context()->fireCompletionEvent();
 }
 
 // ----------------------------------------------------------------

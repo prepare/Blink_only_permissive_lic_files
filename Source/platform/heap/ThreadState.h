@@ -186,7 +186,7 @@ public:
         NoGCScheduled,
         IdleGCScheduled,
         PreciseGCScheduled,
-        GCScheduledForTesting,
+        FullGCScheduled,
         StoppingOtherThreads,
         GCRunning,
         EagerSweepScheduled,
@@ -321,6 +321,7 @@ public:
     // 6) Each thread calls preSweep().
     // 7) Each thread runs lazy sweeping (concurrently with sweepings
     //    in other threads) and eventually calls completeSweep().
+    // 8) Each thread calls postSweep().
     //
     // Notes:
     // - We stop the world between 1) and 5).
@@ -331,21 +332,22 @@ public:
     //   In this case, the next GC just cancels the remaining lazy sweeping.
     //   Specifically, preGC() of the next GC calls makeConsistentForSweeping()
     //   and it marks all not-yet-swept objets as dead.
+    void makeConsistentForSweeping();
     void preGC();
     void postGC(GCType);
+    void preSweep();
+    void completeSweep();
+    void postSweep();
 
     // Support for disallowing allocation. Mainly used for sanity
     // checks asserts.
     bool isAllocationAllowed() const { return !isAtSafePoint() && !m_noAllocationCount; }
     void enterNoAllocationScope() { m_noAllocationCount++; }
     void leaveNoAllocationScope() { m_noAllocationCount--; }
-
-    // Before performing GC the thread-specific heap state should be
-    // made consistent for sweeping.
-    void makeConsistentForSweeping();
-
+    bool isGCForbidden() const { return m_gcForbiddenCount; }
+    void enterGCForbiddenScope() { m_gcForbiddenCount++; }
+    void leaveGCForbiddenScope() { m_gcForbiddenCount--; }
     bool sweepForbidden() const { return m_sweepForbidden; }
-    void completeSweep();
 
     void prepareRegionTree();
     void flushHeapDoesNotContainCacheIfNeeded();
@@ -499,9 +501,6 @@ public:
     bool popAndInvokeWeakPointerCallback(Visitor*);
 
     size_t objectPayloadSizeForTesting();
-
-    void preSweep();
-    void postSweep();
     void prepareHeapForTermination();
 
     // Request to call a pref-finalizer of the target object before the object
@@ -548,7 +547,7 @@ public:
     void enterGCForbiddenScopeIfNeeded(GarbageCollectedMixinConstructorMarker* gcMixinMarker)
     {
         if (!m_gcMixinMarker) {
-            m_gcForbiddenCount++;
+            enterGCForbiddenScope();
             m_gcMixinMarker = gcMixinMarker;
         }
     }
@@ -556,14 +555,10 @@ public:
     {
         ASSERT(m_gcForbiddenCount > 0);
         if (m_gcMixinMarker == gcMixinMarker) {
-            m_gcForbiddenCount--;
+            leaveGCForbiddenScope();
             m_gcMixinMarker = nullptr;
         }
     }
-
-#if ENABLE(ASSERT)
-    bool isGCForbidden() const { return m_gcForbiddenCount; }
-#endif
 
     // vectorBackingHeap() returns a heap that the vector allocation should use.
     // We have four vector heaps and want to choose the best heap here.

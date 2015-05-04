@@ -214,10 +214,6 @@ component("platform") {
 
   if (is_mac) {
     sources -= [
-      "fonts/opentype/OpenTypeTypes.h",
-      "fonts/opentype/OpenTypeVerticalData.cpp",
-      "fonts/opentype/OpenTypeVerticalData.h",
-      # The Mac currently uses FontCustomPlatformDataMac.cpp instead.
       "fonts/skia/FontCacheSkia.cpp",
       # Uses LocaleMac instead.
       "text/LocaleICU.cpp",
@@ -368,6 +364,7 @@ if (!is_mac) {
       "//skia",
       "//testing/gmock",
       "//testing/gtest",
+      "//third_party/harfbuzz-ng",
       "//third_party/WebKit/Source/wtf",
       "//third_party/WebKit/Source/wtf:test_support",
       "//url",

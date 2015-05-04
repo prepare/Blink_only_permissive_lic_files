@@ -40,32 +40,26 @@ AnalyserHandler::AnalyserHandler(AudioNode& node, float sampleRate)
     initialize();
 }
 
-AnalyserHandler* AnalyserHandler::create(AudioNode& node, float sampleRate)
+PassRefPtr<AnalyserHandler> AnalyserHandler::create(AudioNode& node, float sampleRate)
 {
-    return new AnalyserHandler(node, sampleRate);
+    return adoptRef(new AnalyserHandler(node, sampleRate));
 }
 
 AnalyserHandler::~AnalyserHandler()
 {
-    ASSERT(!isInitialized());
-}
-
-void AnalyserHandler::dispose()
-{
     uninitialize();
-    AudioBasicInspectorHandler::dispose();
 }
 
 void AnalyserHandler::process(size_t framesToProcess)
 {
-    AudioBus* outputBus = output(0)->bus();
+    AudioBus* outputBus = output(0).bus();
 
-    if (!isInitialized() || !input(0)->isConnected()) {
+    if (!isInitialized() || !input(0).isConnected()) {
         outputBus->zero();
         return;
     }
 
-    AudioBus* inputBus = input(0)->bus();
+    AudioBus* inputBus = input(0).bus();
 
     // Give the analyser the audio which is passing through this AudioNode.
     m_analyser.writeInput(inputBus, framesToProcess);

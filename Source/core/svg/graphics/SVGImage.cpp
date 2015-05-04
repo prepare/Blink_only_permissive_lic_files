@@ -57,6 +57,8 @@
 #include "platform/graphics/ImageObserver.h"
 #include "platform/graphics/paint/ClipRecorder.h"
 #include "platform/graphics/paint/DisplayItemListContextRecorder.h"
+#include "platform/graphics/paint/DrawingRecorder.h"
+#include "platform/graphics/paint/SkPictureBuilder.h"
 #include "third_party/skia/include/core/SkPicture.h"
 #include "wtf/PassRefPtr.h"
 
@@ -143,10 +145,10 @@ void SVGImage::setContainerSize(const IntSize& size)
     FrameView* view = frameView();
     view->resize(this->containerSize());
 
-    LayoutSVGRoot* renderer = toLayoutSVGRoot(rootElement->layoutObject());
-    if (!renderer)
+    LayoutSVGRoot* layoutObject = toLayoutSVGRoot(rootElement->layoutObject());
+    if (!layoutObject)
         return;
-    renderer->setContainerSize(size);
+    layoutObject->setContainerSize(size);
 }
 
 IntSize SVGImage::containerSize() const
@@ -155,21 +157,21 @@ IntSize SVGImage::containerSize() const
     if (!rootElement)
         return IntSize();
 
-    LayoutSVGRoot* renderer = toLayoutSVGRoot(rootElement->layoutObject());
-    if (!renderer)
+    LayoutSVGRoot* layoutObject = toLayoutSVGRoot(rootElement->layoutObject());
+    if (!layoutObject)
         return IntSize();
 
     // If a container size is available it has precedence.
-    IntSize containerSize = renderer->containerSize();
+    IntSize containerSize = layoutObject->containerSize();
     if (!containerSize.isEmpty())
         return containerSize;
 
     // Assure that a container size is always given for a non-identity zoom level.
-    ASSERT(renderer->style()->effectiveZoom() == 1);
+    ASSERT(layoutObject->style()->effectiveZoom() == 1);
 
     FloatSize intrinsicSize;
     double intrinsicRatio = 0;
-    renderer->computeIntrinsicRatioInformation(intrinsicSize, intrinsicRatio);
+    layoutObject->computeIntrinsicRatioInformation(intrinsicSize, intrinsicRatio);
 
     if (intrinsicSize.isEmpty() && intrinsicRatio) {
         if (!intrinsicSize.width() && intrinsicSize.height())
@@ -243,26 +245,17 @@ void SVGImage::drawPatternForContainer(GraphicsContext* context, const FloatSize
     FloatRect spacedTile(tile);
     spacedTile.expand(repeatSpacing);
 
-    OwnPtr<DisplayItemList> displayItemList;
-    if (RuntimeEnabledFeatures::slimmingPaintEnabled())
-        displayItemList = DisplayItemList::create();
-
-    // Record using a dedicated GC, to avoid inheriting unwanted state (pending color filters
-    // for example must be applied atomically during the final fill/composite phase).
-    GraphicsContext recordingContext(displayItemList.get());
-    recordingContext.beginRecording(spacedTile);
+    SkPictureBuilder patternPicture(spacedTile);
     {
-        // When generating an expanded tile, make sure we don't draw into the spacing area.
-        OwnPtr<FloatClipRecorder> clipRecorder;
-        if (tile != spacedTile)
-            clipRecorder = adoptPtr(new FloatClipRecorder(recordingContext, *this, PaintPhaseForeground, tile));
-        drawForContainer(&recordingContext, containerSize, zoom, tile, srcRect, SkXfermode::kSrcOver_Mode);
+        DrawingRecorder patternPictureRecorder(patternPicture.context(), *this, DisplayItem::Type::SVGImage, spacedTile);
+        if (!patternPictureRecorder.canUseCachedDrawing()) {
+            // When generating an expanded tile, make sure we don't draw into the spacing area.
+            if (tile != spacedTile)
+                patternPicture.context().clip(tile);
+            drawForContainer(&patternPicture.context(), containerSize, zoom, tile, srcRect, SkXfermode::kSrcOver_Mode);
+        }
     }
-
-    if (displayItemList)
-        displayItemList->commitNewDisplayItemsAndReplay(recordingContext);
-
-    RefPtr<const SkPicture> tilePicture = recordingContext.endRecording();
+    RefPtr<const SkPicture> tilePicture = patternPicture.endRecording();
 
     SkMatrix patternTransform;
     patternTransform.setTranslate(phase.x() + spacedTile.x(), phase.y() + spacedTile.y());

@@ -28,11 +28,13 @@
 
 #include "config.h"
 #include "modules/accessibility/AXObject.h"
-#include "core/dom/NodeTraversal.h"
+
 #include "core/editing/VisibleUnits.h"
 #include "core/editing/htmlediting.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
+#include "core/html/HTMLDialogElement.h"
+#include "core/html/HTMLFrameOwnerElement.h"
 #include "core/layout/LayoutListItem.h"
 #include "core/layout/LayoutTheme.h"
 #include "core/layout/LayoutView.h"
@@ -358,6 +360,12 @@ const char* ariaInteractiveWidgetAttributes[] = {
     "aria-selected"
 };
 
+
+HTMLDialogElement* getActiveDialogElement(Node* node)
+{
+    return node->document().activeModalDialog();
+}
+
 } // namespace
 
 AXObject::AXObject(AXObjectCacheImpl* axObjectCache)
@@ -370,9 +378,10 @@ AXObject::AXObject(AXObjectCacheImpl* axObjectCache)
     , m_lastModificationCount(-1)
     , m_cachedIsIgnored(false)
     , m_cachedIsInertOrAriaHidden(false)
-    , m_cachedIsDescendantOfBarrenParent(false)
+    , m_cachedIsDescendantOfLeafNode(false)
     , m_cachedIsDescendantOfDisabledNode(false)
     , m_cachedHasInheritedPresentationalRole(false)
+    , m_cachedIsPresentationalChild(false)
     , m_cachedLiveRegionRoot(0)
     , m_axObjectCache(axObjectCache)
 {
@@ -453,18 +462,6 @@ bool AXObject::isPasswordFieldAndShouldHideValue() const
     return isPasswordField();
 }
 
-bool AXObject::isTextControl() const
-{
-    switch (roleValue()) {
-    case TextFieldRole:
-    case ComboBoxRole:
-    case SearchBoxRole:
-        return true;
-    default:
-        return false;
-    }
-}
-
 bool AXObject::isClickable() const
 {
     switch (roleValue()) {
@@ -505,18 +502,19 @@ void AXObject::updateCachedAttributeValuesIfNeeded() const
 
     m_lastModificationCount = cache->modificationCount();
     m_cachedIsInertOrAriaHidden = computeIsInertOrAriaHidden();
-    m_cachedIsDescendantOfBarrenParent = computeIsDescendantOfBarrenParent();
-    m_cachedIsDescendantOfDisabledNode = computeIsDescendantOfDisabledNode();
-    m_cachedHasInheritedPresentationalRole = computeHasInheritedPresentationalRole();
+    m_cachedIsDescendantOfLeafNode = (leafNodeAncestor() != 0);
+    m_cachedIsDescendantOfDisabledNode = (disabledAncestor() != 0);
+    m_cachedHasInheritedPresentationalRole = (inheritsPresentationalRoleFrom() != 0);
+    m_cachedIsPresentationalChild = (ancestorForWhichThisIsAPresentationalChild() != 0);
     m_cachedIsIgnored = computeAccessibilityIsIgnored();
     m_cachedLiveRegionRoot = isLiveRegion() ?
         this :
         (parentObjectIfExists() ? parentObjectIfExists()->liveRegionRoot() : 0);
 }
 
-bool AXObject::accessibilityIsIgnoredByDefault() const
+bool AXObject::accessibilityIsIgnoredByDefault(IgnoredReasons* ignoredReasons) const
 {
-    return defaultObjectInclusion() == IgnoreObject;
+    return defaultObjectInclusion(ignoredReasons) == IgnoreObject;
 }
 
 AXObjectInclusion AXObject::accessibilityPlatformIncludesObject() const
@@ -527,13 +525,21 @@ AXObjectInclusion AXObject::accessibilityPlatformIncludesObject() const
     return DefaultBehavior;
 }
 
-AXObjectInclusion AXObject::defaultObjectInclusion() const
+AXObjectInclusion AXObject::defaultObjectInclusion(IgnoredReasons* ignoredReasons) const
 {
-    if (isInertOrAriaHidden())
+    if (isInertOrAriaHidden()) {
+        if (ignoredReasons)
+            computeIsInertOrAriaHidden(ignoredReasons);
         return IgnoreObject;
+    }
 
-    if (isPresentationalChildOfAriaRole())
+    if (isPresentationalChild()) {
+        if (ignoredReasons) {
+            AXObject* ancestor = ancestorForWhichThisIsAPresentationalChild();
+            ignoredReasons->append(IgnoredReason(AXAncestorDisallowsChild, ancestor));
+        }
         return IgnoreObject;
+    }
 
     return accessibilityPlatformIncludesObject();
 }
@@ -544,36 +550,64 @@ bool AXObject::isInertOrAriaHidden() const
     return m_cachedIsInertOrAriaHidden;
 }
 
-bool AXObject::computeIsInertOrAriaHidden() const
+bool AXObject::computeIsInertOrAriaHidden(IgnoredReasons* ignoredReasons) const
 {
     if (node()) {
-        if (node()->isInert())
+        if (node()->isInert()) {
+            if (ignoredReasons) {
+                HTMLDialogElement* dialog = getActiveDialogElement(node());
+                if (dialog) {
+                    AXObject* dialogObject = axObjectCache()->getOrCreate(dialog);
+                    if (dialogObject)
+                        ignoredReasons->append(IgnoredReason(AXActiveModalDialog, dialogObject));
+                    else
+                        ignoredReasons->append(IgnoredReason(AXInert));
+                } else {
+                    // TODO(aboxhall): handle inert attribute if it eventuates
+                    ignoredReasons->append(IgnoredReason(AXInert));
+                }
+            }
             return true;
+        }
     } else {
         AXObject* parent = parentObject();
-        if (parent && parent->isInertOrAriaHidden())
+        if (parent && parent->isInertOrAriaHidden()) {
+            if (ignoredReasons)
+                parent->computeIsInertOrAriaHidden(ignoredReasons);
             return true;
+        }
     }
 
-    return ariaHiddenRoot() != 0;
-}
-
-bool AXObject::isDescendantOfBarrenParent() const
-{
-    updateCachedAttributeValuesIfNeeded();
-    return m_cachedIsDescendantOfBarrenParent;
-}
-
-bool AXObject::computeIsDescendantOfBarrenParent() const
-{
-    if (AXObject* parent = parentObject()) {
-        if (!parent->canHaveChildren())
-            return true;
-
-        return parent->isDescendantOfBarrenParent();
+    const AXObject* hiddenRoot = ariaHiddenRoot();
+    if (hiddenRoot) {
+        if (ignoredReasons) {
+            if (hiddenRoot == this)
+                ignoredReasons->append(IgnoredReason(AXAriaHidden));
+            else
+                ignoredReasons->append(IgnoredReason(AXAriaHiddenRoot, hiddenRoot));
+        }
+        return true;
     }
 
     return false;
+}
+
+bool AXObject::isDescendantOfLeafNode() const
+{
+    updateCachedAttributeValuesIfNeeded();
+    return m_cachedIsDescendantOfLeafNode;
+}
+
+AXObject* AXObject::leafNodeAncestor() const
+{
+    if (AXObject* parent = parentObject()) {
+        if (!parent->canHaveChildren())
+            return parent;
+
+        return parent->leafNodeAncestor();
+    }
+
+    return 0;
 }
 
 const AXObject* AXObject::ariaHiddenRoot() const
@@ -592,18 +626,18 @@ bool AXObject::isDescendantOfDisabledNode() const
     return m_cachedIsDescendantOfDisabledNode;
 }
 
-bool AXObject::computeIsDescendantOfDisabledNode() const
+const AXObject* AXObject::disabledAncestor() const
 {
     const AtomicString& disabled = getAttribute(aria_disabledAttr);
     if (equalIgnoringCase(disabled, "true"))
-        return true;
+        return this;
     if (equalIgnoringCase(disabled, "false"))
-        return false;
+        return 0;
 
     if (AXObject* parent = parentObject())
-        return parent->isDescendantOfDisabledNode();
+        return parent->disabledAncestor();
 
-    return false;
+    return 0;
 }
 
 bool AXObject::lastKnownIsIgnoredValue()
@@ -617,6 +651,18 @@ bool AXObject::lastKnownIsIgnoredValue()
 void AXObject::setLastKnownIsIgnoredValue(bool isIgnored)
 {
     m_lastKnownIsIgnoredValue = isIgnored ? IgnoreObject : IncludeObject;
+}
+
+bool AXObject::hasInheritedPresentationalRole() const
+{
+    updateCachedAttributeValuesIfNeeded();
+    return m_cachedHasInheritedPresentationalRole;
+}
+
+bool AXObject::isPresentationalChild() const
+{
+    updateCachedAttributeValuesIfNeeded();
+    return m_cachedIsPresentationalChild;
 }
 
 // In ARIA 1.1, the default value for aria-orientation changed from horizontal to undefined.
@@ -716,6 +762,42 @@ bool AXObject::supportsRangeValue() const
         || isSlider()
         || isScrollbar()
         || isSpinButton();
+}
+
+bool AXObject::supportsSetSizeAndPosInSet() const
+{
+    AXObject* parent = parentObject();
+    if (!parent)
+        return false;
+
+    int role = roleValue();
+    int parentRole = parent->roleValue();
+
+    if ((role == ListBoxOptionRole && parentRole == ListBoxRole)
+        || (role == ListItemRole && parentRole == ListRole)
+        || (role == MenuItemRole && parentRole == MenuRole)
+        || (role == RadioButtonRole && parentRole == RadioGroupRole)
+        || (role == TabRole && parentRole == TabListRole)
+        || (role == TreeItemRole && parentRole == TreeRole))
+        return true;
+
+    return false;
+}
+
+int AXObject::indexInParent() const
+{
+    if (!parentObject())
+        return 0;
+
+    const auto& siblings = parentObject()->children();
+    int childCount = siblings.size();
+
+    for (int index = 0; index < childCount; ++index) {
+        if (siblings[index].get() == this) {
+            return index;
+        }
+    }
+    return 0;
 }
 
 void AXObject::ariaTreeRows(AccessibilityChildrenVector& result)
@@ -1071,12 +1153,18 @@ void AXObject::scrollToMakeVisibleWithSubFocus(const IntRect& subfocus) const
             break;
         scrollParent = scrollParent->parentObject();
     }
-    if (!scrollableArea)
+    if (!scrollParent || !scrollableArea)
         return;
 
     IntRect objectRect = pixelSnappedIntRect(elementRect());
     IntPoint scrollPosition = scrollableArea->scrollPosition();
     IntRect scrollVisibleRect = scrollableArea->visibleContentRect();
+
+    // Convert the object rect into local coordinates.
+    if (!scrollParent->isAXScrollView()) {
+        objectRect.moveBy(scrollPosition);
+        objectRect.moveBy(-pixelSnappedIntRect(scrollParent->elementRect()).location());
+    }
 
     int desiredX = computeBestScrollOffset(
         scrollPosition.x(),

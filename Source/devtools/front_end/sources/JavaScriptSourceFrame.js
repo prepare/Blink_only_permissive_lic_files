@@ -39,8 +39,6 @@ WebInspector.JavaScriptSourceFrame = function(scriptsPanel, uiSourceCode)
     this._scriptsPanel = scriptsPanel;
     this._breakpointManager = WebInspector.breakpointManager;
     this._uiSourceCode = uiSourceCode;
-    if (uiSourceCode.contentType() === WebInspector.resourceTypes.Script)
-        this._compiler = new WebInspector.JavaScriptCompiler(this);
 
     WebInspector.UISourceCodeFrame.call(this, uiSourceCode);
     if (uiSourceCode.project().type() === WebInspector.projectTypes.Debugger)
@@ -73,6 +71,9 @@ WebInspector.JavaScriptSourceFrame = function(scriptsPanel, uiSourceCode)
         if (scriptFile)
             this._updateScriptFile(targets[i]);
     }
+
+    if (this._scriptFileForTarget.size || uiSourceCode.extension() === "js")
+        this._compiler = new WebInspector.JavaScriptCompiler(this);
 
     WebInspector.moduleSetting("skipStackFramesPattern").addChangeListener(this._showBlackboxInfobarIfNeeded, this);
     WebInspector.moduleSetting("skipContentScripts").addChangeListener(this._showBlackboxInfobarIfNeeded, this);
@@ -228,7 +229,7 @@ WebInspector.JavaScriptSourceFrame.prototype = {
     wasShown: function()
     {
         WebInspector.UISourceCodeFrame.prototype.wasShown.call(this);
-        if (this._executionLineNumber && this.loaded)
+        if (this._executionLocation && this.loaded)
             this._generateValuesInSource();
     },
 
@@ -384,7 +385,7 @@ WebInspector.JavaScriptSourceFrame.prototype = {
             var compileError = errorData.compileError;
             if (compileError) {
                 var messageText = WebInspector.UIString("LiveEdit compile failed: %s", compileError.message);
-                var message = new WebInspector.SourceFrameMessage(messageText, WebInspector.SourceFrameMessage.Level.Error, compileError.lineNumber - 1, compileError.columnNumber);
+                var message = new WebInspector.SourceFrameMessage(messageText, WebInspector.SourceFrameMessage.Level.Error, compileError.lineNumber - 1, compileError.columnNumber + 1);
                 this.addMessageToSource(message);
             } else {
                 WebInspector.console.addMessage(WebInspector.UIString("Unknown LiveEdit error: %s; %s", JSON.stringify(errorData), error), warningLevel);
@@ -700,15 +701,15 @@ WebInspector.JavaScriptSourceFrame.prototype = {
     },
 
     /**
-     * @param {number} lineNumber
+     * @param {!WebInspector.UILocation} uiLocation
      */
-    setExecutionLine: function(lineNumber)
+    setExecutionLocation: function(uiLocation)
     {
-        this._executionLineNumber = lineNumber;
+        this._executionLocation = uiLocation;
         if (!this.loaded)
             return;
 
-        this.textEditor.setExecutionLine(lineNumber);
+        this.textEditor.setExecutionLocation(uiLocation.lineNumber, uiLocation.columnNumber);
         if (this.isShowing())
             this._generateValuesInSource();
     },
@@ -845,7 +846,7 @@ WebInspector.JavaScriptSourceFrame.prototype = {
                 var propertyCount = value.preview ? value.preview.properties.length : 0;
                 var entryCount = value.preview && value.preview.entries ? value.preview.entries.length : 0;
                 if (value.preview && propertyCount + entryCount < 10)
-                    formatter.appendObjectPreview(nameValuePair, value.preview, value);
+                    formatter.appendObjectPreview(nameValuePair, value.preview);
                 else
                     nameValuePair.appendChild(WebInspector.ObjectPropertiesSection.createValueElement(value, false));
                 ++renderedNameCount;
@@ -877,9 +878,9 @@ WebInspector.JavaScriptSourceFrame.prototype = {
 
     clearExecutionLine: function()
     {
-        if (this.loaded && typeof this._executionLineNumber === "number")
+        if (this.loaded && this._executionLocation)
             this.textEditor.clearExecutionLine();
-        delete this._executionLineNumber;
+        delete this._executionLocation;
         this._clearValueWidgetsTimer = setTimeout(this._clearValueWidgets.bind(this), 1000);
     },
 
@@ -1014,8 +1015,8 @@ WebInspector.JavaScriptSourceFrame.prototype = {
 
     onTextEditorContentLoaded: function()
     {
-        if (typeof this._executionLineNumber === "number")
-            this.setExecutionLine(this._executionLineNumber);
+        if (this._executionLocation)
+            this.setExecutionLocation(this._executionLocation);
 
         var breakpointLocations = this._breakpointManager.breakpointLocationsForUISourceCode(this._uiSourceCode);
         for (var i = 0; i < breakpointLocations.length; ++i)
@@ -1099,13 +1100,6 @@ WebInspector.JavaScriptSourceFrame.prototype = {
     _setBreakpoint: function(lineNumber, columnNumber, condition, enabled)
     {
         this._breakpointManager.setBreakpoint(this._uiSourceCode, lineNumber, columnNumber, condition, enabled);
-
-        WebInspector.notifications.dispatchEventToListeners(WebInspector.UserMetrics.UserAction, {
-            action: WebInspector.UserMetrics.UserActionNames.SetBreakpoint,
-            url: this._uiSourceCode.originURL(),
-            line: lineNumber,
-            enabled: enabled
-        });
     },
 
     /**

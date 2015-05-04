@@ -54,29 +54,23 @@ DynamicsCompressorHandler::DynamicsCompressorHandler(
     initialize();
 }
 
-DynamicsCompressorHandler* DynamicsCompressorHandler::create(
+PassRefPtr<DynamicsCompressorHandler> DynamicsCompressorHandler::create(
     AudioNode& node, float sampleRate,
     AudioParamHandler& threshold, AudioParamHandler& knee,
     AudioParamHandler& ratio, AudioParamHandler& reduction,
     AudioParamHandler& attack, AudioParamHandler& release)
 {
-    return new DynamicsCompressorHandler(node, sampleRate, threshold, knee, ratio, reduction, attack, release);
+    return adoptRef(new DynamicsCompressorHandler(node, sampleRate, threshold, knee, ratio, reduction, attack, release));
 }
 
 DynamicsCompressorHandler::~DynamicsCompressorHandler()
 {
-    ASSERT(!isInitialized());
-}
-
-void DynamicsCompressorHandler::dispose()
-{
     uninitialize();
-    AudioHandler::dispose();
 }
 
 void DynamicsCompressorHandler::process(size_t framesToProcess)
 {
-    AudioBus* outputBus = output(0)->bus();
+    AudioBus* outputBus = output(0).bus();
     ASSERT(outputBus);
 
     float threshold = m_threshold->value();
@@ -91,7 +85,7 @@ void DynamicsCompressorHandler::process(size_t framesToProcess)
     m_dynamicsCompressor->setParameterValue(DynamicsCompressor::ParamAttack, attack);
     m_dynamicsCompressor->setParameterValue(DynamicsCompressor::ParamRelease, release);
 
-    m_dynamicsCompressor->process(input(0)->bus(), outputBus, framesToProcess);
+    m_dynamicsCompressor->process(input(0).bus(), outputBus, framesToProcess);
 
     float reduction = m_dynamicsCompressor->parameterValue(DynamicsCompressor::ParamReduction);
     m_reduction->setValue(reduction);
@@ -104,15 +98,6 @@ void DynamicsCompressorHandler::initialize()
 
     AudioHandler::initialize();
     m_dynamicsCompressor = adoptPtr(new DynamicsCompressor(sampleRate(), defaultNumberOfOutputChannels));
-}
-
-void DynamicsCompressorHandler::uninitialize()
-{
-    if (!isInitialized())
-        return;
-
-    m_dynamicsCompressor.clear();
-    AudioHandler::uninitialize();
 }
 
 void DynamicsCompressorHandler::clearInternalStateWhenDisabled()

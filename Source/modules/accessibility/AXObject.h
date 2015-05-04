@@ -30,6 +30,7 @@
 #ifndef AXObject_h
 #define AXObject_h
 
+#include "core/InspectorTypeBuilder.h"
 #include "core/editing/VisiblePosition.h"
 #include "modules/ModulesExport.h"
 #include "platform/geometry/FloatQuad.h"
@@ -304,6 +305,41 @@ enum AXDescriptionFrom {
     AXDescriptionFromRelatedElement
 };
 
+enum AXIgnoredReason {
+    AXActiveModalDialog,
+    AXAncestorDisallowsChild,
+    AXAncestorIsLeafNode,
+    AXAriaHidden,
+    AXAriaHiddenRoot,
+    AXEmptyAlt,
+    AXEmptyText,
+    AXInert,
+    AXInheritsPresentation,
+    AXLabelContainer,
+    AXLabelFor,
+    AXNotRendered,
+    AXNotVisible,
+    AXPresentationalRole,
+    AXProbablyPresentational,
+    AXStaticTextUsedAsNameFor,
+    AXUninteresting
+};
+
+struct IgnoredReason {
+    AXIgnoredReason reason;
+    const AXObject* relatedObject;
+
+    explicit IgnoredReason(AXIgnoredReason reason)
+        : reason(reason)
+        , relatedObject(nullptr)
+    { }
+
+    IgnoredReason(AXIgnoredReason r, const AXObject* obj)
+        : reason(r)
+        , relatedObject(obj)
+    { }
+};
+
 class MODULES_EXPORT AXObject : public RefCounted<AXObject> {
 public:
     typedef Vector<RefPtr<AXObject>> AccessibilityChildrenVector;
@@ -403,13 +439,14 @@ public:
     bool isRadioButton() const { return roleValue() == RadioButtonRole; }
     bool isScrollbar() const { return roleValue() == ScrollBarRole; }
     virtual bool isSlider() const { return false; }
+    virtual bool isNativeSlider() const { return false; }
     virtual bool isSpinButton() const { return roleValue() == SpinButtonRole; }
     virtual bool isSpinButtonPart() const { return false; }
     bool isTabItem() const { return roleValue() == TabRole; }
     virtual bool isTableCell() const { return false; }
     virtual bool isTableRow() const { return false; }
+    virtual bool isTextControl() const { return false; }
     virtual bool isTableCol() const { return false; }
-    bool isTextControl() const;
     bool isTree() const { return roleValue() == TreeRole; }
     bool isTreeItem() const { return roleValue() == TreeItemRole; }
     bool isWebArea() const { return roleValue() == WebAreaRole; }
@@ -442,18 +479,22 @@ public:
 
     // Whether objects are ignored, i.e. not included in the tree.
     bool accessibilityIsIgnored() const;
-    bool accessibilityIsIgnoredByDefault() const;
+    typedef Vector<IgnoredReason> IgnoredReasons;
+    virtual bool computeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const { return true; }
+    bool accessibilityIsIgnoredByDefault(IgnoredReasons* = nullptr) const;
     AXObjectInclusion accessibilityPlatformIncludesObject() const;
-    virtual AXObjectInclusion defaultObjectInclusion() const;
+    virtual AXObjectInclusion defaultObjectInclusion(IgnoredReasons* = nullptr) const;
     bool isInertOrAriaHidden() const;
     const AXObject* ariaHiddenRoot() const;
-    bool computeIsInertOrAriaHidden() const;
-    bool isDescendantOfBarrenParent() const;
-    bool computeIsDescendantOfBarrenParent() const;
+    bool computeIsInertOrAriaHidden(IgnoredReasons* = nullptr) const;
+    bool isDescendantOfLeafNode() const;
+    AXObject* leafNodeAncestor() const;
     bool isDescendantOfDisabledNode() const;
-    bool computeIsDescendantOfDisabledNode() const;
+    const AXObject* disabledAncestor() const;
     bool lastKnownIsIgnoredValue();
     void setLastKnownIsIgnoredValue(bool);
+    bool hasInheritedPresentationalRole() const;
+    bool isPresentationalChild() const;
 
     //
     // Deprecated text alternative calculation API. All of these will be replaced
@@ -547,7 +588,7 @@ public:
     virtual AccessibilityRole ariaRoleAttribute() const { return UnknownRole; }
     virtual bool ariaRoleHasPresentationalChildren() const { return false; }
     virtual AccessibilityOptionalBool isAriaGrabbed() const { return OptionalBoolUndefined; }
-    virtual bool isPresentationalChildOfAriaRole() const { return false; }
+    virtual AXObject* ancestorForWhichThisIsAPresentationalChild() const { return 0; }
     virtual bool shouldFocusActiveDescendant() const { return false; }
     bool supportsARIAAttributes() const;
     virtual bool supportsARIADragging() const { return false; }
@@ -556,6 +597,14 @@ public:
     virtual bool supportsARIAOwns() const { return false; }
     bool supportsRangeValue() const;
     virtual SortDirection sortDirection() const { return SortDirectionUndefined; }
+
+    // Returns 0-based index.
+    int indexInParent() const;
+
+    // Returns 1-based position in set.
+    virtual int posInSet() const { return 0; }
+    virtual int setSize() const { return 0; }
+    bool supportsSetSizeAndPosInSet() const;
 
     // ARIA trees.
     // Used by an ARIA tree to get all its rows.
@@ -670,8 +719,6 @@ public:
     static const AtomicString& internalRoleName(AccessibilityRole);
     static bool isInsideFocusableElementOrARIAWidget(const Node&);
 
-    bool hasInheritedPresentationalRole() const { return m_cachedHasInheritedPresentationalRole; }
-
 protected:
     AXID m_id;
     AccessibilityChildrenVector m_children;
@@ -680,8 +727,7 @@ protected:
     AXObjectInclusion m_lastKnownIsIgnoredValue;
     LayoutRect m_explicitElementRect;
 
-    virtual bool computeAccessibilityIsIgnored() const { return true; }
-    virtual bool computeHasInheritedPresentationalRole() const { return false; }
+    virtual const AXObject* inheritsPresentationalRoleFrom() const { return 0; }
 
     // If this object itself scrolls, return its ScrollableArea.
     virtual ScrollableArea* getScrollableAreaIfScrollable() const { return 0; }
@@ -689,7 +735,6 @@ protected:
 
     AccessibilityRole buttonRoleType() const;
 
-    bool allowsTextRanges() const { return isTextControl(); }
     unsigned getLengthForTextRange() const { return text().length(); }
 
     bool m_detached;
@@ -701,9 +746,10 @@ protected:
     mutable int m_lastModificationCount;
     mutable bool m_cachedIsIgnored : 1;
     mutable bool m_cachedIsInertOrAriaHidden : 1;
-    mutable bool m_cachedIsDescendantOfBarrenParent : 1;
+    mutable bool m_cachedIsDescendantOfLeafNode : 1;
     mutable bool m_cachedIsDescendantOfDisabledNode : 1;
     mutable bool m_cachedHasInheritedPresentationalRole : 1;
+    mutable bool m_cachedIsPresentationalChild : 1;
     mutable const AXObject* m_cachedLiveRegionRoot;
 
     AXObjectCacheImpl* m_axObjectCache;

@@ -5,21 +5,14 @@
 /**
  * @constructor
  * @param {!WebInspector.RemoteObject} object
- * @param {!Array.<*>=} prefixML
  */
-WebInspector.CustomPreviewSection = function(object, prefixML)
+WebInspector.CustomPreviewSection = function(object)
 {
-    this._sectionElement = createElement("span");
+    this._sectionElement = createElementWithClass("span", "custom-expandable-section");
     this._object = object;
     this._expanded = false;
     this._cachedContent = null;
     var customPreview = object.customPreview();
-    if (customPreview.hasBody) {
-        this._sectionElement.classList.add("custom-expandable-section");
-        this._sectionElement.addEventListener("click", this._onClick.bind(this), false);
-    }
-    if (prefixML)
-        this._appendJsonMLTags(this._sectionElement, prefixML);
 
     try {
         var headerJSON = JSON.parse(customPreview.header);
@@ -27,37 +20,51 @@ WebInspector.CustomPreviewSection = function(object, prefixML)
         WebInspector.console.error("Broken formatter: header is invalid json " + e);
         return;
     }
-    var header = this._renderJSONMLTag(headerJSON);
-    this._sectionElement.appendChild(header);
+    this._header = this._renderJSONMLTag(headerJSON);
+    if (this._header.nodeType === Node.TEXT_NODE) {
+        WebInspector.console.error("Broken formatter: header should be an element node.");
+        return;
+    }
+
+    if (customPreview.hasBody) {
+        this._header.classList.add("custom-expandable-section-header");
+        this._header.addEventListener("click", this._onClick.bind(this), false);
+    }
+
+    this._sectionElement.appendChild(this._header);
 }
 
 /**
  * @constructor
  * @param {!WebInspector.RemoteObject} object
+ * @param {boolean=} expand
  * @return {!Element}
  */
-WebInspector.CustomPreviewSection.createInShadow = function(object)
+WebInspector.CustomPreviewSection.createInShadow = function(object, expand)
 {
     var customPreviewSection = new WebInspector.CustomPreviewSection(object);
-    var element = createElement("span");
+    var element = WebInspector.CustomPreviewSection._createComponentRoot();
     var shadowRoot = element.createShadowRoot();
-    shadowRoot.appendChild(WebInspector.View.createStyleElement("components/customPreviewSection.css"));
+    shadowRoot.appendChild(WebInspector.Widget.createStyleElement("components/customPreviewSection.css"));
     shadowRoot.appendChild(customPreviewSection.element());
+
+    if (expand && object.customPreview().hasBody)
+        customPreviewSection._loadBody();
+    return element;
+}
+
+/**
+ * @return {!Element}
+ */
+WebInspector.CustomPreviewSection._createComponentRoot = function()
+{
+    var element = createElement("span");
+    WebInspector.installComponentRootStyles(element);
+    element.classList.add("source-code");
     return element;
 }
 
 WebInspector.CustomPreviewSection._tagsWhiteList = new Set(["span", "div", "ol", "li","table", "tr", "td"]);
-
-WebInspector.CustomPreviewSection._attributes = [
-    "background-color",
-    "color",
-    "font-style", "font-weight",
-    "list-style-type",
-    "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
-    "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
-    "text-align"];
-
-WebInspector.CustomPreviewSection._attributesWhiteList = new Set(WebInspector.CustomPreviewSection._attributes);
 
 WebInspector.CustomPreviewSection.prototype = {
 
@@ -67,40 +74,6 @@ WebInspector.CustomPreviewSection.prototype = {
     element: function()
     {
         return this._sectionElement;
-    },
-
-    /**
-     * @param {string} style
-     * @return {boolean}
-     */
-    _validateStyleAttributes: function(style)
-    {
-        var valueRegEx = /^[\w\s()-,.#]*$/;
-        var styleAttributes = style.split(";");
-        for (var i = 0; i < styleAttributes.length; ++i) {
-            var attribute = styleAttributes[i].trim();
-            if (!attribute.length)
-                continue;
-
-            var pair = attribute.split(":");
-            if (pair.length != 2) {
-                WebInspector.console.error("Broken formatter: " + styleAttributes[i]);
-                return false;
-            }
-
-            var key = pair[0].trim();
-            var value = pair[1];
-            if (!WebInspector.CustomPreviewSection._attributesWhiteList.has(key)) {
-                WebInspector.console.error("Broken formatter: style attribute " + key + " is not allowed!");
-                return false;
-            }
-            if (!value.match(valueRegEx)) {
-                WebInspector.console.error("Broken formatter: style attribute value" + value + " is not allowed!");
-                return false;
-            }
-
-        }
-        return true;
     },
 
     /**
@@ -136,7 +109,7 @@ WebInspector.CustomPreviewSection.prototype = {
             var attributes = object.shift();
             for (var key in attributes) {
                 var value = attributes[key];
-                if ((key !== "style") || (typeof value !== "string") || !this._validateStyleAttributes(value))
+                if ((key !== "style") || (typeof value !== "string"))
                     continue;
 
                 element.setAttribute(key, value);
@@ -156,15 +129,22 @@ WebInspector.CustomPreviewSection.prototype = {
         objectTag.shift();
         var attributes = objectTag.shift();
         var remoteObject = this._object.target().runtimeModel.createRemoteObject(/** @type {!RuntimeAgent.RemoteObject} */ (attributes));
-        if (!remoteObject.customPreview()) {
-            var header = createElement("span");
-            this._appendJsonMLTags(header, objectTag);
-            var objectPropertiesSection = new WebInspector.ObjectPropertiesSection(remoteObject, header);
-            return objectPropertiesSection.element;
-        }
+        if (remoteObject.customPreview())
+            return (new WebInspector.CustomPreviewSection(remoteObject)).element();
 
-        var customSection = new WebInspector.CustomPreviewSection(remoteObject, objectTag);
-        return customSection.element();
+        var header = createElement("span");
+        var componentRoot = WebInspector.CustomPreviewSection._createComponentRoot();
+        header.appendChild(componentRoot);
+        var shadowRoot = componentRoot.createShadowRoot();
+        shadowRoot.appendChild(WebInspector.Widget.createStyleElement("components/objectValue.css"));
+        shadowRoot.appendChild(WebInspector.ObjectPropertiesSection.createValueElement(remoteObject, false));
+        if (!remoteObject.hasChildren)
+            return header;
+
+        var objectPropertiesSection = new WebInspector.ObjectPropertiesSection(remoteObject, header);
+        var sectionElement = objectPropertiesSection.element;
+        sectionElement.classList.add("custom-expandable-section-standard-section");
+        return sectionElement;
     },
 
     /**
@@ -177,8 +157,12 @@ WebInspector.CustomPreviewSection.prototype = {
             parentElement.appendChild(this._renderJSONMLTag(jsonMLTags[i]));
     },
 
-    _onClick: function()
+    /**
+     * @param {!Event} event
+     */
+    _onClick: function(event)
     {
+        event.consume(true);
         if (this._cachedContent)
             this._toggleExpand();
         else
@@ -188,12 +172,8 @@ WebInspector.CustomPreviewSection.prototype = {
     _toggleExpand: function()
     {
         this._expanded = !this._expanded;
-        this._sectionElement.classList.toggle("expanded", this._expanded);
-        var parent = this._sectionElement.parentNode;
-        if (this._expanded)
-            parent.insertBefore(this._cachedContent, this._sectionElement.nextSibling);
-        else
-            parent.removeChild(this._cachedContent);
+        this._header.classList.toggle("expanded", this._expanded);
+        this._cachedContent.classList.toggle("hidden", !this._expanded);
     },
 
     _loadBody: function()
@@ -204,8 +184,9 @@ WebInspector.CustomPreviewSection.prototype = {
          * @suppress {undefinedVars}
          * @this {Object}
          * @param {*=} formatter
+         * @param {*=} config
          */
-        function load(formatter)
+        function load(formatter, config)
         {
             /**
              * @param {*} jsonMLObject
@@ -224,10 +205,11 @@ WebInspector.CustomPreviewSection.prototype = {
                 if (jsonMLObject[0] === "object") {
                     var attributes = jsonMLObject[1];
                     var originObject = attributes["object"];
+                    var config = attributes["config"];
                     if (typeof originObject === "undefined")
                         throw "Illegal format: obligatory attribute \"object\" isn't specified";
 
-                    jsonMLObject[1] = bindRemoteObject(originObject, false, false, null, false);
+                    jsonMLObject[1] = bindRemoteObject(originObject, false, false, null, false, config);
                     startIndex = 2;
                 }
                 for (var i = startIndex; i < jsonMLObject.length; ++i)
@@ -235,7 +217,7 @@ WebInspector.CustomPreviewSection.prototype = {
             }
 
             try {
-                var body = formatter.body(this);
+                var body = formatter.body(this, config);
                 substituteObjectTagsInCustomPreview(body);
                 return body;
             } catch (e) {
@@ -245,7 +227,10 @@ WebInspector.CustomPreviewSection.prototype = {
         }
 
         var customPreview = this._object.customPreview();
-        this._object.callFunctionJSON(load, [{objectId: customPreview.formatterObjectId}], onBodyLoaded.bind(this));
+        var args = [{objectId: customPreview.formatterObjectId}];
+        if (customPreview.configObjectId)
+            args.push({objectId: customPreview.configObjectId});
+        this._object.callFunctionJSON(load, args, onBodyLoaded.bind(this));
 
         /**
          * @param {*} bodyJsonML
@@ -257,6 +242,7 @@ WebInspector.CustomPreviewSection.prototype = {
                 return;
 
             this._cachedContent = this._renderJSONMLTag(bodyJsonML);
+            this._sectionElement.appendChild(this._cachedContent);
             this._toggleExpand();
         }
     }

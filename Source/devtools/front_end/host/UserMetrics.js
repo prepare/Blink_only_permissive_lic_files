@@ -57,7 +57,8 @@ WebInspector.UserMetrics._ActionCodes = {
     AnimationsPlaybackRateChanged: 11,
     RevisionApplied: 12,
     FileSystemDirectoryContentReceived: 13,
-    StyleRuleEdited: 14
+    StyleRuleEdited: 14,
+    CommandEvaluatedInConsolePanel: 15
 }
 
 WebInspector.UserMetrics._PanelCodes = {
@@ -71,22 +72,6 @@ WebInspector.UserMetrics._PanelCodes = {
     console: 8,
     layers: 9
 }
-
-WebInspector.UserMetrics.UserAction = "UserAction";
-
-WebInspector.UserMetrics.UserActionNames = {
-    ForcedElementState: "forcedElementState",
-    FileSaved: "fileSaved",
-    RevertRevision: "revertRevision",
-    ApplyOriginalContent: "applyOriginalContent",
-    TogglePrettyPrint: "togglePrettyPrint",
-    SetBreakpoint: "setBreakpoint",
-    OpenSourceLink: "openSourceLink",
-    NetworkSort: "networkSort",
-    NetworkRequestSelected: "networkRequestSelected",
-    NetworkRequestTabSelected: "networkRequestTabSelected",
-    HeapSnapshotFilterChanged: "heapSnapshotFilterChanged"
-};
 
 WebInspector.UserMetrics.prototype = {
     /**

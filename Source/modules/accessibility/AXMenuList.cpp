@@ -42,16 +42,19 @@ PassRefPtr<AXMenuList> AXMenuList::create(LayoutMenuList* layoutObject, AXObject
     return adoptRef(new AXMenuList(layoutObject, axObjectCache));
 }
 
-AccessibilityRole AXMenuList::roleValue() const
+AccessibilityRole AXMenuList::determineAccessibilityRole()
 {
-    AccessibilityRole ariaRole = ariaRoleAttribute();
-    if (ariaRole != UnknownRole)
-        return ariaRole;
+    if ((m_ariaRole = determineAriaRoleAttribute()) != UnknownRole)
+        return m_ariaRole;
+
     return PopUpButtonRole;
 }
 
 bool AXMenuList::press() const
 {
+    if (!m_layoutObject)
+        return false;
+
     LayoutMenuList* menuList = toLayoutMenuList(m_layoutObject);
     if (menuList->popupIsVisible())
         menuList->hidePopup();
@@ -95,6 +98,11 @@ void AXMenuList::addChildren()
 
 bool AXMenuList::isCollapsed() const
 {
+    // Collapsed is the "default" state, so if the LayoutObject doesn't exist
+    // this makes slightly more sense than returning false.
+    if (!m_layoutObject)
+        return true;
+
     return !toLayoutMenuList(m_layoutObject)->popupIsVisible();
 }
 

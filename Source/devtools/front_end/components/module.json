@@ -18,6 +18,7 @@
     "scripts": [
         "BreakpointsSidebarPaneBase.js",
         "CustomPreviewSection.js",
+        "DataSaverInfobar.js",
         "DebuggerPresentationUtils.js",
         "DOMBreakpointsSidebarPane.js",
         "DOMPresentationUtils.js",
@@ -32,7 +33,7 @@
         "RemoteObjectPreviewFormatter.js",
         "ShortcutsScreen.js"
     ],
-    "stylesheets": [
+    "resources": [
         "breakpointsList.css",
         "customPreviewSection.css",
         "nodeLink.css",

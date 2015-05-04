@@ -170,6 +170,8 @@ WebInspector.TimelineModel.forEachEvent = function(events, onStartEvent, onEndEv
     var stack = [];
     for (var i = 0; i < events.length; ++i) {
         var e = events[i];
+        if (WebInspector.TracingModel.isAsyncPhase(e.phase) || WebInspector.TracingModel.isFlowPhase(e.phase))
+            continue;
         while (stack.length && stack.peekLast().endTime <= e.startTime)
             onEndEvent(stack.pop());
         if (e.duration) {
@@ -443,8 +445,9 @@ WebInspector.TimelineModel.prototype = {
      * @param {boolean} enableJSSampling
      * @param {boolean} captureMemory
      * @param {boolean} capturePictures
+     * @param {boolean} captureFilmStrip
      */
-    startRecording: function(captureCauses, enableJSSampling, captureMemory, capturePictures)
+    startRecording: function(captureCauses, enableJSSampling, captureMemory, capturePictures, captureFilmStrip)
     {
         function disabledByDefault(category)
         {
@@ -472,6 +475,9 @@ WebInspector.TimelineModel.prototype = {
                                  disabledByDefault("devtools.timeline.picture"),
                                  disabledByDefault("blink.graphics_context_annotations"));
         }
+        if (captureFilmStrip)
+            categoriesArray.push(disabledByDefault("devtools.screenshot"));
+
         var categories = categoriesArray.join(",");
         this._startRecordingWithCategories(categories, enableJSSampling);
     },
@@ -649,16 +655,19 @@ WebInspector.TimelineModel.prototype = {
     /**
      * @param {string} categories
      * @param {boolean=} enableJSSampling
+     * @param {function(?string)=} callback
      */
-    _startRecordingWithCategories: function(categories, enableJSSampling)
+    _startRecordingWithCategories: function(categories, enableJSSampling, callback)
     {
         if (!this._targets.length)
             return;
         WebInspector.targetManager.suspendAllTargets();
         var profilingStartedPromise = enableJSSampling && !Runtime.experiments.isEnabled("timelineTracingJSProfile") ?
             this._startProfilingOnAllTargets() : Promise.resolve();
+        var samplingFrequencyHz = WebInspector.moduleSetting("highResolutionCpuProfiling").get() ? 10000 : 1000;
+        var options = "sampling-frequency=" + samplingFrequencyHz;
         var tracingManager = this._targets[0].tracingManager;
-        profilingStartedPromise.then(tracingManager.start.bind(tracingManager, this, categories, "", undefined));
+        profilingStartedPromise.then(tracingManager.start.bind(tracingManager, this, categories, options, callback));
     },
 
     /**
@@ -932,7 +941,7 @@ WebInspector.TimelineModel.prototype = {
      */
     _processThreadEvents: function(startTime, endTime, mainThread, thread)
     {
-        var events = thread.events().stableSort(WebInspector.TracingModel.Event.compareStartTime);
+        var events = thread.events();
         var asyncEvents = thread.asyncEvents();
 
         var jsSamples;
@@ -972,9 +981,9 @@ WebInspector.TimelineModel.prototype = {
             var event = events[i];
             if (endTime && event.startTime >= endTime)
                 break;
-            this._updateEventStack(event);
             if (!this._processEvent(event))
                 continue;
+            this._updateEventStack(event);
             threadEvents.push(event);
             this._inspectedTargetEvents.push(event);
         }
@@ -1605,6 +1614,8 @@ WebInspector.TracingModelLoader = function(model, progress, canceledCallback)
     this._progress.setTitle(WebInspector.UIString("Loading"));
     this._progress.setTotalWork(WebInspector.TracingModelLoader._totalProgress);  // Unknown, will loop the values.
 
+    this._state = WebInspector.TracingModelLoader.State.Initial;
+    this._buffer = "";
     this._firstChunk = true;
     this._wasCanceledOnce = false;
 
@@ -1613,6 +1624,12 @@ WebInspector.TracingModelLoader = function(model, progress, canceledCallback)
 }
 
 WebInspector.TracingModelLoader._totalProgress = 100000;
+
+WebInspector.TracingModelLoader.State = {
+    Initial: "Initial",
+    LookingForEvents: "LookingForEvents",
+    ReadingEvents: "ReadingEvents"
+}
 
 WebInspector.TracingModelLoader.prototype = {
     /**
@@ -1629,6 +1646,28 @@ WebInspector.TracingModelLoader.prototype = {
         }
         this._progress.setWorked(this._loadedBytes % WebInspector.TracingModelLoader._totalProgress,
                                  WebInspector.UIString("Loaded %s", Number.bytesToString(this._loadedBytes)));
+        if (this._state === WebInspector.TracingModelLoader.State.Initial) {
+            if (chunk[0] === "{")
+                this._state = WebInspector.TracingModelLoader.State.LookingForEvents;
+            else if (chunk[0] === "[")
+                this._state = WebInspector.TracingModelLoader.State.ReadingEvents;
+            else {
+                this._reportErrorAndCancelLoading(WebInspector.UIString("Malformed timeline data: Unknown JSON format"));
+                return;
+            }
+        }
+
+        if (this._state === WebInspector.TracingModelLoader.State.LookingForEvents) {
+            var objectName = "\"traceEvents\":";
+            var startPos = this._buffer.length - objectName.length;
+            this._buffer += chunk;
+            var pos = this._buffer.indexOf(objectName, startPos);
+            if (pos === -1)
+                return;
+            chunk = this._buffer.slice(pos + objectName.length)
+            this._state = WebInspector.TracingModelLoader.State.ReadingEvents;
+        }
+
         this._jsonTokenizer.write(chunk);
     },
 

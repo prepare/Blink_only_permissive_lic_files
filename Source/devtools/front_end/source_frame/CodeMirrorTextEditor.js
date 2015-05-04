@@ -131,8 +131,6 @@ WebInspector.CodeMirrorTextEditor = function(url, delegate)
 
     this._codeMirror.setOption("keyMap", WebInspector.isMac() ? "devtools-mac" : "devtools-pc");
 
-    CodeMirror.commands.maybeAvoidSmartSingleQuotes = this._maybeAvoidSmartQuotes.bind(this, "'");
-    CodeMirror.commands.maybeAvoidSmartDoubleQuotes = this._maybeAvoidSmartQuotes.bind(this, "\"");
     this._codeMirror.addKeyMap({
         "'": "maybeAvoidSmartSingleQuotes",
         "'\"'": "maybeAvoidSmartDoubleQuotes"
@@ -331,6 +329,33 @@ CodeMirror.commands.dismissMultipleSelections = function(codemirror)
     codemirror._codeMirrorTextEditor._revealLine(selection.anchor.line);
 }
 
+/**
+ * @param {string} quoteCharacter
+ * @param {!CodeMirror} codeMirror
+ * @return {*}
+ */
+WebInspector.CodeMirrorTextEditor._maybeAvoidSmartQuotes = function(quoteCharacter, codeMirror)
+{
+    var textEditor = codeMirror._codeMirrorTextEditor;
+    if (!WebInspector.moduleSetting("textEditorBracketMatching").get())
+        return CodeMirror.Pass;
+    var selections = textEditor.selections();
+    if (selections.length !== 1 || !selections[0].isEmpty())
+        return CodeMirror.Pass;
+
+    var selection = selections[0];
+    var token = textEditor.tokenAtTextPosition(selection.startLine, selection.startColumn);
+    if (!token || !token.type || token.type.indexOf("string") === -1)
+        return CodeMirror.Pass;
+    var line = textEditor.line(selection.startLine);
+    var tokenValue = line.substring(token.startColumn, token.endColumn);
+    if (tokenValue[0] === tokenValue[tokenValue.length - 1] && (tokenValue[0] === "'" || tokenValue[0] === "\""))
+        return CodeMirror.Pass;
+    codeMirror.replaceSelection(quoteCharacter);
+}
+CodeMirror.commands.maybeAvoidSmartSingleQuotes = WebInspector.CodeMirrorTextEditor._maybeAvoidSmartQuotes.bind(null, "'");
+CodeMirror.commands.maybeAvoidSmartDoubleQuotes = WebInspector.CodeMirrorTextEditor._maybeAvoidSmartQuotes.bind(null, "\"");
+
 WebInspector.CodeMirrorTextEditor.LongLineModeLineLengthThreshold = 2000;
 WebInspector.CodeMirrorTextEditor.MaximumNumberOfWhitespacesPerSingleSpan = 16;
 WebInspector.CodeMirrorTextEditor.MaxEditableTextSize = 1024 * 1024 * 10;
@@ -393,29 +418,6 @@ WebInspector.CodeMirrorTextEditor.prototype = {
     _enableAutocompletionIfNeeded: function()
     {
         this._autocompleteController.setEnabled(WebInspector.moduleSetting("textEditorAutocompletion").get());
-    },
-
-    /**
-     * @param {string} quoteCharacter
-     * @return {*}
-     */
-    _maybeAvoidSmartQuotes: function(quoteCharacter)
-    {
-        if (!WebInspector.moduleSetting("textEditorBracketMatching").get())
-            return CodeMirror.Pass;
-        var selections = this.selections();
-        if (selections.length !== 1 || !selections[0].isEmpty())
-            return CodeMirror.Pass;
-
-        var selection = selections[0];
-        var token = this.tokenAtTextPosition(selection.startLine, selection.startColumn);
-        if (!token || !token.type || token.type.indexOf("string") === -1)
-            return CodeMirror.Pass;
-        var line = this.line(selection.startLine);
-        var tokenValue = line.substring(token.startColumn, token.endColumn);
-        if (tokenValue[0] === tokenValue[tokenValue.length - 1] && (tokenValue[0] === "'" || tokenValue[0] === "\""))
-            return CodeMirror.Pass;
-        this._codeMirror.replaceSelection(quoteCharacter);
     },
 
     _onKeyHandled: function()
@@ -899,6 +901,7 @@ WebInspector.CodeMirrorTextEditor.prototype = {
         var showWhitespaces = WebInspector.moduleSetting("showWhitespacesInEditor").get();
         this.element.classList.toggle("show-whitespaces", showWhitespaces);
         this._codeMirror.setOption("mode", showWhitespaces ? this._whitespaceOverlayMode(this._mimeType) : this._mimeType);
+        WebInspector.CodeMirrorTextEditor._loadMimeTypeModes(this._mimeType, this._updateCodeMirrorMode.bind(this));
     },
 
     /**
@@ -973,17 +976,6 @@ WebInspector.CodeMirrorTextEditor.prototype = {
     _handleElementFocus: function()
     {
         this._codeMirror.focus();
-    },
-
-    beginUpdates: function()
-    {
-        ++this._nestedUpdatesCounter;
-    },
-
-    endUpdates: function()
-    {
-        if (!--this._nestedUpdatesCounter)
-            this._codeMirror.refresh();
     },
 
     /**
@@ -1069,14 +1061,16 @@ WebInspector.CodeMirrorTextEditor.prototype = {
 
     /**
      * @param {number} lineNumber
+     * @param {number} columnNumber
      */
-    setExecutionLine: function(lineNumber)
+    setExecutionLocation: function(lineNumber, columnNumber)
     {
         this.clearPositionHighlight();
         this._executionLine = this._codeMirror.getLineHandle(lineNumber);
         if (!this._executionLine)
             return;
         this._codeMirror.addLineClass(this._executionLine, "wrap", "cm-execution-line");
+        this._executionLineTailMarker = this._codeMirror.markText({ line: lineNumber, ch: columnNumber }, { line: lineNumber, ch: this._codeMirror.getLine(lineNumber).length }, { className: "cm-execution-line-tail" });
     },
 
     clearExecutionLine: function()
@@ -1085,6 +1079,10 @@ WebInspector.CodeMirrorTextEditor.prototype = {
         if (this._executionLine)
             this._codeMirror.removeLineClass(this._executionLine, "wrap", "cm-execution-line");
         delete this._executionLine;
+
+        if (this._executionLineTailMarker)
+            this._executionLineTailMarker.clear();
+        delete this._executionLineTailMarker;
     },
 
     /**
@@ -2152,4 +2150,51 @@ WebInspector.CodeMirrorTextEditor.GutterClickEventData;
 /** @enum {string} */
 WebInspector.CodeMirrorTextEditor.Events = {
     GutterClick: "GutterClick"
+}
+
+/** @type {!Set<!Runtime.Extension>} */
+WebInspector.CodeMirrorTextEditor._loadedMimeModeExtensions = new Set();
+
+/**
+ * @param {string} mimeType
+ * @param {function()} callback
+ */
+WebInspector.CodeMirrorTextEditor._loadMimeTypeModes = function(mimeType, callback)
+{
+    var installed = WebInspector.CodeMirrorTextEditor._loadedMimeModeExtensions;
+
+    var promises = [];
+    for (var extension of self.runtime.extensions(WebInspector.CodeMirrorMimeMode)) {
+        if (!installed.has(extension) && extension.descriptor()["mimeTypes"].indexOf(mimeType) !== -1)
+            promises.push(extension.instancePromise().then(installMode.bind(null, extension)));
+    }
+    if (promises.length)
+        Promise.all(promises).then(callback);
+
+    /**
+     * @param {!Runtime.Extension} extension
+     * @param {!Object} instance
+     */
+    function installMode(extension, instance)
+    {
+        if (installed.has(extension))
+            return;
+        var mode = /** @type {!WebInspector.CodeMirrorMimeMode} */ (instance);
+        mode.install(extension);
+        installed.add(extension);
+    }
+}
+
+/**
+ * @interface
+ */
+WebInspector.CodeMirrorMimeMode = function()
+{
+}
+
+WebInspector.CodeMirrorMimeMode.prototype = {
+    /**
+     * @param {!Runtime.Extension} extension
+     */
+    install: function(extension) { }
 }

@@ -79,40 +79,6 @@ private:
     Visitor* m_visitor;
 };
 
-// If T does not support trace(InlinedGlobalMarkingVisitor).
-template <typename T>
-struct TraceCompatibilityAdaptor<T, false> {
-    inline static void trace(blink::Visitor* visitor, T* self)
-    {
-        self->trace(visitor);
-    }
-
-    inline static void trace(InlinedGlobalMarkingVisitor visitor, T* self)
-    {
-        // We revert to dynamic trace(Visitor*) for tracing T.
-        self->trace(visitor.getUninlined());
-    }
-};
-
-// If T supports trace(InlinedGlobalMarkingVisitor).
-template <typename T>
-struct TraceCompatibilityAdaptor<T, true> {
-    inline static void trace(blink::Visitor* visitor, T* self)
-    {
-        if (visitor->isGlobalMarkingVisitor()) {
-            // Switch to inlined global marking dispatch.
-            self->trace(InlinedGlobalMarkingVisitor(visitor));
-        } else {
-            self->trace(visitor);
-        }
-    }
-
-    inline static void trace(InlinedGlobalMarkingVisitor visitor, T* self)
-    {
-        self->trace(visitor);
-    }
-};
-
 inline void GarbageCollectedMixin::trace(InlinedGlobalMarkingVisitor)
 {
 }

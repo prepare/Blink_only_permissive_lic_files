@@ -62,6 +62,25 @@ body .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header {
     flex: 0 0 24px;
 }
 
+.material .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header {
+    flex: 0 0 28px;
+    overflow: visible;
+}
+
+.inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header-tab {
+    height: 23px;
+}
+
+.material .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header-tab {
+    height: 27px;
+    border: none;
+    transition: background-color 100ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.material .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header-tab:hover {
+    background-color: rgba(105, 105, 105, 0.1);
+}
+
 .inspector-view-toolbar-left {
     padding-left: 2px;
     margin-right: -5px; /* Should compensate for .tabbed-pane-header-contents margin-left. */
@@ -71,7 +90,19 @@ body .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header {
 .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header-tab.selected {
     border-width: 0 2px 0 2px;
     background: none;
-    padding-right: 3px;
+    margin: 0;
+    padding: 0 3px;
+}
+
+.material .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header-tab,
+.material .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header-tab.selected {
+    padding: 0 6px;
+    transition: background-color 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.material .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header-tab.selected {
+    border: none;
+    background-color: rgba(105, 105, 105, 0.1);
 }
 
 .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header-tab.selected {
@@ -80,7 +111,6 @@ body .inspector-view-tabbed-pane.tabbed-pane::shadow .tabbed-pane-header {
 }
 
 .inspector-view-close-button {
-    float: right;
     padding-right: 6px;
     padding-left: 4px;
 }
@@ -145,6 +175,7 @@ body.undocked.platform-mac.inactive .inspector-view-tabbed-pane.tabbed-pane::sha
 }
 
 iframe.extension {
+    flex: auto;
     width: 100%;
     height: 100%;
 }
@@ -230,7 +261,7 @@ ol.outline-disclosure:focus li.selected * {
 .outline-disclosure li::before {
     float: left;
     -webkit-user-select: none;
-    -webkit-mask-image: url(Images/statusbarButtonGlyphs.png);
+    -webkit-mask-image: url(Images/toolbarButtonGlyphs.png);
     -webkit-mask-size: 320px 144px;
     content: "a";
     color: transparent;
@@ -248,7 +279,7 @@ ol.outline-disclosure:focus li.selected * {
 
 @media (-webkit-min-device-pixel-ratio: 1.5) {
 .outline-disclosure li::before {
-    -webkit-mask-image: url(Images/statusbarButtonGlyphs_2x.png);
+    -webkit-mask-image: url(Images/toolbarButtonGlyphs_2x.png);
 }
 } /* media */
 
@@ -384,7 +415,7 @@ ol.outline-disclosure:focus li.selected * {
     width: 10px;
     height: 10px;
     border: 0;
-    -webkit-mask-image: url(Images/statusbarButtonGlyphs.png);
+    -webkit-mask-image: url(Images/toolbarButtonGlyphs.png);
     -webkit-mask-size: 320px 144px;
     -webkit-appearance: none;
     background-color: rgba(0, 0, 0, 0.75);
@@ -394,7 +425,7 @@ ol.outline-disclosure:focus li.selected * {
 
 @media (-webkit-min-device-pixel-ratio: 1.5) {
 .sidebar-tree-item .disclosure-button {
-    -webkit-mask-image: url(Images/statusbarButtonGlyphs_2x.png);
+    -webkit-mask-image: url(Images/toolbarButtonGlyphs_2x.png);
 }
 } /* media */
 
@@ -585,11 +616,6 @@ body.inactive .sidebar-tree-item.selected {
 .bubble-repeat-count.error,
 .console-error-level .bubble-repeat-count {
     background-color: rgb(216, 35, 35) !important;
-}
-
-.source-frame-eval-expression {
-    outline: 1px solid rgb(163, 41, 34);
-    background-color: rgb(255, 255, 194);
 }
 
 .soft-context-menu-glass-pane {

@@ -96,8 +96,8 @@ protected:
     virtual bool isSelected() const override;
 
     // Whether objects are ignored, i.e. not included in the tree.
-    virtual AXObjectInclusion defaultObjectInclusion() const override;
-    virtual bool computeAccessibilityIsIgnored() const override;
+    virtual AXObjectInclusion defaultObjectInclusion(IgnoredReasons* = nullptr) const override;
+    virtual bool computeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const override;
 
     // Properties of static elements.
     virtual const AtomicString& accessKey() const override;
@@ -123,7 +123,7 @@ protected:
 
     virtual bool ariaHasPopup() const override;
     virtual bool ariaRoleHasPresentationalChildren() const override;
-    virtual bool isPresentationalChildOfAriaRole() const override;
+    virtual AXObject* ancestorForWhichThisIsAPresentationalChild() const override;
     virtual bool shouldFocusActiveDescendant() const override;
     virtual bool supportsARIADragging() const override;
     virtual bool supportsARIADropping() const override;
@@ -193,9 +193,9 @@ protected:
     virtual void lineBreaks(Vector<int>&) const override;
 
 private:
-    bool isAllowedChildOfTree() const;
+    AXObject* treeAncestorDisallowingChild() const;
     void ariaListboxSelectedChildren(AccessibilityChildrenVector&);
-    PlainTextRange ariaSelectedTextRange() const;
+    PlainTextRange visibleSelectionUnderObject() const;
     bool nodeIsTextControl(const Node*) const;
     bool isTabItemSelected() const;
     AXObject* accessibilityImageMapHitTest(HTMLAreaElement*, const IntPoint&) const;

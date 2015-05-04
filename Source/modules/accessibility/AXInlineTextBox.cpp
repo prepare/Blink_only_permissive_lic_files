@@ -76,12 +76,19 @@ LayoutRect AXInlineTextBox::elementRect() const
     return m_inlineTextBox->bounds();
 }
 
-bool AXInlineTextBox::computeAccessibilityIsIgnored() const
+bool AXInlineTextBox::computeAccessibilityIsIgnored(IgnoredReasons* ignoredReasons) const
 {
-    if (AXObject* parent = parentObject())
-        return parent->accessibilityIsIgnored();
+    AXObject* parent = parentObject();
+    if (!parent)
+        return false;
 
-    return false;
+    if (!parent->accessibilityIsIgnored())
+        return false;
+
+    if (ignoredReasons)
+        parent->computeAccessibilityIsIgnored(ignoredReasons);
+
+    return true;
 }
 
 void AXInlineTextBox::textCharacterOffsets(Vector<int>& offsets) const
@@ -127,7 +134,7 @@ AXObject* AXInlineTextBox::computeParent() const
     if (!m_inlineTextBox || !m_axObjectCache)
         return 0;
 
-    LayoutText* layoutText = m_inlineTextBox->renderText();
+    LayoutText* layoutText = m_inlineTextBox->layoutText();
     return m_axObjectCache->getOrCreate(layoutText);
 }
 

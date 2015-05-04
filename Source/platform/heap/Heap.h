@@ -336,8 +336,12 @@ inline Address blinkPageAddress(Address address)
     return reinterpret_cast<Address>(reinterpret_cast<uintptr_t>(address) & blinkPageBaseMask);
 }
 
-#if ENABLE(ASSERT)
+inline bool vTableInitialized(void* objectPointer)
+{
+    return !!(*reinterpret_cast<Address*>(objectPointer));
+}
 
+#if ENABLE(ASSERT)
 // Sanity check for a page header address: the address of the page
 // header should be OS page size away from being Blink page size
 // aligned.
@@ -384,6 +388,9 @@ public:
     virtual void removeFromHeap() = 0;
     virtual void sweep() = 0;
     virtual void markUnmarkedObjectsDead() = 0;
+#if defined(ADDRESS_SANITIZER)
+    virtual void poisonUnmarkedObjects() = 0;
+#endif
     // Check if the given address points to an object in this
     // heap page. If so, find the start of that object and mark it
     // using the given Visitor. Otherwise do nothing. The pointer must
@@ -468,6 +475,9 @@ public:
     virtual void removeFromHeap() override;
     virtual void sweep() override;
     virtual void markUnmarkedObjectsDead() override;
+#if defined(ADDRESS_SANITIZER)
+    virtual void poisonUnmarkedObjects() override;
+#endif
     virtual void checkAndMarkPointer(Visitor*, Address) override;
     virtual void markOrphaned() override;
 #if ENABLE(GC_PROFILING)
@@ -495,10 +505,6 @@ public:
 
     NormalPageHeap* heapForNormalPage();
     void clearObjectStartBitMap();
-
-#if defined(ADDRESS_SANITIZER)
-    void poisonUnmarkedObjects();
-#endif
 
 private:
     HeapObjectHeader* findHeaderFromAddress(Address);
@@ -531,6 +537,9 @@ public:
     virtual void removeFromHeap() override;
     virtual void sweep() override;
     virtual void markUnmarkedObjectsDead() override;
+#if defined(ADDRESS_SANITIZER)
+    virtual void poisonUnmarkedObjects() override;
+#endif
     virtual void checkAndMarkPointer(Visitor*, Address) override;
     virtual void markOrphaned() override;
 
@@ -741,6 +750,9 @@ public:
     size_t objectPayloadSizeForTesting();
     void prepareHeapForTermination();
     void prepareForSweep();
+#if defined(ADDRESS_SANITIZER)
+    void poisonUnmarkedObjects();
+#endif
     Address lazySweep(size_t, size_t gcInfoIndex);
     void sweepUnsweptPage();
     // Returns true if we have swept all pages within the deadline.
@@ -950,7 +962,7 @@ public:
         IdleGC,
         PreciseGC,
         ConservativeGC,
-        ForcedGCForTesting,
+        ForcedGC,
         NumberOfGCReason
     };
     static const char* gcReasonString(GCReason);
@@ -1021,25 +1033,10 @@ public:
     static size_t allocatedSpace() { return acquireLoad(&s_allocatedSpace); }
     static size_t estimatedLiveObjectSize() { return acquireLoad(&s_estimatedLiveObjectSize); }
     static void setEstimatedLiveObjectSize(size_t size) { releaseStore(&s_estimatedLiveObjectSize, size); }
+    static size_t externalObjectSizeAtLastGC() { return acquireLoad(&s_externalObjectSizeAtLastGC); }
 
     static double estimatedMarkingTime();
     static void reportMemoryUsageHistogram();
-
-    // On object allocation, register the object's externally allocated memory.
-    static void increaseExternallyAllocatedBytes(size_t);
-    static size_t externallyAllocatedBytes() { return acquireLoad(&s_externallyAllocatedBytes); }
-
-    // On object tracing, register the object's externally allocated memory (as still live.)
-    static void increaseExternallyAllocatedBytesAlive(size_t delta)
-    {
-        ASSERT(ThreadState::current()->isInGC());
-        s_externallyAllocatedBytesAlive += delta;
-    }
-    static size_t externallyAllocatedBytesAlive() { return s_externallyAllocatedBytesAlive; }
-
-    static void requestUrgentGC();
-    static void clearUrgentGC() { releaseStore(&s_requestedUrgentGC, 0); }
-    static bool isUrgentGCRequested() { return acquireLoad(&s_requestedUrgentGC); }
 
 private:
     // A RegionTree is a simple binary search tree of PageMemoryRegions sorted
@@ -1079,47 +1076,13 @@ private:
     static size_t s_allocatedObjectSize;
     static size_t s_markedObjectSize;
     static size_t s_estimatedLiveObjectSize;
-    static size_t s_externallyAllocatedBytes;
-    static size_t s_externallyAllocatedBytesAlive;
-    static unsigned s_requestedUrgentGC;
+    static size_t s_externalObjectSizeAtLastGC;
     static double s_estimatedMarkingTimePerByte;
 
     friend class ThreadState;
 };
 
-// We use sized heaps for normal pages to improve memory locality.
-// It seems that the same type of objects are likely to be accessed together,
-// which means that we want to group objects by type. That's why we provide
-// dedicated heaps for popular types (e.g., Node, CSSValue), but it's not
-// practical to prepare dedicated heaps for all types. Thus we group objects
-// by their sizes, hoping that it will approximately group objects
-// by their types.
-static int heapIndexForNormalHeap(size_t size)
-{
-    if (size < 64) {
-        if (size < 32)
-            return NormalPage1HeapIndex;
-        return NormalPage2HeapIndex;
-    }
-    if (size < 128)
-        return NormalPage3HeapIndex;
-    return NormalPage4HeapIndex;
-}
-
-// Base class for objects allocated in the Blink garbage-collected heap.
-//
-// Defines a 'new' operator that allocates the memory in the heap.  'delete'
-// should not be called on objects that inherit from GarbageCollected.
-//
-// Instances of GarbageCollected will *NOT* get finalized.  Their destructor
-// will not be called.  Therefore, only classes that have trivial destructors
-// with no semantic meaning (including all their subclasses) should inherit from
-// GarbageCollected.  If there are non-trival destructors in a given class or
-// any of its subclasses, GarbageCollectedFinalized should be used which
-// guarantees that the destructor is called on an instance when the garbage
-// collector determines that it is no longer reachable.
-template<typename T>
-class GarbageCollected {
+template<typename T> class GarbageCollected {
     WTF_MAKE_NONCOPYABLE(GarbageCollected);
 
     // For now direct allocation of arrays on the heap is not allowed.
@@ -1162,173 +1125,24 @@ protected:
     }
 };
 
-// Base class for objects allocated in the Blink garbage-collected heap.
-//
-// Defines a 'new' operator that allocates the memory in the heap.  'delete'
-// should not be called on objects that inherit from GarbageCollected.
-//
-// Instances of GarbageCollectedFinalized will have their destructor called when
-// the garbage collector determines that the object is no longer reachable.
-template<typename T>
-class GarbageCollectedFinalized : public GarbageCollected<T> {
-    WTF_MAKE_NONCOPYABLE(GarbageCollectedFinalized);
-
-protected:
-    // finalizeGarbageCollectedObject is called when the object is freed from
-    // the heap.  By default finalization means calling the destructor on the
-    // object.  finalizeGarbageCollectedObject can be overridden to support
-    // calling the destructor of a subclass.  This is useful for objects without
-    // vtables that require explicit dispatching.  The name is intentionally a
-    // bit long to make name conflicts less likely.
-    void finalizeGarbageCollectedObject()
-    {
-        static_cast<T*>(this)->~T();
+// We use sized heaps for normal pages to improve memory locality.
+// It seems that the same type of objects are likely to be accessed together,
+// which means that we want to group objects by type. That's why we provide
+// dedicated heaps for popular types (e.g., Node, CSSValue), but it's not
+// practical to prepare dedicated heaps for all types. Thus we group objects
+// by their sizes, hoping that it will approximately group objects
+// by their types.
+static int heapIndexForNormalHeap(size_t size)
+{
+    if (size < 64) {
+        if (size < 32)
+            return NormalPage1HeapIndex;
+        return NormalPage2HeapIndex;
     }
-
-    GarbageCollectedFinalized() { }
-    ~GarbageCollectedFinalized() { }
-
-    template<typename U> friend struct HasFinalizer;
-    template<typename U, bool> friend struct FinalizerTraitImpl;
-};
-
-// Base class for objects that are in the Blink garbage-collected heap
-// and are still reference counted.
-//
-// This class should be used sparingly and only to gradually move
-// objects from being reference counted to being managed by the blink
-// garbage collector.
-//
-// While the current reference counting keeps one of these objects
-// alive it will have a Persistent handle to itself allocated so we
-// will not reclaim the memory.  When the reference count reaches 0 the
-// persistent handle will be deleted.  When the garbage collector
-// determines that there are no other references to the object it will
-// be reclaimed and the destructor of the reclaimed object will be
-// called at that time.
-template<typename T>
-class RefCountedGarbageCollected : public GarbageCollectedFinalized<T> {
-    WTF_MAKE_NONCOPYABLE(RefCountedGarbageCollected);
-
-public:
-    RefCountedGarbageCollected()
-        : m_refCount(0)
-    {
-    }
-
-    // Implement method to increase reference count for use with RefPtrs.
-    //
-    // In contrast to the normal WTF::RefCounted, the reference count can reach
-    // 0 and increase again.  This happens in the following scenario:
-    //
-    // (1) The reference count becomes 0, but members, persistents, or
-    //     on-stack pointers keep references to the object.
-    //
-    // (2) The pointer is assigned to a RefPtr again and the reference
-    //     count becomes 1.
-    //
-    // In this case, we have to resurrect m_keepAlive.
-    void ref()
-    {
-        if (UNLIKELY(!m_refCount)) {
-            ASSERT(ThreadState::current()->findPageFromAddress(reinterpret_cast<Address>(this)));
-            makeKeepAlive();
-        }
-        ++m_refCount;
-    }
-
-    // Implement method to decrease reference count for use with RefPtrs.
-    //
-    // In contrast to the normal WTF::RefCounted implementation, the
-    // object itself is not deleted when the reference count reaches
-    // 0.  Instead, the keep-alive persistent handle is deallocated so
-    // that the object can be reclaimed when the garbage collector
-    // determines that there are no other references to the object.
-    void deref()
-    {
-        ASSERT(m_refCount > 0);
-        if (!--m_refCount) {
-            delete m_keepAlive;
-            m_keepAlive = 0;
-        }
-    }
-
-    bool hasOneRef()
-    {
-        return m_refCount == 1;
-    }
-
-protected:
-    ~RefCountedGarbageCollected() { }
-
-private:
-    void makeKeepAlive()
-    {
-        ASSERT(!m_keepAlive);
-        m_keepAlive = new Persistent<T>(static_cast<T*>(this));
-    }
-
-    int m_refCount;
-    Persistent<T>* m_keepAlive;
-};
-
-// Classes that contain heap references but aren't themselves heap allocated,
-// have some extra macros available which allows their use to be restricted to
-// cases where the garbage collector is able to discover their heap references.
-//
-// STACK_ALLOCATED(): Use if the object is only stack allocated.  Heap objects
-// should be in Members but you do not need the trace method as they are on the
-// stack.  (Down the line these might turn in to raw pointers, but for now
-// Members indicates that we have thought about them and explicitly taken care
-// of them.)
-//
-// DISALLOW_ALLOCATION(): Cannot be allocated with new operators but can be a
-// part object.  If it has Members you need a trace method and the containing
-// object needs to call that trace method.
-//
-// ALLOW_ONLY_INLINE_ALLOCATION(): Allows only placement new operator.  This
-// disallows general allocation of this object but allows to put the object as a
-// value object in collections.  If these have Members you need to have a trace
-// method. That trace method will be called automatically by the Heap
-// collections.
-//
-#define DISALLOW_ALLOCATION()                                   \
-    private:                                                    \
-        void* operator new(size_t) = delete;                    \
-        void* operator new(size_t, NotNullTag, void*) = delete; \
-        void* operator new(size_t, void*) = delete;
-
-#define ALLOW_ONLY_INLINE_ALLOCATION()                                              \
-    public:                                                                         \
-        void* operator new(size_t, NotNullTag, void* location) { return location; } \
-        void* operator new(size_t, void* location) { return location; }             \
-    private:                                                                        \
-        void* operator new(size_t) = delete;
-
-#define STATIC_ONLY(Type) \
-    private:              \
-        Type() = delete;
-
-// These macros insert annotations that the Blink GC plugin for clang uses for
-// verification.  STACK_ALLOCATED is used to declare that objects of this type
-// are always stack allocated.  GC_PLUGIN_IGNORE is used to make the plugin
-// ignore a particular class or field when checking for proper usage.  When
-// using GC_PLUGIN_IGNORE a bug-number should be provided as an argument where
-// the bug describes what needs to happen to remove the GC_PLUGIN_IGNORE again.
-#if COMPILER(CLANG)
-#define STACK_ALLOCATED()                                       \
-    private:                                                    \
-        __attribute__((annotate("blink_stack_allocated")))      \
-        void* operator new(size_t) = delete;                    \
-        void* operator new(size_t, NotNullTag, void*) = delete; \
-        void* operator new(size_t, void*) = delete;
-
-#define GC_PLUGIN_IGNORE(bug)                           \
-    __attribute__((annotate("blink_gc_plugin_ignore")))
-#else
-#define STACK_ALLOCATED() DISALLOW_ALLOCATION()
-#define GC_PLUGIN_IGNORE(bug)
-#endif
+    if (size < 128)
+        return NormalPage3HeapIndex;
+    return NormalPage4HeapIndex;
+}
 
 NO_SANITIZE_ADDRESS inline
 size_t HeapObjectHeader::size() const
@@ -1478,35 +1292,63 @@ Address Heap::reallocate(void* previous, size_t size)
     return address;
 }
 
-inline void Heap::increaseExternallyAllocatedBytes(size_t delta)
+template<typename T, typename Traits = WTF::VectorTraits<T>> class HeapVectorBacking {
+public:
+    static void finalize(void* pointer);
+    void finalizeGarbageCollectedObject() { finalize(this); }
+};
+
+template<typename T, typename Traits>
+void HeapVectorBacking<T, Traits>::finalize(void* pointer)
 {
-    // Flag GC urgency on a 50% increase in external allocation
-    // since the last GC, but not for less than 100M.
-    //
-    // FIXME: consider other, 'better' policies (e.g., have the count of
-    // heap objects with external allocations be taken into
-    // account, ...) The overall goal here is to trigger a
-    // GC such that it considerably lessens memory pressure
-    // for a renderer process, when absolutely needed.
-    size_t externalBytesAllocatedSinceLastGC = atomicAdd(&s_externallyAllocatedBytes, static_cast<long>(delta));
-    if (LIKELY(externalBytesAllocatedSinceLastGC < 100 * 1024 * 1024))
-        return;
+    static_assert(Traits::needsDestruction, "Only vector buffers with items requiring destruction should be finalized");
+    // See the comment in HeapVectorBacking::trace.
+    static_assert(Traits::canInitializeWithMemset || WTF::IsPolymorphic<T>::value, "HeapVectorBacking doesn't support objects that cannot be initialized with memset or don't have a vtable");
 
-    if (UNLIKELY(isUrgentGCRequested()))
-        return;
-
-    size_t externalBytesAliveAtLastGC = externallyAllocatedBytesAlive();
-    if (UNLIKELY(externalBytesAllocatedSinceLastGC > externalBytesAliveAtLastGC / 2))
-        Heap::requestUrgentGC();
+    ASSERT(!WTF::IsTriviallyDestructible<T>::value);
+    HeapObjectHeader* header = HeapObjectHeader::fromPayload(pointer);
+    // Use the payload size as recorded by the heap to determine how many
+    // elements to finalize.
+    size_t length = header->payloadSize() / sizeof(T);
+    T* buffer = reinterpret_cast<T*>(pointer);
+#ifdef ANNOTATE_CONTIGUOUS_CONTAINER
+    // As commented above, HeapVectorBacking calls finalizers for unused slots
+    // (which are already zeroed out).
+    ANNOTATE_CHANGE_SIZE(buffer, length, 0, length);
+#endif
+    if (WTF::IsPolymorphic<T>::value) {
+        for (unsigned i = 0; i < length; ++i) {
+            if (blink::vTableInitialized(&buffer[i]))
+                buffer[i].~T();
+        }
+    } else {
+        for (unsigned i = 0; i < length; ++i) {
+            buffer[i].~T();
+        }
+    }
 }
 
-template<bool needsTracing, WTF::WeakHandlingFlag weakHandlingFlag, WTF::ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits> struct CollectionBackingTraceTrait;
-template<typename T, typename Traits = WTF::VectorTraits<T>> class HeapVectorBacking;
 template<typename Table> class HeapHashTableBacking {
 public:
     static void finalize(void* pointer);
     void finalizeGarbageCollectedObject() { finalize(this); }
 };
+
+template<typename Table>
+void HeapHashTableBacking<Table>::finalize(void* pointer)
+{
+    using Value = typename Table::ValueType;
+    ASSERT(!WTF::IsTriviallyDestructible<Value>::value);
+    HeapObjectHeader* header = HeapObjectHeader::fromPayload(pointer);
+    // Use the payload size as recorded by the heap to determine how many
+    // elements to finalize.
+    size_t length = header->payloadSize() / sizeof(Value);
+    Value* table = reinterpret_cast<Value*>(pointer);
+    for (unsigned i = 0; i < length; ++i) {
+        if (!Table::isEmptyOrDeletedBucket(table[i]))
+            table[i].~Value();
+    }
+}
 
 class HeapAllocatorQuantizer {
 public:
@@ -1517,6 +1359,69 @@ public:
         return Heap::roundedAllocationSize(count * sizeof(T));
     }
     static const size_t kMaxUnquantizedAllocation = maxHeapObjectSize;
+};
+
+// CollectionBackingTraceTrait.  Do nothing for things in collections that don't
+// need tracing, or call TraceInCollectionTrait for those that do.
+
+template<bool needsTracing, WTF::WeakHandlingFlag weakHandlingFlag, WTF::ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits> struct CollectionBackingTraceTrait;
+
+// Specialization for things that don't need marking and have no weak pointers.
+// We do nothing, even if WTF::WeakPointersActStrong.
+template<WTF::ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits>
+struct CollectionBackingTraceTrait<false, WTF::NoWeakHandlingInCollections, strongify, T, Traits> {
+    template<typename VisitorDispatcher>
+    static bool trace(VisitorDispatcher, T&) { return false; }
+};
+
+template<typename T>
+static void verifyGarbageCollectedIfMember(T*)
+{
+}
+
+template<typename T>
+static void verifyGarbageCollectedIfMember(Member<T>* t)
+{
+    STATIC_ASSERT_IS_GARBAGE_COLLECTED(T, "non garbage collected object in member");
+}
+
+// Specialization for things that either need marking or have weak pointers or
+// both.
+template<bool needsTracing, WTF::WeakHandlingFlag weakHandlingFlag, WTF::ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits>
+struct CollectionBackingTraceTrait {
+    template<typename VisitorDispatcher>
+    static bool trace(VisitorDispatcher visitor, T&t)
+    {
+        verifyGarbageCollectedIfMember(reinterpret_cast<T*>(0));
+        return WTF::TraceInCollectionTrait<weakHandlingFlag, strongify, T, Traits>::trace(visitor, t);
+    }
+};
+
+template<typename T> struct WeakHandlingHashTraits : WTF::SimpleClassHashTraits<T> {
+    // We want to treat the object as a weak object in the sense that it can
+    // disappear from hash sets and hash maps.
+    static const WTF::WeakHandlingFlag weakHandlingFlag = WTF::WeakHandlingInCollections;
+    // Normally whether or not an object needs tracing is inferred
+    // automatically from the presence of the trace method, but we don't
+    // necessarily have a trace method, and we may not need one because T
+    // can perhaps only be allocated inside collections, never as independent
+    // objects.  Explicitly mark this as needing tracing and it will be traced
+    // in collections using the traceInCollection method, which it must have.
+    template<typename U = void> struct NeedsTracingLazily {
+        static const bool value = true;
+    };
+    // The traceInCollection method traces differently depending on whether we
+    // are strongifying the trace operation.  We strongify the trace operation
+    // when there are active iterators on the object.  In this case all
+    // WeakMembers are marked like strong members so that elements do not
+    // suddenly disappear during iteration.  Returns true if weak pointers to
+    // dead objects were found: In this case any strong pointers were not yet
+    // traced and the entry should be removed from the collection.
+    template<typename VisitorDispatcher>
+    static bool traceInCollection(VisitorDispatcher visitor, T& t, WTF::ShouldWeakPointersBeMarkedStrongly strongify)
+    {
+        return t.traceInCollection(visitor, strongify);
+    }
 };
 
 // This is a static-only class used as a trait on collections to make them heap
@@ -1669,6 +1574,16 @@ public:
 #if ENABLE(ASSERT)
         ThreadState::current()->leaveNoAllocationScope();
 #endif
+    }
+
+    static void enterGCForbiddenScope()
+    {
+        ThreadState::current()->enterGCForbiddenScope();
+    }
+
+    static void leaveGCForbiddenScope()
+    {
+        ThreadState::current()->leaveGCForbiddenScope();
     }
 
 private:
@@ -1871,361 +1786,6 @@ template<typename T, typename U, typename V>
 inline void swap(HeapLinkedHashSet<T, U, V>& a, HeapLinkedHashSet<T, U, V>& b) { a.swap(b); }
 template<typename T, typename U, typename V>
 inline void swap(HeapHashCountedSet<T, U, V>& a, HeapHashCountedSet<T, U, V>& b) { a.swap(b); }
-
-} // namespace blink
-
-namespace WTF {
-
-// Catch-all for types that have a way to trace that don't have special
-// handling for weakness in collections.  This means that if this type
-// contains WeakMember fields, they will simply be zeroed, but the entry
-// will not be removed from the collection.  This always happens for
-// things in vectors, which don't currently support special handling of
-// weak elements.
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits>
-struct TraceInCollectionTrait<NoWeakHandlingInCollections, strongify, T, Traits> {
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, T& t)
-    {
-        blink::TraceTrait<T>::trace(visitor, &t);
-        return false;
-    }
-};
-
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits>
-struct TraceInCollectionTrait<NoWeakHandlingInCollections, strongify, blink::Member<T>, Traits> {
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, blink::Member<T>& t)
-    {
-        blink::TraceTrait<T>::mark(visitor, const_cast<typename RemoveConst<T>::Type*>(t.get()));
-        return false;
-    }
-};
-
-// Catch-all for things that have HashTrait support for tracing with weakness.
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits>
-struct TraceInCollectionTrait<WeakHandlingInCollections, strongify, T, Traits> {
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, T& t)
-    {
-        return Traits::traceInCollection(visitor, t, strongify);
-    }
-};
-
-// Vector backing that needs marking. We don't support weak members in vectors.
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits>
-struct TraceInCollectionTrait<NoWeakHandlingInCollections, strongify, blink::HeapVectorBacking<T, Traits>, void> {
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, void* self)
-    {
-        // The allocator can oversize the allocation a little, according to
-        // the allocation granularity.  The extra size is included in the
-        // payloadSize call below, since there is nowhere to store the
-        // originally allocated memory.  This assert ensures that visiting the
-        // last bit of memory can't cause trouble.
-        static_assert(!ShouldBeTraced<Traits>::value || sizeof(T) > blink::allocationGranularity || Traits::canInitializeWithMemset, "heap overallocation can cause spurious visits");
-
-        T* array = reinterpret_cast<T*>(self);
-        blink::HeapObjectHeader* header = blink::HeapObjectHeader::fromPayload(self);
-        // Use the payload size as recorded by the heap to determine how many
-        // elements to mark.
-        size_t length = header->payloadSize() / sizeof(T);
-#ifdef ANNOTATE_CONTIGUOUS_CONTAINER
-        // Have no option but to mark the whole container as accessible, but
-        // this trace() is only used for backing stores that are identified
-        // as roots independent from a vector.
-        ANNOTATE_CHANGE_SIZE(array, length, 0, length);
-#endif
-        for (size_t i = 0; i < length; ++i)
-            blink::CollectionBackingTraceTrait<ShouldBeTraced<Traits>::value, Traits::weakHandlingFlag, WeakPointersActStrong, T, Traits>::trace(visitor, array[i]);
-        return false;
-    }
-};
-
-// Almost all hash table backings are visited with this specialization.
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename Table>
-struct TraceInCollectionTrait<NoWeakHandlingInCollections, strongify, blink::HeapHashTableBacking<Table>, void> {
-    using Value = typename Table::ValueType;
-    using Traits = typename Table::ValueTraits;
-
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, void* self)
-    {
-        Value* array = reinterpret_cast<Value*>(self);
-        blink::HeapObjectHeader* header = blink::HeapObjectHeader::fromPayload(self);
-        size_t length = header->payloadSize() / sizeof(Value);
-        for (size_t i = 0; i < length; ++i) {
-            if (!HashTableHelper<Value, typename Table::ExtractorType, typename Table::KeyTraitsType>::isEmptyOrDeletedBucket(array[i]))
-                blink::CollectionBackingTraceTrait<ShouldBeTraced<Traits>::value, Traits::weakHandlingFlag, strongify, Value, Traits>::trace(visitor, array[i]);
-        }
-        return false;
-    }
-};
-
-// This specialization of TraceInCollectionTrait is for the backing of
-// HeapListHashSet.  This is for the case that we find a reference to the
-// backing from the stack.  That probably means we have a GC while we are in a
-// ListHashSet method since normal API use does not put pointers to the backing
-// on the stack.
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename NodeContents, size_t inlineCapacity, typename T, typename U, typename V, typename W, typename X, typename Y>
-struct TraceInCollectionTrait<NoWeakHandlingInCollections, strongify, blink::HeapHashTableBacking<HashTable<ListHashSetNode<NodeContents, blink::HeapListHashSetAllocator<T, inlineCapacity>>*, U, V, W, X, Y, blink::HeapAllocator>>, void> {
-    using Node = ListHashSetNode<NodeContents, blink::HeapListHashSetAllocator<T, inlineCapacity>>;
-    using Table = HashTable<Node*, U, V, W, X, Y, blink::HeapAllocator>;
-
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, void* self)
-    {
-        Node** array = reinterpret_cast<Node**>(self);
-        blink::HeapObjectHeader* header = blink::HeapObjectHeader::fromPayload(self);
-        size_t length = header->payloadSize() / sizeof(Node*);
-        for (size_t i = 0; i < length; ++i) {
-            if (!HashTableHelper<Node*, typename Table::ExtractorType, typename Table::KeyTraitsType>::isEmptyOrDeletedBucket(array[i])) {
-                traceListHashSetValue(visitor, array[i]->m_value);
-                // Just mark the node without tracing because we already traced
-                // the contents, and there is no need to trace the next and
-                // prev fields since iterating over the hash table backing will
-                // find the whole chain.
-                visitor->markNoTracing(array[i]);
-            }
-        }
-        return false;
-    }
-};
-
-// Key value pairs, as used in HashMap.  To disambiguate template choice we have
-// to have two versions, first the one with no special weak handling, then the
-// one with weak handling.
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename Key, typename Value, typename Traits>
-struct TraceInCollectionTrait<NoWeakHandlingInCollections, strongify, KeyValuePair<Key, Value>, Traits>  {
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, KeyValuePair<Key, Value>& self)
-    {
-        ASSERT(ShouldBeTraced<Traits>::value);
-        blink::CollectionBackingTraceTrait<ShouldBeTraced<typename Traits::KeyTraits>::value, NoWeakHandlingInCollections, strongify, Key, typename Traits::KeyTraits>::trace(visitor, self.key);
-        blink::CollectionBackingTraceTrait<ShouldBeTraced<typename Traits::ValueTraits>::value, NoWeakHandlingInCollections, strongify, Value, typename Traits::ValueTraits>::trace(visitor, self.value);
-        return false;
-    }
-};
-
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename Key, typename Value, typename Traits>
-struct TraceInCollectionTrait<WeakHandlingInCollections, strongify, KeyValuePair<Key, Value>, Traits> {
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, KeyValuePair<Key, Value>& self)
-    {
-        // This is the core of the ephemeron-like functionality.  If there is
-        // weakness on the key side then we first check whether there are
-        // dead weak pointers on that side, and if there are we don't mark the
-        // value side (yet).  Conversely if there is weakness on the value side
-        // we check that first and don't mark the key side yet if we find dead
-        // weak pointers.
-        // Corner case: If there is weakness on both the key and value side,
-        // and there are also strong pointers on the both sides then we could
-        // unexpectedly leak.  The scenario is that the weak pointer on the key
-        // side is alive, which causes the strong pointer on the key side to be
-        // marked.  If that then results in the object pointed to by the weak
-        // pointer on the value side being marked live, then the whole
-        // key-value entry is leaked.  To avoid unexpected leaking, we disallow
-        // this case, but if you run into this assert, please reach out to Blink
-        // reviewers, and we may relax it.
-        const bool keyIsWeak = Traits::KeyTraits::weakHandlingFlag == WeakHandlingInCollections;
-        const bool valueIsWeak = Traits::ValueTraits::weakHandlingFlag == WeakHandlingInCollections;
-        const bool keyHasStrongRefs = ShouldBeTraced<typename Traits::KeyTraits>::value;
-        const bool valueHasStrongRefs = ShouldBeTraced<typename Traits::ValueTraits>::value;
-        static_assert(!keyIsWeak || !valueIsWeak || !keyHasStrongRefs || !valueHasStrongRefs, "this configuration is disallowed to avoid unexpected leaks");
-        if ((valueIsWeak && !keyIsWeak) || (valueIsWeak && keyIsWeak && !valueHasStrongRefs)) {
-            // Check value first.
-            bool deadWeakObjectsFoundOnValueSide = blink::CollectionBackingTraceTrait<ShouldBeTraced<typename Traits::ValueTraits>::value, Traits::ValueTraits::weakHandlingFlag, strongify, Value, typename Traits::ValueTraits>::trace(visitor, self.value);
-            if (deadWeakObjectsFoundOnValueSide)
-                return true;
-            return blink::CollectionBackingTraceTrait<ShouldBeTraced<typename Traits::KeyTraits>::value, Traits::KeyTraits::weakHandlingFlag, strongify, Key, typename Traits::KeyTraits>::trace(visitor, self.key);
-        }
-        // Check key first.
-        bool deadWeakObjectsFoundOnKeySide = blink::CollectionBackingTraceTrait<ShouldBeTraced<typename Traits::KeyTraits>::value, Traits::KeyTraits::weakHandlingFlag, strongify, Key, typename Traits::KeyTraits>::trace(visitor, self.key);
-        if (deadWeakObjectsFoundOnKeySide)
-            return true;
-        return blink::CollectionBackingTraceTrait<ShouldBeTraced<typename Traits::ValueTraits>::value, Traits::ValueTraits::weakHandlingFlag, strongify, Value, typename Traits::ValueTraits>::trace(visitor, self.value);
-    }
-};
-
-// Nodes used by LinkedHashSet.  Again we need two versions to disambiguate the
-// template.
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename Value, typename Allocator, typename Traits>
-struct TraceInCollectionTrait<NoWeakHandlingInCollections, strongify, LinkedHashSetNode<Value, Allocator>, Traits> {
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, LinkedHashSetNode<Value, Allocator>& self)
-    {
-        ASSERT(ShouldBeTraced<Traits>::value);
-        return TraceInCollectionTrait<NoWeakHandlingInCollections, strongify, Value, typename Traits::ValueTraits>::trace(visitor, self.m_value);
-    }
-};
-
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename Value, typename Allocator, typename Traits>
-struct TraceInCollectionTrait<WeakHandlingInCollections, strongify, LinkedHashSetNode<Value, Allocator>, Traits> {
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, LinkedHashSetNode<Value, Allocator>& self)
-    {
-        return TraceInCollectionTrait<WeakHandlingInCollections, strongify, Value, typename Traits::ValueTraits>::trace(visitor, self.m_value);
-    }
-};
-
-// ListHashSetNode pointers (a ListHashSet is implemented as a hash table of
-// these pointers).
-template<ShouldWeakPointersBeMarkedStrongly strongify, typename Value, size_t inlineCapacity, typename Traits>
-struct TraceInCollectionTrait<NoWeakHandlingInCollections, strongify, ListHashSetNode<Value, blink::HeapListHashSetAllocator<Value, inlineCapacity>>*, Traits> {
-    using Node = ListHashSetNode<Value, blink::HeapListHashSetAllocator<Value, inlineCapacity>>;
-
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, Node* node)
-    {
-        traceListHashSetValue(visitor, node->m_value);
-        // Just mark the node without tracing because we already traced the
-        // contents, and there is no need to trace the next and prev fields
-        // since iterating over the hash table backing will find the whole
-        // chain.
-        visitor->markNoTracing(node);
-        return false;
-    }
-};
-
-} // namespace WTF
-
-namespace blink {
-
-// CollectionBackingTraceTrait.  Do nothing for things in collections that don't
-// need tracing, or call TraceInCollectionTrait for those that do.
-
-// Specialization for things that don't need marking and have no weak pointers.
-// We do nothing, even if WTF::WeakPointersActStrong.
-template<WTF::ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits>
-struct CollectionBackingTraceTrait<false, WTF::NoWeakHandlingInCollections, strongify, T, Traits> {
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher, T&) { return false; }
-};
-
-template<typename T>
-static void verifyGarbageCollectedIfMember(T*)
-{
-}
-
-template<typename T>
-static void verifyGarbageCollectedIfMember(Member<T>* t)
-{
-    STATIC_ASSERT_IS_GARBAGE_COLLECTED(T, "non garbage collected object in member");
-}
-
-// Specialization for things that either need marking or have weak pointers or
-// both.
-template<bool needsTracing, WTF::WeakHandlingFlag weakHandlingFlag, WTF::ShouldWeakPointersBeMarkedStrongly strongify, typename T, typename Traits>
-struct CollectionBackingTraceTrait {
-    template<typename VisitorDispatcher>
-    static bool trace(VisitorDispatcher visitor, T&t)
-    {
-        verifyGarbageCollectedIfMember(reinterpret_cast<T*>(0));
-        return WTF::TraceInCollectionTrait<weakHandlingFlag, strongify, T, Traits>::trace(visitor, t);
-    }
-};
-
-template<typename T> struct WeakHandlingHashTraits : WTF::SimpleClassHashTraits<T> {
-    // We want to treat the object as a weak object in the sense that it can
-    // disappear from hash sets and hash maps.
-    static const WTF::WeakHandlingFlag weakHandlingFlag = WTF::WeakHandlingInCollections;
-    // Normally whether or not an object needs tracing is inferred
-    // automatically from the presence of the trace method, but we don't
-    // necessarily have a trace method, and we may not need one because T
-    // can perhaps only be allocated inside collections, never as independent
-    // objects.  Explicitly mark this as needing tracing and it will be traced
-    // in collections using the traceInCollection method, which it must have.
-    template<typename U = void> struct NeedsTracingLazily {
-        static const bool value = true;
-    };
-    // The traceInCollection method traces differently depending on whether we
-    // are strongifying the trace operation.  We strongify the trace operation
-    // when there are active iterators on the object.  In this case all
-    // WeakMembers are marked like strong members so that elements do not
-    // suddenly disappear during iteration.  Returns true if weak pointers to
-    // dead objects were found: In this case any strong pointers were not yet
-    // traced and the entry should be removed from the collection.
-    template<typename VisitorDispatcher>
-    static bool traceInCollection(VisitorDispatcher visitor, T& t, WTF::ShouldWeakPointersBeMarkedStrongly strongify)
-    {
-        return t.traceInCollection(visitor, strongify);
-    }
-};
-
-template<typename T, typename Traits>
-struct TraceTrait<HeapVectorBacking<T, Traits>> {
-    using Backing = HeapVectorBacking<T, Traits>;
-
-    template<typename VisitorDispatcher>
-    static void trace(VisitorDispatcher visitor, void* self)
-    {
-        static_assert(!WTF::IsWeak<T>::value, "weakness in HeapVectors and Deques are not supported");
-        if (WTF::ShouldBeTraced<Traits>::value)
-            WTF::TraceInCollectionTrait<WTF::NoWeakHandlingInCollections, WTF::WeakPointersActWeak, HeapVectorBacking<T, Traits>, void>::trace(visitor, self);
-    }
-
-    template<typename VisitorDispatcher>
-    static void mark(VisitorDispatcher visitor, const Backing* backing)
-    {
-        visitor->mark(backing, &trace);
-    }
-    static void checkGCInfo(Visitor* visitor, const Backing* backing)
-    {
-#if ENABLE(ASSERT)
-        assertObjectHasGCInfo(const_cast<Backing*>(backing), GCInfoTrait<Backing>::index());
-#endif
-    }
-};
-
-// The trace trait for the heap hashtable backing is used when we find a
-// direct pointer to the backing from the conservative stack scanner.  This
-// normally indicates that there is an ongoing iteration over the table, and so
-// we disable weak processing of table entries.  When the backing is found
-// through the owning hash table we mark differently, in order to do weak
-// processing.
-template<typename Table>
-struct TraceTrait<HeapHashTableBacking<Table>> {
-    using Backing = HeapHashTableBacking<Table>;
-    using Traits = typename Table::ValueTraits;
-
-    template<typename VisitorDispatcher>
-    static void trace(VisitorDispatcher visitor, void* self)
-    {
-        if (WTF::ShouldBeTraced<Traits>::value || Traits::weakHandlingFlag == WTF::WeakHandlingInCollections)
-            WTF::TraceInCollectionTrait<WTF::NoWeakHandlingInCollections, WTF::WeakPointersActStrong, Backing, void>::trace(visitor, self);
-    }
-
-    template<typename VisitorDispatcher>
-    static void mark(VisitorDispatcher visitor, const Backing* backing)
-    {
-        if (WTF::ShouldBeTraced<Traits>::value || Traits::weakHandlingFlag == WTF::WeakHandlingInCollections)
-            visitor->mark(backing, &trace);
-        else
-            visitor->markNoTracing(backing); // If we know the trace function will do nothing there is no need to call it.
-    }
-    static void checkGCInfo(Visitor* visitor, const Backing* backing)
-    {
-#if ENABLE(ASSERT)
-        assertObjectHasGCInfo(const_cast<Backing*>(backing), GCInfoTrait<Backing>::index());
-#endif
-    }
-};
-
-template<typename Table>
-void HeapHashTableBacking<Table>::finalize(void* pointer)
-{
-    using Value = typename Table::ValueType;
-    ASSERT(!WTF::IsTriviallyDestructible<Value>::value);
-    HeapObjectHeader* header = HeapObjectHeader::fromPayload(pointer);
-    // Use the payload size as recorded by the heap to determine how many
-    // elements to finalize.
-    size_t length = header->payloadSize() / sizeof(Value);
-    Value* table = reinterpret_cast<Value*>(pointer);
-    for (unsigned i = 0; i < length; ++i) {
-        if (!Table::isEmptyOrDeletedBucket(table[i]))
-            table[i].~Value();
-    }
-}
 
 } // namespace blink
 

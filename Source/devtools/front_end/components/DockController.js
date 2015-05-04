@@ -45,7 +45,7 @@ WebInspector.DockController = function(canDock)
     this._currentDockStateSetting = WebInspector.settings.createSetting("currentDockState", "");
     this._lastDockStateSetting = WebInspector.settings.createSetting("lastDockState", "");
 
-    /** @type {!WebInspector.StatusBarStatesSettingButton|undefined} */
+    /** @type {!WebInspector.ToolbarStatesSettingButton|undefined} */
     this._dockToggleButton;
 }
 
@@ -71,7 +71,7 @@ WebInspector.DockController.prototype = {
             return;
 
         this._states = [WebInspector.DockController.State.DockedToRight, WebInspector.DockController.State.DockedToBottom, WebInspector.DockController.State.Undocked];
-        this._titles = [WebInspector.UIString("Dock to main window."), WebInspector.UIString("Dock to main window."), WebInspector.UIString("Undock into separate window.")];
+        this._titles = [WebInspector.UIString("Dock to right"), WebInspector.UIString("Dock to bottom"), WebInspector.UIString("Undock into separate window")];
         var initialState = this._currentDockStateSetting.get();
         initialState = this._states.indexOf(initialState) >= 0 ? initialState : this._states[0];
         this._dockSideChanged(initialState);
@@ -160,7 +160,7 @@ WebInspector.DockController.prototype = {
 
 /**
  * @constructor
- * @implements {WebInspector.StatusBarItem.Provider}
+ * @implements {WebInspector.ToolbarItem.Provider}
  */
 WebInspector.DockController.ButtonProvider = function()
 {
@@ -169,7 +169,7 @@ WebInspector.DockController.ButtonProvider = function()
 WebInspector.DockController.ButtonProvider.prototype = {
     /**
      * @override
-     * @return {?WebInspector.StatusBarItem}
+     * @return {?WebInspector.ToolbarItem}
      */
     item: function()
     {
@@ -177,8 +177,8 @@ WebInspector.DockController.ButtonProvider.prototype = {
             return null;
 
         if (!WebInspector.dockController._dockToggleButton) {
-            WebInspector.dockController._dockToggleButton = new WebInspector.StatusBarStatesSettingButton(
-                    "dock-status-bar-item",
+            WebInspector.dockController._dockToggleButton = new WebInspector.ToolbarStatesSettingButton(
+                    "dock-toolbar-item",
                     WebInspector.dockController._states,
                     WebInspector.dockController._titles,
                     WebInspector.dockController.dockSide(),
@@ -209,7 +209,7 @@ WebInspector.DockController.ToggleDockActionDelegate.prototype = {
         var toggleButton = new WebInspector.DockController.ButtonProvider().item();
         if (!toggleButton || !toggleButton.enabled())
             return;
-        /** @type {!WebInspector.StatusBarStatesSettingButton} */ (toggleButton).toggle();
+        /** @type {!WebInspector.ToolbarStatesSettingButton} */ (toggleButton).toggle();
     }
 }
 

@@ -107,11 +107,6 @@ static String classOf(const void* object)
 }
 #endif
 
-static bool vTableInitialized(void* objectPointer)
-{
-    return !!(*reinterpret_cast<Address*>(objectPointer));
-}
-
 static size_t roundToOsPageSize(size_t size)
 {
     return (size + WTF::kSystemPageSize - 1) & ~(WTF::kSystemPageSize - 1);
@@ -582,6 +577,17 @@ void BaseHeap::prepareForSweep()
     m_firstUnsweptPage = m_firstPage;
     m_firstPage = nullptr;
 }
+
+#if defined(ADDRESS_SANITIZER)
+void BaseHeap::poisonUnmarkedObjects()
+{
+    // This method is called just before starting sweeping.
+    // Thus all dead objects are in the list of m_firstUnsweptPage.
+    for (BasePage* page = m_firstUnsweptPage; page; page = page->next()) {
+        page->poisonUnmarkedObjects();
+    }
+}
+#endif
 
 Address BaseHeap::lazySweep(size_t allocationSize, size_t gcInfoIndex)
 {
@@ -1150,6 +1156,7 @@ Address LargeObjectHeap::doAllocateLargeObjectPage(size_t allocationSize, size_t
 
 void LargeObjectHeap::freeLargeObjectPage(LargeObjectPage* object)
 {
+    ASAN_UNPOISON_MEMORY_REGION(object->payload(), object->payloadSize());
     object->heapObjectHeader()->finalize(object->payload(), object->payloadSize());
     Heap::decreaseAllocatedSpace(object->size());
 
@@ -1506,8 +1513,9 @@ void NormalPage::sweep()
             Address payload = header->payload();
             // For ASan we unpoison the specific object when calling the
             // finalizer and poison it again when done to allow the object's own
-            // finalizer to operate on the object, but not have other finalizers
-            // be allowed to access it.
+            // finalizer to operate on the object. Given all other unmarked
+            // objects are poisoned, ASan will detect an error if the finalizer
+            // touches any other on-heap object that die at the same GC cycle.
             ASAN_UNPOISON_MEMORY_REGION(payload, payloadSize);
             header->finalize(payload, payloadSize);
             // This memory will be added to the freelist. Maintain the invariant
@@ -1556,6 +1564,27 @@ void NormalPage::markUnmarkedObjectsDead()
     if (markedObjectSize)
         Heap::increaseMarkedObjectSize(markedObjectSize);
 }
+
+#if defined(ADDRESS_SANITIZER)
+void NormalPage::poisonUnmarkedObjects()
+{
+    for (Address headerAddress = payload(); headerAddress < payloadEnd();) {
+        HeapObjectHeader* header = reinterpret_cast<HeapObjectHeader*>(headerAddress);
+        ASSERT(header->size() < blinkPagePayloadSize());
+        // Check if a free list entry first since we cannot call
+        // isMarked on a free list entry.
+        if (header->isFree()) {
+            headerAddress += header->size();
+            continue;
+        }
+        header->checkHeader();
+        if (!header->isMarked()) {
+            ASAN_POISON_MEMORY_REGION(header->payload(), header->payloadSize());
+        }
+        headerAddress += header->size();
+    }
+}
+#endif
 
 void NormalPage::populateObjectStartBitMap()
 {
@@ -1642,6 +1671,17 @@ static void markPointer(Visitor* visitor, HeapObjectHeader* header)
 {
     const GCInfo* gcInfo = Heap::gcInfo(header->gcInfoIndex());
     if (gcInfo->hasVTable() && !vTableInitialized(header->payload())) {
+        // We hit this branch when a GC strikes before GarbageCollected<>'s
+        // constructor runs.
+        //
+        // class A : public GarbageCollected<A> { virtual void f() = 0; };
+        // class B : public A {
+        //   B() : A(foo()) { };
+        // };
+        //
+        // If foo() allocates something and triggers a GC, the vtable of A
+        // has not yet been initialized. In this case, we should mark the A
+        // object without tracing any member of the A object.
         visitor->markHeaderNoTracing(header);
         ASSERT(isUninitializedMemory(header->payload(), header->payloadSize()));
     } else {
@@ -1811,6 +1851,15 @@ void LargeObjectPage::markUnmarkedObjectsDead()
         header->markDead();
     }
 }
+
+#if defined(ADDRESS_SANITIZER)
+void LargeObjectPage::poisonUnmarkedObjects()
+{
+    HeapObjectHeader* header = heapObjectHeader();
+    if (!header->isMarked())
+        ASAN_POISON_MEMORY_REGION(header->payload(), header->payloadSize());
+}
+#endif
 
 void LargeObjectPage::checkAndMarkPointer(Visitor* visitor, Address address)
 {
@@ -2207,7 +2256,7 @@ const char* Heap::gcReasonString(GCReason reason)
         STRINGIFY_REASON(IdleGC);
         STRINGIFY_REASON(PreciseGC);
         STRINGIFY_REASON(ConservativeGC);
-        STRINGIFY_REASON(ForcedGCForTesting);
+        STRINGIFY_REASON(ForcedGC);
 #undef STRINGIFY_REASON
     case NumberOfGCReason: ASSERT_NOT_REACHED();
     }
@@ -2288,14 +2337,12 @@ void Heap::collectGarbage(ThreadState::StackState stackState, ThreadState::GCTyp
     double markingTimeInMilliseconds = WTF::currentTimeMS() - timeStamp;
     s_estimatedMarkingTimePerByte = totalObjectSize ? (markingTimeInMilliseconds / 1000 / totalObjectSize) : 0;
 
-    if (Platform::current()) {
-        Platform::current()->histogramCustomCounts("BlinkGC.CollectGarbage", markingTimeInMilliseconds, 0, 10 * 1000, 50);
-        Platform::current()->histogramCustomCounts("BlinkGC.TotalObjectSpace", Heap::allocatedObjectSize() / 1024, 0, 4 * 1024 * 1024, 50);
-        Platform::current()->histogramCustomCounts("BlinkGC.TotalAllocatedSpace", Heap::allocatedSpace() / 1024, 0, 4 * 1024 * 1024, 50);
-        Platform::current()->histogramEnumeration("BlinkGC.GCReason", reason, NumberOfGCReason);
-        Heap::reportMemoryUsageHistogram();
-        WTF::Partitions::reportMemoryUsageHistogram();
-    }
+    Platform::current()->histogramCustomCounts("BlinkGC.CollectGarbage", markingTimeInMilliseconds, 0, 10 * 1000, 50);
+    Platform::current()->histogramCustomCounts("BlinkGC.TotalObjectSpace", Heap::allocatedObjectSize() / 1024, 0, 4 * 1024 * 1024, 50);
+    Platform::current()->histogramCustomCounts("BlinkGC.TotalAllocatedSpace", Heap::allocatedSpace() / 1024, 0, 4 * 1024 * 1024, 50);
+    Platform::current()->histogramEnumeration("BlinkGC.GCReason", reason, NumberOfGCReason);
+    Heap::reportMemoryUsageHistogram();
+    WTF::Partitions::reportMemoryUsageHistogram();
 
     if (state->isMainThread())
         ScriptForbiddenScope::exit();
@@ -2396,8 +2443,14 @@ void Heap::collectAllGarbage()
     // because the hierarchy was not completely moved to the heap and
     // some heap allocated objects own objects that contain persistents
     // pointing to other heap allocated objects.
-    for (int i = 0; i < 5; ++i)
-        collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, ForcedGCForTesting);
+    size_t previousLiveObjects = 0;
+    for (int i = 0; i < 5; ++i) {
+        collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, ForcedGC);
+        size_t liveObjects = Heap::markedObjectSize();
+        if (liveObjects == previousLiveObjects)
+            break;
+        previousLiveObjects = liveObjects;
+    }
 }
 
 double Heap::estimatedMarkingTime()
@@ -2430,8 +2483,7 @@ void Heap::reportMemoryUsageHistogram()
     if (sizeInMB > observedMaxSizeInMB) {
         // Send a UseCounter only when we see the highest memory usage
         // we've ever seen.
-        if (Platform::current())
-            Platform::current()->histogramEnumeration("BlinkGC.CommittedSize", sizeInMB, supportedMaxSizeInMB);
+        Platform::current()->histogramEnumeration("BlinkGC.CommittedSize", sizeInMB, supportedMaxSizeInMB);
         observedMaxSizeInMB = sizeInMB;
     }
 }
@@ -2657,24 +2709,7 @@ void Heap::resetHeapCounters()
 
     s_allocatedObjectSize = 0;
     s_markedObjectSize = 0;
-
-    // Similarly, reset the amount of externally allocated memory.
-    s_externallyAllocatedBytes = 0;
-    s_externallyAllocatedBytesAlive = 0;
-
-    s_requestedUrgentGC = false;
-}
-
-void Heap::requestUrgentGC()
-{
-    // The urgent-gc flag will be considered the next time an out-of-line
-    // allocation is made. Bump allocations from the current block will
-    // go ahead until it can no longer service an allocation request.
-    //
-    // FIXME: if that delays urgently needed GCs for too long, consider
-    // flushing out per-heap "allocation points" to trigger the GC
-    // right away.
-    releaseStore(&s_requestedUrgentGC, 1);
+    s_externalObjectSizeAtLastGC = WTF::Partitions::totalSizeOfCommittedPages();
 }
 
 Visitor* Heap::s_markingVisitor;
@@ -2694,10 +2729,7 @@ size_t Heap::s_markedObjectSize = 0;
 // We don't want to use 0 KB for the initial value because it may end up
 // triggering the first GC of some thread too prematurely.
 size_t Heap::s_estimatedLiveObjectSize = 512 * 1024;
-
-size_t Heap::s_externallyAllocatedBytes = 0;
-size_t Heap::s_externallyAllocatedBytesAlive = 0;
-unsigned Heap::s_requestedUrgentGC = false;
+size_t Heap::s_externalObjectSizeAtLastGC = 0;
 double Heap::s_estimatedMarkingTimePerByte = 0.0;
 
 } // namespace blink

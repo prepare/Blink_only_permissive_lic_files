@@ -8,7 +8,7 @@
  * @constructor
  * @extends {Protocol.Agents}
  * @param {string} name
- * @param {string} type
+ * @param {number} type
  * @param {!InspectorBackendClass.Connection} connection
  * @param {?WebInspector.Target} parentTarget
  * @param {function(?WebInspector.Target)=} callback
@@ -39,12 +39,12 @@ WebInspector.Target.Capabilities = {
 }
 
 /**
- * @enum {string}
+ * @enum {number}
  */
 WebInspector.Target.Type = {
-    DedicatedWorker: "DedicatedWorker",
-    Page: "Page",
-    ServiceWorker: "ServiceWorker"
+    Page: 1,
+    DedicatedWorker: 2,
+    ServiceWorker: 4
 }
 
 WebInspector.Target._nextId = 1;
@@ -53,14 +53,10 @@ WebInspector.Target.prototype = {
     suspend: function()
     {
         this.debuggerModel.suspendModel();
-        this.cssModel.suspendModel();
-        this.domModel.suspendModel();
     },
 
     resume: function()
     {
-        this.domModel.resumeModel();
-        this.cssModel.resumeModel();
         this.debuggerModel.resumeModel();
     },
 
@@ -134,10 +130,12 @@ WebInspector.Target.prototype = {
         this.debuggerModel = new WebInspector.DebuggerModel(this);
         /** @type {!WebInspector.RuntimeModel} */
         this.runtimeModel = new WebInspector.RuntimeModel(this);
-        /** @type {!WebInspector.DOMModel} */
-        this.domModel = new WebInspector.DOMModel(this);
-        /** @type {!WebInspector.CSSStyleModel} */
-        this.cssModel = new WebInspector.CSSStyleModel(this);
+
+        if (this._type === WebInspector.Target.Type.Page) {
+            new WebInspector.DOMModel(this);
+            new WebInspector.CSSStyleModel(this);
+        }
+
         /** @type {?WebInspector.WorkerManager} */
         this.workerManager = !this.isDedicatedWorker() ? new WebInspector.WorkerManager(this) : null;
         /** @type {!WebInspector.CPUProfilerModel} */
@@ -148,11 +146,6 @@ WebInspector.Target.prototype = {
         this.layerTreeModel = new WebInspector.LayerTreeModel(this);
         /** @type {!WebInspector.AnimationModel} */
         this.animationModel = new WebInspector.AnimationModel(this);
-
-        if (this._parentTarget && this._parentTarget.isServiceWorker()) {
-            /** @type {!WebInspector.ServiceWorkerCacheModel} */
-            this.serviceWorkerCacheModel = new WebInspector.ServiceWorkerCacheModel(this);
-        }
 
         this.tracingManager = new WebInspector.TracingManager(this);
 
@@ -232,8 +225,7 @@ WebInspector.Target.prototype = {
         this.debuggerModel.dispose();
         this.networkManager.dispose();
         this.cpuProfilerModel.dispose();
-        if (this.serviceWorkerCacheModel)
-            this.serviceWorkerCacheModel.dispose();
+        WebInspector.ServiceWorkerCacheModel.fromTarget(this).dispose();
         if (this.workerManager)
             this.workerManager.dispose();
     },
@@ -244,6 +236,15 @@ WebInspector.Target.prototype = {
     isDetached: function()
     {
         return this._connection.isClosed();
+    },
+
+    /**
+     * @param {!Function} modelClass
+     * @return {?WebInspector.SDKModel}
+     */
+    model: function(modelClass)
+    {
+        return this._modelByConstructor.get(modelClass) || null;
     },
 
     __proto__: Protocol.Agents.prototype
@@ -299,6 +300,7 @@ WebInspector.TargetManager = function()
     this._targets = [];
     /** @type {!Array.<!WebInspector.TargetManager.Observer>} */
     this._observers = [];
+    this._observerTypeSymbol = Symbol("observerType");
     /** @type {!Object.<string, !Array.<{modelClass: !Function, thisObject: (!Object|undefined), listener: function(!WebInspector.Event)}>>} */
     this._modelListeners = {};
     /** @type {number} */
@@ -426,10 +428,14 @@ WebInspector.TargetManager.prototype = {
 
     /**
      * @param {!WebInspector.TargetManager.Observer} targetObserver
+     * @param {number=} type
      */
-    observeTargets: function(targetObserver)
+    observeTargets: function(targetObserver, type)
     {
-        this.targets().forEach(targetObserver.targetAdded.bind(targetObserver));
+        if (this._observerTypeSymbol in targetObserver)
+            throw new Error("Observer can only be registered once");
+        targetObserver[this._observerTypeSymbol] = type || 0x7fff;
+        this.targets(type).forEach(targetObserver.targetAdded.bind(targetObserver));
         this._observers.push(targetObserver);
     },
 
@@ -438,12 +444,13 @@ WebInspector.TargetManager.prototype = {
      */
     unobserveTargets: function(targetObserver)
     {
+        delete targetObserver[this._observerTypeSymbol];
         this._observers.remove(targetObserver);
     },
 
     /**
      * @param {string} name
-     * @param {string} type
+     * @param {number} type
      * @param {!InspectorBackendClass.Connection} connection
      * @param {?WebInspector.Target} parentTarget
      * @param {function(?WebInspector.Target)=} callback
@@ -466,6 +473,20 @@ WebInspector.TargetManager.prototype = {
     },
 
     /**
+     * @param {number} type
+     * @return {!Array<!WebInspector.TargetManager.Observer>}
+     */
+    _observersByType: function(type)
+    {
+        var result = [];
+        for (var observer of this._observers) {
+            if (observer[this._observerTypeSymbol] & type)
+                result.push(observer);
+        }
+        return result;
+    },
+
+    /**
      * @param {!WebInspector.Target} target
      */
     addTarget: function(target)
@@ -477,7 +498,7 @@ WebInspector.TargetManager.prototype = {
             target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.Load, this._redispatchEvent, this);
             target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.WillReloadPage, this._redispatchEvent, this);
         }
-        var copy = this._observers.slice();
+        var copy = this._observersByType(target._type);
         for (var i = 0; i < copy.length; ++i)
             copy[i].targetAdded(target);
 
@@ -503,7 +524,7 @@ WebInspector.TargetManager.prototype = {
             target.resourceTreeModel.removeEventListener(WebInspector.ResourceTreeModel.EventTypes.Load, this._redispatchEvent, this);
             target.resourceTreeModel.removeEventListener(WebInspector.ResourceTreeModel.EventTypes.WillReloadPage, this._redispatchEvent, this);
         }
-        var copy = this._observers.slice();
+        var copy = this._observersByType(target._type);
         for (var i = 0; i < copy.length; ++i)
             copy[i].targetRemoved(target);
 
@@ -518,19 +539,29 @@ WebInspector.TargetManager.prototype = {
     },
 
     /**
+     * @param {number=} type
      * @return {boolean}
      */
-    hasTargets: function()
+    hasTargets: function(type)
     {
-        return !!this._targets.length;
+        return !!this.targets(type).length;
     },
 
     /**
+     * @param {number=} type
      * @return {!Array.<!WebInspector.Target>}
      */
-    targets: function()
+    targets: function(type)
     {
-        return this._targets.slice();
+        if (!type)
+            return this._targets.slice();
+
+        var result = [];
+        for (var target of this._targets) {
+            if (target._type & type)
+                result.push(target);
+        }
+        return result;
     },
 
     /**

@@ -26,6 +26,7 @@
 #define AudioNode_h
 
 #include "modules/EventTargetModules.h"
+#include "modules/ModulesExport.h"
 #include "platform/audio/AudioBus.h"
 #include "wtf/Forward.h"
 #include "wtf/OwnPtr.h"
@@ -50,7 +51,20 @@ class ExceptionState;
 // An AudioDestinationNode has one input and no outputs and represents the final destination to the audio hardware.
 // Most processing nodes such as filters will have one input and one output, although multiple inputs and outputs are possible.
 
-class AudioHandler : public GarbageCollectedFinalized<AudioHandler> {
+// Each of AudioNode objects owns its dedicated AudioHandler object. AudioNode
+// is responsible to provide IDL-accessible interface and its lifetime is
+// managed by Oilpan GC. AudioHandler is responsible for anything else. We must
+// not touch AudioNode objects in an audio rendering thread.
+
+// AudioHandler is created and owned by an AudioNode almost all the time. When
+// the AudioNode is about to die, the ownership of its AudioHandler is
+// transferred to DeferredTaskHandler, and it does deref the AudioHandler on the
+// main thread.
+//
+// Be careful to avoid reference cycles. If an AudioHandler has a reference
+// cycle including the owner AudioNode, objects in the cycle are never
+// collected.
+class MODULES_EXPORT AudioHandler : public ThreadSafeRefCounted<AudioHandler> {
 public:
     enum { ProcessingSizeInFrames = 128 };
 
@@ -79,15 +93,23 @@ public:
 
     AudioHandler(NodeType, AudioNode&, float sampleRate);
     virtual ~AudioHandler();
-    // dispose() is called just before the destructor. This must be called in
-    // the main thread, and while the graph lock is held.
+    // dispose() is called when the owner AudioNode is about to be
+    // destructed. This must be called in the main thread, and while the graph
+    // lock is held.
+    // Do not release resources used by an audio rendering thread in dispose().
     virtual void dispose();
     static unsigned instanceCount() { return s_instanceCount; }
 
-    // node() always returns a valid pointer for now.
-    AudioNode* node() const { return m_node; }
-    AudioContext* context() { return m_context.get(); }
-    const AudioContext* context() const { return m_context.get(); }
+    // node() returns a valid object until dispose() is called.  This returns
+    // nullptr after dispose().  We must not call node() in an audio rendering
+    // thread.
+    AudioNode* node() const;
+    // context() returns a valid object until the AudioContext dies, and returns
+    // nullptr otherwise.  This always returns a valid object in an audio
+    // rendering thread, and inside dispose().  We must not call context() in
+    // the destructor.
+    AudioContext* context() const;
+    void clearContext() { m_context = nullptr; }
 
     enum ChannelCountMode {
         Max,
@@ -133,8 +155,10 @@ public:
     unsigned numberOfInputs() const { return m_inputs.size(); }
     unsigned numberOfOutputs() const { return m_outputs.size(); }
 
-    AudioNodeInput* input(unsigned);
-    AudioNodeOutput* output(unsigned);
+    // The argument must be less than numberOfInputs().
+    AudioNodeInput& input(unsigned);
+    // The argument must be less than numberOfOutputs().
+    AudioNodeOutput& output(unsigned);
 
     virtual float sampleRate() const { return m_sampleRate; }
 
@@ -189,8 +213,6 @@ public:
 
     void updateChannelCountMode();
 
-    DECLARE_VIRTUAL_TRACE();
-
 protected:
     // Inputs and outputs must be created before the AudioHandler is
     // initialized.
@@ -210,8 +232,19 @@ private:
 
     volatile bool m_isInitialized;
     NodeType m_nodeType;
-    Member<AudioNode> m_node;
-    Member<AudioContext> m_context;
+
+    // The owner AudioNode.  This raw pointer is safe because dispose() is
+    // called before the AudioNode death, and it clears m_node.  Do not access
+    // m_node directly, use node() instead.
+    GC_PLUGIN_IGNORE("http://crbug.com/404527")
+    AudioNode* m_node;
+
+    // This raw pointer is safe because this is cleared for all of live
+    // AudioHandlers when the AudioContext dies.  Do not access m_context
+    // directly, use context() instead.
+    GC_PLUGIN_IGNORE("http://crbug.com/404527")
+    AudioContext* m_context;
+
     float m_sampleRate;
     Vector<OwnPtr<AudioNodeInput>> m_inputs;
     Vector<OwnPtr<AudioNodeOutput>> m_outputs;
@@ -238,7 +271,7 @@ protected:
     ChannelCountMode m_newChannelCountMode;
 };
 
-class AudioNode : public RefCountedGarbageCollectedEventTargetWithInlineData<AudioNode> {
+class MODULES_EXPORT AudioNode : public RefCountedGarbageCollectedEventTargetWithInlineData<AudioNode> {
     DEFINE_EVENT_TARGET_REFCOUNTING_WILL_BE_REMOVED(RefCountedGarbageCollected<AudioNode>);
     DEFINE_WRAPPERTYPEINFO();
     USING_PRE_FINALIZER(AudioNode, dispose);
@@ -278,7 +311,7 @@ public:
 protected:
     explicit AudioNode(AudioContext&);
     // This should be called in a constructor.
-    void setHandler(AudioHandler*);
+    void setHandler(PassRefPtr<AudioHandler>);
 
 private:
     void dispose();
@@ -289,7 +322,7 @@ private:
     bool disconnectFromOutputIfConnected(unsigned outputIndex, AudioParam&);
 
     Member<AudioContext> m_context;
-    Member<AudioHandler> m_handler;
+    RefPtr<AudioHandler> m_handler;
     // Represents audio node graph with Oilpan references. N-th HeapHashSet
     // represents a set of AudioNode objects connected to this AudioNode's N-th
     // output.

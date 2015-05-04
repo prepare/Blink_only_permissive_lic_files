@@ -52,11 +52,10 @@ public:
         DopplerRateDirty = 0x4,
     };
 
-    static PannerHandler* create(AudioNode&, float sampleRate);
+    static PassRefPtr<PannerHandler> create(AudioNode&, float sampleRate);
     virtual ~PannerHandler();
 
     // AudioHandler
-    virtual void dispose() override;
     virtual void process(size_t framesToProcess) override;
     virtual void initialize() override;
     virtual void uninitialize() override;
@@ -123,6 +122,9 @@ private:
     bool isDistanceConeGainDirty() const { return m_isDistanceConeGainDirty; }
     bool isDopplerRateDirty() const { return m_isDopplerRateDirty; }
 
+    // This Persistent doesn't make a reference cycle including the owner
+    // PannerNode.
+    Persistent<AudioListener> m_listener;
     OwnPtr<Panner> m_panner;
     unsigned m_panningModel;
     unsigned m_distanceModel;

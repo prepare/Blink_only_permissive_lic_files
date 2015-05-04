@@ -60,25 +60,19 @@ ConvolverHandler::ConvolverHandler(AudioNode& node, float sampleRate)
     initialize();
 }
 
-ConvolverHandler* ConvolverHandler::create(AudioNode& node, float sampleRate)
+PassRefPtr<ConvolverHandler> ConvolverHandler::create(AudioNode& node, float sampleRate)
 {
-    return new ConvolverHandler(node, sampleRate);
+    return adoptRef(new ConvolverHandler(node, sampleRate));
 }
 
 ConvolverHandler::~ConvolverHandler()
 {
-    ASSERT(!isInitialized());
-}
-
-void ConvolverHandler::dispose()
-{
     uninitialize();
-    AudioHandler::dispose();
 }
 
 void ConvolverHandler::process(size_t framesToProcess)
 {
-    AudioBus* outputBus = output(0)->bus();
+    AudioBus* outputBus = output(0).bus();
     ASSERT(outputBus);
 
     // Synchronize with possible dynamic changes to the impulse response.
@@ -91,29 +85,12 @@ void ConvolverHandler::process(size_t framesToProcess)
             // Note that we can handle the case where nothing is connected to the input, in which case we'll just feed silence into the convolver.
             // FIXME:  If we wanted to get fancy we could try to factor in the 'tail time' and stop processing once the tail dies down if
             // we keep getting fed silence.
-            m_reverb->process(input(0)->bus(), outputBus, framesToProcess);
+            m_reverb->process(input(0).bus(), outputBus, framesToProcess);
         }
     } else {
         // Too bad - the tryLock() failed.  We must be in the middle of setting a new impulse response.
         outputBus->zero();
     }
-}
-
-void ConvolverHandler::initialize()
-{
-    if (isInitialized())
-        return;
-
-    AudioHandler::initialize();
-}
-
-void ConvolverHandler::uninitialize()
-{
-    if (!isInitialized())
-        return;
-
-    m_reverb.clear();
-    AudioHandler::uninitialize();
 }
 
 void ConvolverHandler::setBuffer(AudioBuffer* buffer, ExceptionState& exceptionState)
@@ -185,12 +162,6 @@ double ConvolverHandler::latencyTime() const
     // Since we don't want to block the Audio Device thread, we return a large value
     // instead of trying to acquire the lock.
     return std::numeric_limits<double>::infinity();
-}
-
-DEFINE_TRACE(ConvolverHandler)
-{
-    visitor->trace(m_buffer);
-    AudioHandler::trace(visitor);
 }
 
 // ----------------------------------------------------------------

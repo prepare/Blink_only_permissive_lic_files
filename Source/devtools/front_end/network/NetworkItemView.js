@@ -104,12 +104,6 @@ WebInspector.NetworkItemView.prototype = {
             return;
 
         this._resourceViewTabSetting.set(event.data.tabId);
-
-        WebInspector.notifications.dispatchEventToListeners(WebInspector.UserMetrics.UserAction, {
-            action: WebInspector.UserMetrics.UserActionNames.NetworkRequestTabSelected,
-            tab: event.data.tabId,
-            url: this._request.url
-        });
     },
 
     /**
@@ -135,7 +129,7 @@ WebInspector.RequestContentView = function(request)
 
 WebInspector.RequestContentView.prototype = {
     /**
-     * @return {!WebInspector.View}
+     * @return {!WebInspector.Widget}
      */
     get innerView()
     {

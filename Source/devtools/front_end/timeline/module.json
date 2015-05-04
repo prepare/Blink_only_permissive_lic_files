@@ -23,6 +23,7 @@
     ],
     "dependencies": [
         "components",
+        "components_lazy",
         "ui_lazy"
     ],
     "scripts": [
@@ -49,7 +50,7 @@
         "PaintProfilerView.js",
         "TimelinePanel.js"
     ],
-    "stylesheets": [
+    "resources": [
         "invalidationsTree.css",
         "timelinePanel.css"
     ]

@@ -7,8 +7,8 @@
 
 #include "core/frame/LocalFrameLifecycleObserver.h"
 #include "core/frame/PlatformEventController.h"
+#include "modules/ModulesExport.h"
 #include "platform/Supplementable.h"
-#include "platform/Timer.h"
 #include "public/platform/WebLockOrientationCallback.h"
 #include "public/platform/WebScreenOrientationLockType.h"
 #include "public/platform/WebScreenOrientationType.h"
@@ -19,7 +19,7 @@ class FrameView;
 class ScreenOrientation;
 class WebScreenOrientationClient;
 
-class ScreenOrientationController final
+class MODULES_EXPORT ScreenOrientationController final
     : public NoBaseWillBeGarbageCollectedFinalized<ScreenOrientationController>
     , public WillBeHeapSupplement<LocalFrame>
     , public LocalFrameLifecycleObserver
@@ -60,13 +60,13 @@ private:
 
     void updateOrientation();
 
-    void dispatchEventTimerFired(Timer<ScreenOrientationController>*);
+    void dispatchChangeEvent();
 
     bool isActiveAndVisible() const;
 
     PersistentWillBeMember<ScreenOrientation> m_orientation;
     WebScreenOrientationClient* m_client;
-    Timer<ScreenOrientationController> m_dispatchEventTimer;
+    bool m_isDispatchingEvent;
 };
 
 } // namespace blink

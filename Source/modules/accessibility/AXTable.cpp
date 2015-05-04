@@ -397,7 +397,7 @@ void AXTable::addChildren()
         unsigned numRows = tableSection->numRows();
         for (unsigned rowIndex = 0; rowIndex < numRows; ++rowIndex) {
 
-            LayoutTableRow* layoutRow = tableSection->rowRendererAt(rowIndex);
+            LayoutTableRow* layoutRow = tableSection->rowLayoutObjectAt(rowIndex);
             if (!layoutRow)
                 continue;
 
@@ -554,16 +554,16 @@ AccessibilityRole AXTable::roleValue() const
     return TableRole;
 }
 
-bool AXTable::computeAccessibilityIsIgnored() const
+bool AXTable::computeAccessibilityIsIgnored(IgnoredReasons* ignoredReasons) const
 {
-    AXObjectInclusion decision = defaultObjectInclusion();
+    AXObjectInclusion decision = defaultObjectInclusion(ignoredReasons);
     if (decision == IncludeObject)
         return false;
     if (decision == IgnoreObject)
         return true;
 
     if (!isAXTable())
-        return AXLayoutObject::computeAccessibilityIsIgnored();
+        return AXLayoutObject::computeAccessibilityIsIgnored(ignoredReasons);
 
     return false;
 }

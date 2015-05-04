@@ -13,6 +13,7 @@ source_set("heap") {
     "CallbackStack.h",
     "GCInfo.cpp",
     "GCInfo.h",
+    "GarbageCollected.h",
     "Handle.h",
     "Heap.cpp",
     "Heap.h",
@@ -26,6 +27,7 @@ source_set("heap") {
     "ThreadState.cpp",
     "ThreadState.h",
     "ThreadingTraits.h",
+    "TraceTraits.h",
     "Visitor.h",
   ]
 

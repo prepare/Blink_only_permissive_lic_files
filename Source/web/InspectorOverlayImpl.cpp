@@ -166,7 +166,7 @@ void InspectorOverlayImpl::paintPageOverlay(WebGraphicsContext* context, const W
 void InspectorOverlayImpl::invalidate()
 {
     // Don't invalidate during an update, because that will lead to Document::scheduleRenderTreeUpdate
-    // being called within Document::updateRenderTree which violates document lifecycle expectations.
+    // being called within Document::updateLayoutTree which violates document lifecycle expectations.
     if (m_updating)
         return;
 
@@ -372,7 +372,7 @@ Page* InspectorOverlayImpl::overlayPage()
     frame->view()->setCanHaveScrollbars(false);
     frame->view()->setTransparent(true);
 
-    const blink::WebData& overlayPageHTMLResource = blink::Platform::current()->loadResource("InspectorOverlayPage.html");
+    const WebData& overlayPageHTMLResource = Platform::current()->loadResource("InspectorOverlayPage.html");
     RefPtr<SharedBuffer> data = SharedBuffer::create(overlayPageHTMLResource.data(), overlayPageHTMLResource.size());
     loader.load(FrameLoadRequest(0, blankURL(), SubstituteData(data, "text/html", "UTF-8", KURL(), ForceSynchronousLoad)));
     v8::Isolate* isolate = toIsolate(frame.get());

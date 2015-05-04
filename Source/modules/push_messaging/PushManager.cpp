@@ -75,7 +75,7 @@ ScriptPromise PushManager::getSubscription(ScriptState* scriptState)
     return promise;
 }
 
-ScriptPromise PushManager::hasPermission(ScriptState* scriptState)
+ScriptPromise PushManager::permissionState(ScriptState* scriptState)
 {
     if (scriptState->executionContext()->isDocument()) {
         Document* document = toDocument(scriptState->executionContext());

@@ -41,13 +41,13 @@ WebInspector.AdvancedSearchView = function()
     this._regexCheckbox = this._regexLabel.checkboxElement;
     this._regexCheckbox.classList.add("search-config-checkbox");
 
-    this._searchStatusBarElement = this.contentElement.createChild("div", "search-status-bar-summary");
-    this._searchMessageElement = this._searchStatusBarElement.createChild("div", "search-message");
-    this._searchProgressPlaceholderElement = this._searchStatusBarElement.createChild("div", "flex-centered");
-    this._searchStatusBarElement.createChild("div", "search-message-spacer");
-    this._searchResultsMessageElement = this._searchStatusBarElement.createChild("div", "search-message");
+    this._searchToolbarElement = this.contentElement.createChild("div", "search-toolbar-summary");
+    this._searchMessageElement = this._searchToolbarElement.createChild("div", "search-message");
+    this._searchProgressPlaceholderElement = this._searchToolbarElement.createChild("div", "flex-centered");
+    this._searchToolbarElement.createChild("div", "search-message-spacer");
+    this._searchResultsMessageElement = this._searchToolbarElement.createChild("div", "search-message");
 
-    this._advancedSearchConfig = WebInspector.settings.createSetting("advancedSearchConfig", new WebInspector.SearchConfig("", true, false).toPlainObject());
+    this._advancedSearchConfig = WebInspector.settings.createLocalSetting("advancedSearchConfig", new WebInspector.SearchConfig("", true, false).toPlainObject());
     this._load();
     WebInspector.AdvancedSearchView._instance = this;
     /** @type {!WebInspector.SearchScope} */
@@ -194,7 +194,7 @@ WebInspector.AdvancedSearchView.prototype = {
         this._updateSearchResultsMessage();
 
         if (!this._searchingView)
-            this._searchingView = new WebInspector.EmptyView(WebInspector.UIString("Searching\u2026"));
+            this._searchingView = new WebInspector.EmptyWidget(WebInspector.UIString("Searching\u2026"));
         this._searchingView.show(this._searchResultsElement);
     },
 
@@ -244,7 +244,7 @@ WebInspector.AdvancedSearchView.prototype = {
         this._resetResults();
 
         if (!this._notFoundView)
-            this._notFoundView = new WebInspector.EmptyView(WebInspector.UIString("No matches found."));
+            this._notFoundView = new WebInspector.EmptyWidget(WebInspector.UIString("No matches found."));
         this._notFoundView.show(this._searchResultsElement);
         this._searchResultsMessageElement.textContent = WebInspector.UIString("No matches found.");
     },

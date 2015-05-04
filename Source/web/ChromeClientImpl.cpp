@@ -528,10 +528,10 @@ void ChromeClientImpl::mouseDidMoveOverElement(const HitTestResult& result)
     // Find out if the mouse is over a link, and if so, let our UI know...
     if (result.isLiveLink() && !result.absoluteLinkURL().string().isEmpty()) {
         url = result.absoluteLinkURL();
-    } else if (result.innerNonSharedNode()
-        && (isHTMLObjectElement(*result.innerNonSharedNode())
-            || isHTMLEmbedElement(*result.innerNonSharedNode()))) {
-        LayoutObject* object = result.innerNonSharedNode()->layoutObject();
+    } else if (result.innerNode()
+        && (isHTMLObjectElement(*result.innerNode())
+            || isHTMLEmbedElement(*result.innerNode()))) {
+        LayoutObject* object = result.innerNode()->layoutObject();
         if (object && object->isLayoutPart()) {
             Widget* widget = toLayoutPart(object)->widget();
             if (widget && widget->isPluginContainer()) {
@@ -663,15 +663,6 @@ void ChromeClientImpl::postAccessibilityNotification(AXObject* obj, AXObjectCach
 String ChromeClientImpl::acceptLanguages()
 {
     return m_webView->client()->acceptLanguages();
-}
-
-bool ChromeClientImpl::paintCustomOverhangArea(GraphicsContext* context, const IntRect& horizontalOverhangArea, const IntRect& verticalOverhangArea, const IntRect& dirtyRect)
-{
-    LocalFrame* frame = m_webView->mainFrameImpl()->frame();
-    WebPluginContainerImpl* pluginContainer = WebLocalFrameImpl::pluginContainerFromFrame(frame);
-    if (pluginContainer)
-        return pluginContainer->paintCustomOverhangArea(context, horizontalOverhangArea, verticalOverhangArea, dirtyRect);
-    return false;
 }
 
 GraphicsLayerFactory* ChromeClientImpl::graphicsLayerFactory() const

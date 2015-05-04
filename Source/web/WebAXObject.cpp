@@ -501,6 +501,22 @@ bool WebAXObject::isMultiline() const
     return m_private->isMultiline();
 }
 
+int WebAXObject::posInSet() const
+{
+    if (isDetached())
+        return 0;
+
+    return m_private->posInSet();
+}
+
+int WebAXObject::setSize() const
+{
+    if (isDetached())
+        return 0;
+
+    return m_private->setSize();
+}
+
 bool WebAXObject::isInLiveRegion() const
 {
     if (isDetached())
@@ -967,7 +983,7 @@ WebString WebAXObject::name(WebAXNameFrom& outNameFrom, WebVector<WebAXObject>& 
     if (isDetached())
         return WebString();
 
-    AXNameFrom nameFrom;
+    AXNameFrom nameFrom = AXNameFromAttribute;
     Vector<AXObject*> nameObjects;
     WebString result = m_private->name(nameFrom, nameObjects);
     outNameFrom = static_cast<WebAXNameFrom>(nameFrom);
@@ -1077,7 +1093,7 @@ bool WebAXObject::hasComputedStyle() const
 
     Document* document = m_private->document();
     if (document)
-        document->updateRenderTreeIfNeeded();
+        document->updateLayoutTreeIfNeeded();
 
     Node* node = m_private->node();
     if (!node)
@@ -1093,7 +1109,7 @@ WebString WebAXObject::computedStyleDisplay() const
 
     Document* document = m_private->document();
     if (document)
-        document->updateRenderTreeIfNeeded();
+        document->updateLayoutTreeIfNeeded();
 
     Node* node = m_private->node();
     if (!node)

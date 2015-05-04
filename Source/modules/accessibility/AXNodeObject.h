@@ -57,8 +57,8 @@ protected:
     bool m_initialized;
 #endif
 
-    virtual bool computeAccessibilityIsIgnored() const override;
-    virtual bool computeHasInheritedPresentationalRole() const override;
+    virtual bool computeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const override;
+    virtual const AXObject* inheritsPresentationalRoleFrom() const override;
     virtual AccessibilityRole determineAccessibilityRole();
     AccessibilityRole determineAccessibilityRoleUtil();
     String accessibilityDescriptionForElements(WillBeHeapVector<RawPtrWillBeMember<Element>> &elements) const;
@@ -66,10 +66,11 @@ protected:
     String ariaAccessibilityDescription() const;
     String ariaAutoComplete() const;
     void ariaLabeledByElements(WillBeHeapVector<RawPtrWillBeMember<Element>>& elements) const;
-    void changeValueByStep(bool increase);
     AccessibilityRole determineAriaRoleAttribute() const;
     void elementsFromAttribute(WillBeHeapVector<RawPtrWillBeMember<Element>>& elements, const QualifiedName&) const;
     bool hasContentEditableAttributeSet() const;
+    bool isTextControl() const override;
+    bool allowsTextRanges() const { return isTextControl(); }
     // This returns true if it's focusable but it's not content editable and it's not a control or ARIA control.
     bool isGenericFocusableElement() const;
     HTMLLabelElement* labelForElement(Element*) const;
@@ -114,6 +115,7 @@ protected:
     virtual bool isPasswordField() const override final;
     virtual bool isProgressIndicator() const override;
     virtual bool isSlider() const override;
+    virtual bool isNativeSlider() const override;
 
     // Check object state.
     virtual bool isChecked() const override final;
@@ -196,13 +198,16 @@ protected:
     virtual void textChanged() override;
     virtual void updateAccessibilityRole() override final;
 
+    // Position in set and Size of set
+    virtual int posInSet() const override;
+    virtual int setSize() const override;
+
 private:
     Node* m_node;
 
     String alternativeTextForWebArea() const;
     void alternativeText(Vector<AccessibilityText>&) const;
     void ariaLabeledByText(Vector<AccessibilityText>&) const;
-    void changeValueByPercent(float percentChange);
     float stepValueForRange() const;
     AXObject* findChildWithTagName(const HTMLQualifiedName&) const;
     bool isDescendantOfElementType(const HTMLQualifiedName& tagName) const;

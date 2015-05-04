@@ -50,88 +50,66 @@ WebInspector.Main.prototype = {
         return WebInspector.Revealer.revealPromise(WebInspector.console);
     },
 
-    _createGlobalStatusBarItems: function()
-    {
-        var extensions = self.runtime.extensions(WebInspector.StatusBarItem.Provider);
-        var promises = [];
-        for (var i = 0; i < extensions.length; ++i)
-            promises.push(resolveItem(extensions[i]));
-        Promise.all(promises).then(appendItemsInOrder);
-
-        /**
-         * @param {!Runtime.Extension} extension
-         * @return {!Promise.<?WebInspector.StatusBarItem>}
-         */
-        function resolveItem(extension)
-        {
-            var descriptor = extension.descriptor();
-            if (!descriptor.className)
-                return Promise.resolve(new WebInspector.StatusBarButton(WebInspector.UIString(descriptor["title"]), descriptor["elementClass"])).then(attachHandler);
-            return extension.instancePromise().then(fetchItemFromProvider).then(attachHandler);
-
-            /**
-             * @param {!Object} provider
-             */
-            function fetchItemFromProvider(provider)
-            {
-                return /** @type {!WebInspector.StatusBarItem.Provider} */ (provider).item();
-            }
-
-            /**
-             * @param {?WebInspector.StatusBarItem} item
-             * @return {?WebInspector.StatusBarItem} item
-             */
-            function attachHandler(item)
-            {
-                if (extension.descriptor()["actionId"] && item)
-                    item.addEventListener("click", handler);
-                return item;
-            }
-
-            function handler()
-            {
-                WebInspector.actionRegistry.execute(extension.descriptor()["actionId"]);
-            }
-        }
-
-        /**
-         * @param {!Array.<?WebInspector.StatusBarItem>} items
-         */
-        function appendItemsInOrder(items)
-        {
-            for (var i = 0; i < items.length; ++i) {
-                var item = items[i];
-                if (!item)
-                    continue;
-                if (extensions[i].descriptor()["location"] === "toolbar-left")
-                    WebInspector.inspectorView.appendToLeftToolbar(item);
-                else if (extensions[i].descriptor()["location"] === "toolbar-right")
-                    WebInspector.inspectorView.appendToRightToolbar(item);
-            }
-        }
-    },
-
     _loaded: function()
     {
         console.timeStamp("Main._loaded");
 
         if (InspectorFrontendHost.isUnderTest())
             self.runtime.useTestBase();
-        this._createSettings();
+        InspectorFrontendHost.getPreferences(this._createSettings.bind(this));
+    },
+
+    /**
+     * @param {!Object<string, string>} prefs
+     */
+    _createSettings: function(prefs)
+    {
+        // Patch settings from the URL param (for tests).
+        var settingsParam = Runtime.queryParam("settings");
+        if (settingsParam) {
+            try {
+                var settings = JSON.parse(window.decodeURI(settingsParam));
+                for (var key in settings)
+                    prefs[key] = settings[key];
+            } catch(e) {
+                // Ignore malformed settings.
+            }
+        }
+
+        this._initializeExperiments(prefs);
+
+        /**
+         * @param {!Array<{name: string}>} changes
+         */
+        function trackPrefsObject(changes)
+        {
+            if (!Object.keys(prefs).length) {
+                InspectorFrontendHost.clearPreferences();
+                return;
+            }
+
+            for (var change of changes) {
+                var name = change.name;
+                if (name in prefs)
+                    InspectorFrontendHost.setPreference(name, prefs[name]);
+                else
+                    InspectorFrontendHost.removePreference(name);
+            }
+        }
+
+        Object.observe(prefs, trackPrefsObject);
+        WebInspector.settings = new WebInspector.Settings(prefs);
+
+        if (!InspectorFrontendHost.isUnderTest())
+            new WebInspector.VersionController().updateVersion();
+
         this._createAppUI();
     },
 
-    _createSettings: function()
-    {
-        this._initializeExperiments();
-        WebInspector.settings = new WebInspector.Settings();
-
-        // This setting is needed for backwards compatibility with Devtools CodeSchool extension. DO NOT REMOVE
-        WebInspector.settings.pauseOnExceptionStateString = new WebInspector.PauseOnExceptionStateSetting();
-        new WebInspector.VersionController().updateVersion();
-    },
-
-    _initializeExperiments: function()
+    /**
+     * @param {!Object<string, string>} prefs
+     */
+    _initializeExperiments: function(prefs)
     {
         Runtime.experiments.register("accessibilityInspection", "Accessibility Inspection", true);
         Runtime.experiments.register("animationInspection", "Animation Inspection");
@@ -141,14 +119,15 @@ WebInspector.Main.prototype = {
         Runtime.experiments.register("customObjectFormatters", "Custom object formatters", true);
         Runtime.experiments.register("externalDeviceList", "External device list", true);
         Runtime.experiments.register("fileSystemInspection", "FileSystem inspection");
+        Runtime.experiments.register("filmStripInNetworkAndTimeline", "Filmstrip in Network and Timeline Panel", true);
         Runtime.experiments.register("gpuTimeline", "GPU data on timeline", true);
         Runtime.experiments.register("inputEventsOnTimelineOverview", "Input events on Timeline overview", true)
         Runtime.experiments.register("layersPanel", "Layers panel");
+        Runtime.experiments.register("materialDesign", "Material design", true);
         Runtime.experiments.register("networkRequestHeadersFilterInDetailsView", "Network request headers filter in details view", true);
         Runtime.experiments.register("networkRequestsOnTimeline", "Network requests on Timeline");
         Runtime.experiments.register("privateScriptInspection", "Private script inspection");
         Runtime.experiments.register("promiseTracker", "Promise inspector");
-        Runtime.experiments.register("recordFilmStrimInNetworkPanel", "Record Filmstrip in Network Panel", true);
         Runtime.experiments.register("serviceWorkersInPageFrontend", "Service workers in DevTools for page");
         Runtime.experiments.register("serviceWorkersInResources", "Service workers in Resources panel", true);
         Runtime.experiments.register("showPrimaryLoadWaterfallInNetworkTimeline", "Show primary load waterfall in Network timeline", true);
@@ -161,8 +140,8 @@ WebInspector.Main.prototype = {
         Runtime.experiments.cleanUpStaleExperiments();
 
         if (InspectorFrontendHost.isUnderTest()) {
+            var testPath = JSON.parse(prefs["testPath"] || "\"\"");
             // Enable experiments for testing.
-            var testPath = self.localStorage ? self.localStorage["testPath"] || "" : "";
             if (testPath.indexOf("debugger/promise") !== -1)
                 Runtime.experiments.enableForTest("promiseTracker");
             if (testPath.indexOf("elements/") !== -1)
@@ -245,7 +224,6 @@ WebInspector.Main.prototype = {
 
         new WebInspector.WorkspaceController(WebInspector.workspace);
         new WebInspector.RenderingOptions();
-        new WebInspector.DisableJavaScriptObserver();
         new WebInspector.Main.PauseListener();
         new WebInspector.Main.InspectedNodeRevealer();
         WebInspector.domBreakpointsSidebarPane = new WebInspector.DOMBreakpointsSidebarPane();
@@ -274,8 +252,7 @@ WebInspector.Main.prototype = {
 
         if (!Runtime.queryParam("isSharedWorker"))
             WebInspector.inspectElementModeController = new WebInspector.InspectElementModeController();
-        this._createGlobalStatusBarItems();
-
+        WebInspector.inspectorView.createToolbars();
         InspectorFrontendHost.loadCompleted();
 
         var extensions = self.runtime.extensions(WebInspector.QueryParamHandler);
@@ -353,9 +330,9 @@ WebInspector.Main.prototype = {
         if (this._mainTarget.isServiceWorker())
             this._mainTarget.runtimeAgent().run();
 
-        WebInspector.overridesSupport.applyInitialOverrides(overridesApplied);
+        WebInspector.overridesSupport.init(this._mainTarget, overridesReady);
 
-        function overridesApplied()
+        function overridesReady()
         {
             if (!WebInspector.overridesSupport.responsiveDesignAvailable() && WebInspector.overridesSupport.emulationEnabled())
                 WebInspector.inspectorView.showViewInDrawer("emulation", true);
@@ -733,21 +710,14 @@ WebInspector.Main._addWebSocketTarget = function(ws)
     new InspectorBackendClass.WebSocketConnection(ws, callback);
 }
 
-// These methods are added for backwards compatibility with Devtools CodeSchool extension.
-// DO NOT REMOVE
-
-WebInspector.__defineGetter__("inspectedPageURL", function()
-{
-    return WebInspector.targetManager.inspectedPageURL();
-});
-
 /**
  * @constructor
- * @implements {WebInspector.StatusBarItem.Provider}
+ * @implements {WebInspector.ToolbarItem.Provider}
  */
 WebInspector.Main.WarningErrorCounter = function()
 {
-    this._counter = new WebInspector.StatusBarCounter(["error-icon", "warning-icon"]);
+    this._counter = new WebInspector.ToolbarCounter(["error-icon", "revokedError-icon", "warning-icon"]);
+    WebInspector.Main.WarningErrorCounter._instanceForTest = this._counter;
     this._counter.addEventListener("click", showConsole);
 
     function showConsole()
@@ -763,20 +733,23 @@ WebInspector.Main.WarningErrorCounter.prototype = {
     _updateErrorAndWarningCounts: function()
     {
         var errors = 0;
+        var revokedErrors = 0;
         var warnings = 0;
         var targets = WebInspector.targetManager.targets();
         for (var i = 0; i < targets.length; ++i) {
-            errors = errors + targets[i].consoleModel.errors;
-            warnings = warnings + targets[i].consoleModel.warnings;
+            errors += targets[i].consoleModel.errors();
+            revokedErrors += targets[i].consoleModel.revokedErrors();
+            warnings += targets[i].consoleModel.warnings();
         }
-        this._counter.setCounter("error-icon", errors, WebInspector.UIString(errors > 1 ? "%d errors" : "%d error", errors));
-        this._counter.setCounter("warning-icon", warnings, WebInspector.UIString(warnings > 1 ? "%d warnings" : "%d warning", warnings));
+        this._counter.setCounter("error-icon", errors, WebInspector.UIString(errors === 1 ? "%d errors" : "%d error", errors));
+        this._counter.setCounter("revokedError-icon", revokedErrors, WebInspector.UIString(revokedErrors === 1 ? "%d handled promise rejections" : "%d handled promise rejection", revokedErrors));
+        this._counter.setCounter("warning-icon", warnings, WebInspector.UIString(warnings === 1 ? "%d warnings" : "%d warning", warnings));
         WebInspector.inspectorView.toolbarItemResized();
     },
 
     /**
      * @override
-     * @return {?WebInspector.StatusBarItem}
+     * @return {?WebInspector.ToolbarItem}
      */
     item: function()
     {
@@ -859,48 +832,6 @@ WebInspector.WorkerTerminatedScreen = function()
 WebInspector.WorkerTerminatedScreen.prototype = {
 
     __proto__: WebInspector.HelpScreen.prototype
-}
-
-/**
- * @constructor
- * @implements {WebInspector.TargetManager.Observer}
- */
-WebInspector.DisableJavaScriptObserver = function()
-{
-    this._setting = WebInspector.moduleSetting("javaScriptDisabled");
-    this._setting.addChangeListener(this._settingChanged, this);
-    WebInspector.targetManager.observeTargets(this);
-}
-
-WebInspector.DisableJavaScriptObserver.prototype = {
-    /**
-     * @override
-     * @param {!WebInspector.Target} target
-     */
-    targetAdded: function(target)
-    {
-        if (WebInspector.OverridesSupport.targetSupportsEmulation(target))
-            target.emulationAgent().setScriptExecutionDisabled(this._setting.get());
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.Target} target
-     */
-    targetRemoved: function(target)
-    {
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _settingChanged: function(event)
-    {
-        var value = this._setting.get();
-        var targets = WebInspector.OverridesSupport.targetsSupportingEmulation();
-        for (var i = 0; i < targets.length; ++i)
-            targets[i].emulationAgent().setScriptExecutionDisabled(value);
-    }
 }
 
 new WebInspector.Main();

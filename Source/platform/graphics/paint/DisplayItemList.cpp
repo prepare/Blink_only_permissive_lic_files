@@ -30,6 +30,7 @@ const DisplayItems& DisplayItemList::displayItems() const
 void DisplayItemList::add(WTF::PassOwnPtr<DisplayItem> displayItem)
 {
     ASSERT(RuntimeEnabledFeatures::slimmingPaintEnabled());
+    ASSERT(!m_constructionDisabled);
 
     if (displayItem->isEnd()) {
         ASSERT(!m_newDisplayItems.isEmpty());
@@ -225,7 +226,9 @@ void DisplayItemList::commitNewDisplayItems()
         DisplayItem::Type matchingType = newDisplayItem->type();
         if (newDisplayItem->isCached())
             matchingType = DisplayItem::cachedTypeToDrawingType(matchingType);
-        bool isSynchronized = currentDisplayItemsIndex < m_currentDisplayItems.size() && m_currentDisplayItems[currentDisplayItemsIndex]->idsEqual(*newDisplayItem, matchingType);
+        bool isSynchronized = currentDisplayItemsIndex < m_currentDisplayItems.size()
+            && m_currentDisplayItems[currentDisplayItemsIndex]
+            && m_currentDisplayItems[currentDisplayItemsIndex]->idsEqual(*newDisplayItem, matchingType);
 
         if (newDisplayItem->isCached()) {
             ASSERT(!RuntimeEnabledFeatures::slimmingPaintUnderInvalidationCheckingEnabled());

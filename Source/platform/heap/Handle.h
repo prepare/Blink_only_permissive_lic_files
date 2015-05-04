@@ -34,6 +34,7 @@
 #include "platform/heap/Heap.h"
 #include "platform/heap/InlinedGlobalMarkingVisitor.h"
 #include "platform/heap/ThreadState.h"
+#include "platform/heap/TraceTraits.h"
 #include "platform/heap/Visitor.h"
 #include "wtf/Functional.h"
 #include "wtf/HashFunctions.h"
@@ -45,43 +46,6 @@
 namespace blink {
 
 template<typename T> class HeapTerminatedArray;
-
-template <typename T>
-struct IsGarbageCollectedType {
-    using TrueType = char;
-    struct FalseType {
-        char dummy[2];
-    };
-
-    using NonConstType = typename WTF::RemoveConst<T>::Type;
-    using GarbageCollectedSubclass = WTF::IsSubclassOfTemplate<NonConstType, GarbageCollected>;
-    using GarbageCollectedMixinSubclass = IsGarbageCollectedMixin<NonConstType>;
-    using HeapHashSetSubclass = WTF::IsSubclassOfTemplate<NonConstType, HeapHashSet>;
-    using HeapLinkedHashSetSubclass = WTF::IsSubclassOfTemplate<NonConstType, HeapLinkedHashSet>;
-    using HeapListHashSetSubclass = WTF::IsSubclassOfTemplateTypenameSizeTypename<NonConstType, HeapListHashSet>;
-    using HeapHashMapSubclass = WTF::IsSubclassOfTemplate<NonConstType, HeapHashMap>;
-    using HeapVectorSubclass = WTF::IsSubclassOfTemplateTypenameSize<NonConstType, HeapVector>;
-    using HeapDequeSubclass = WTF::IsSubclassOfTemplateTypenameSize<NonConstType, HeapDeque>;
-    using HeapHashCountedSetSubclass = WTF::IsSubclassOfTemplate<NonConstType, HeapHashCountedSet>;
-    using HeapTerminatedArraySubclass = WTF::IsSubclassOfTemplate<NonConstType, HeapTerminatedArray>;
-
-    template<typename U, size_t inlineCapacity> static TrueType listHashSetNodeIsHeapAllocated(WTF::ListHashSetNode<U, HeapListHashSetAllocator<U, inlineCapacity>>*);
-    static FalseType listHashSetNodeIsHeapAllocated(...);
-    static const bool isHeapAllocatedListHashSetNode = sizeof(TrueType) == sizeof(listHashSetNodeIsHeapAllocated(reinterpret_cast<NonConstType*>(0)));
-
-    static const bool value =
-        GarbageCollectedSubclass::value
-        || GarbageCollectedMixinSubclass::value
-        || HeapHashSetSubclass::value
-        || HeapLinkedHashSetSubclass::value
-        || HeapListHashSetSubclass::value
-        || HeapHashMapSubclass::value
-        || HeapVectorSubclass::value
-        || HeapDequeSubclass::value
-        || HeapHashCountedSetSubclass::value
-        || HeapTerminatedArraySubclass::value
-        || isHeapAllocatedListHashSetNode;
-};
 
 class PersistentNode {
 public:
@@ -179,6 +143,8 @@ protected:
         , m_roots(RootsAccessor::roots())
 #endif
     {
+        // Persistent must belong to a thread that will GC it.
+        ASSERT(m_roots == GlobalPersistents::roots() || ThreadState::current());
         typename RootsAccessor::Lock lock;
         m_prev = RootsAccessor::roots();
         m_next = m_prev->m_next;
@@ -192,6 +158,7 @@ protected:
         , m_roots(RootsAccessor::roots())
 #endif
     {
+        ASSERT(m_roots == GlobalPersistents::roots() || ThreadState::current());
         // We don't support allocation of thread local Persistents while doing
         // thread shutdown/cleanup.
         ASSERT(!ThreadState::current()->isTerminating());
@@ -327,7 +294,8 @@ public:
         m_raw = nullptr;
     }
 
-    void trace(Visitor* visitor)
+    template<typename VisitorDispatcher>
+    void trace(VisitorDispatcher visitor)
     {
         STATIC_ASSERT_IS_GARBAGE_COLLECTED(T, "non-garbage collected object should not be in Persistent");
 #if ENABLE(GC_PROFILING)
@@ -620,51 +588,6 @@ protected:
 
     template<bool x, WTF::WeakHandlingFlag y, WTF::ShouldWeakPointersBeMarkedStrongly z, typename U, typename V> friend struct CollectionBackingTraceTrait;
     friend class Visitor;
-};
-
-template<typename T, bool needsTracing>
-struct TraceIfEnabled;
-
-template<typename T>
-struct TraceIfEnabled<T, false>  {
-    template<typename VisitorDispatcher>
-    static void trace(VisitorDispatcher, T*) { }
-};
-
-template<typename T>
-struct TraceIfEnabled<T, true> {
-    template<typename VisitorDispatcher>
-    static void trace(VisitorDispatcher visitor, T* t)
-    {
-        visitor->trace(*t);
-    }
-};
-
-template <typename T> struct RemoveHeapPointerWrapperTypes {
-    using Type = typename WTF::RemoveTemplate<typename WTF::RemoveTemplate<typename WTF::RemoveTemplate<T, Member>::Type, WeakMember>::Type, RawPtr>::Type;
-};
-
-// FIXME: Oilpan: TraceIfNeeded should be implemented ala:
-// NeedsTracing<T>::value || IsWeakMember<T>::value. It should not need to test
-// raw pointer types. To remove these tests, we may need support for
-// instantiating a template with a RawPtrOrMember'ish template.
-template<typename T>
-struct TraceIfNeeded : public TraceIfEnabled<T, WTF::NeedsTracing<T>::value || blink::IsGarbageCollectedType<typename RemoveHeapPointerWrapperTypes<typename WTF::RemovePointer<T>::Type>::Type>::value> { };
-
-// This trace trait for std::pair will null weak members if their referent is
-// collected. If you have a collection that contain weakness it does not remove
-// entries from the collection that contain nulled weak members.
-template<typename T, typename U>
-class TraceTrait<std::pair<T, U>> {
-public:
-    static const bool firstNeedsTracing = WTF::NeedsTracing<T>::value || WTF::IsWeak<T>::value;
-    static const bool secondNeedsTracing = WTF::NeedsTracing<U>::value || WTF::IsWeak<U>::value;
-    template<typename VisitorDispatcher>
-    static void trace(VisitorDispatcher visitor, std::pair<T, U>* pair)
-    {
-        TraceIfEnabled<T, firstNeedsTracing>::trace(visitor, &pair->first);
-        TraceIfEnabled<U, secondNeedsTracing>::trace(visitor, &pair->second);
-    }
 };
 
 // WeakMember is similar to Member in that it is used to point to other oilpan

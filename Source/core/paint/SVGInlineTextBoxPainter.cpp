@@ -11,8 +11,6 @@
 #include "core/frame/LocalFrame.h"
 #include "core/layout/LayoutInline.h"
 #include "core/layout/LayoutTheme.h"
-#include "core/layout/PaintInfo.h"
-#include "core/style/ShadowList.h"
 #include "core/layout/svg/LayoutSVGInlineText.h"
 #include "core/layout/svg/SVGLayoutSupport.h"
 #include "core/layout/svg/SVGResourcesCache.h"
@@ -20,7 +18,9 @@
 #include "core/paint/InlinePainter.h"
 #include "core/paint/InlineTextBoxPainter.h"
 #include "core/paint/LayoutObjectDrawingRecorder.h"
+#include "core/paint/PaintInfo.h"
 #include "core/paint/SVGPaintContext.h"
+#include "core/style/ShadowList.h"
 
 namespace blink {
 
@@ -278,13 +278,14 @@ void SVGInlineTextBoxPainter::paintDecoration(const PaintInfo& paintInfo, TextDe
             break;
         case PT_STROKE:
             if (svgDecorationStyle.hasVisibleStroke()) {
-                // FIXME: Non-scaling stroke is not applied here.
                 SkPaint strokePaint;
                 if (!SVGPaintContext::paintForLayoutObject(paintInfo, decorationStyle, *decorationRenderer, ApplyToStrokeMode, strokePaint))
                     break;
                 strokePaint.setAntiAlias(true);
                 StrokeData strokeData;
                 SVGLayoutSupport::applyStrokeStyleToStrokeData(strokeData, decorationStyle, *decorationRenderer);
+                if (svgDecorationStyle.vectorEffect() == VE_NON_SCALING_STROKE)
+                    strokeData.setThickness(strokeData.thickness() / scalingFactor);
                 strokeData.setupPaint(&strokePaint);
                 paintInfo.context->drawPath(path.skPath(), strokePaint);
             }
@@ -329,14 +330,13 @@ void SVGInlineTextBoxPainter::paintTextWithShadows(const PaintInfo& paintInfo, c
         additionalPaintServerTransform = &paintServerTransform;
     }
 
-    // FIXME: Non-scaling stroke is not applied here.
     SkPaint paint;
     if (!SVGPaintContext::paintForLayoutObject(paintInfo, style, m_svgInlineTextBox.parent()->layoutObject(), resourceMode, paint, additionalPaintServerTransform))
         return;
     paint.setAntiAlias(true);
 
     if (hasShadow) {
-        OwnPtr<DrawLooperBuilder> drawLooperBuilder = shadowList->createDrawLooper(DrawLooperBuilder::ShadowRespectsAlpha);
+        OwnPtr<DrawLooperBuilder> drawLooperBuilder = shadowList->createDrawLooper(DrawLooperBuilder::ShadowRespectsAlpha, style.visitedDependentColor(CSSPropertyColor));
         RefPtr<SkDrawLooper> drawLooper = drawLooperBuilder->detachDrawLooper();
         paint.setLooper(drawLooper.get());
     }
@@ -344,7 +344,8 @@ void SVGInlineTextBoxPainter::paintTextWithShadows(const PaintInfo& paintInfo, c
     if (resourceMode == ApplyToStrokeMode) {
         StrokeData strokeData;
         SVGLayoutSupport::applyStrokeStyleToStrokeData(strokeData, style, m_svgInlineTextBox.parent()->layoutObject());
-        strokeData.setThickness(strokeData.thickness() * scalingFactor);
+        if (style.svgStyle().vectorEffect() != VE_NON_SCALING_STROKE)
+            strokeData.setThickness(strokeData.thickness() * scalingFactor);
         strokeData.setupPaint(&paint);
     }
 
@@ -410,7 +411,6 @@ void SVGInlineTextBoxPainter::paintTextMatchMarker(GraphicsContext* context, con
 
     LayoutSVGInlineText& textRenderer = toLayoutSVGInlineText(m_svgInlineTextBox.layoutObject());
 
-    FloatRect markerRect;
     AffineTransform fragmentTransform;
     for (InlineTextBox* box = textRenderer.firstTextBox(); box; box = box->nextTextBox()) {
         if (!box->isSVGInlineTextBox())
@@ -448,13 +448,8 @@ void SVGInlineTextBoxPainter::paintTextMatchMarker(GraphicsContext* context, con
                 context->setFillColor(color);
                 context->fillRect(fragmentRect, color);
             }
-
-            fragmentRect = fragmentTransform.mapRect(fragmentRect);
-            markerRect.unite(fragmentRect);
         }
     }
-
-    toRenderedDocumentMarker(marker)->setRenderedRect(LayoutRect(textRenderer.localToAbsoluteQuad(markerRect).enclosingBoundingBox()));
 }
 
 } // namespace blink

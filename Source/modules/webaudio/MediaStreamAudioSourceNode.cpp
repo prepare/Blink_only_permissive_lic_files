@@ -47,20 +47,14 @@ MediaStreamAudioSourceHandler::MediaStreamAudioSourceHandler(AudioNode& node, Me
     initialize();
 }
 
-MediaStreamAudioSourceHandler* MediaStreamAudioSourceHandler::create(AudioNode& node, MediaStream& mediaStream, MediaStreamTrack* audioTrack, PassOwnPtr<AudioSourceProvider> audioSourceProvider)
+PassRefPtr<MediaStreamAudioSourceHandler> MediaStreamAudioSourceHandler::create(AudioNode& node, MediaStream& mediaStream, MediaStreamTrack* audioTrack, PassOwnPtr<AudioSourceProvider> audioSourceProvider)
 {
-    return new MediaStreamAudioSourceHandler(node, mediaStream, audioTrack, audioSourceProvider);
+    return adoptRef(new MediaStreamAudioSourceHandler(node, mediaStream, audioTrack, audioSourceProvider));
 }
 
 MediaStreamAudioSourceHandler::~MediaStreamAudioSourceHandler()
 {
-    ASSERT(!isInitialized());
-}
-
-void MediaStreamAudioSourceHandler::dispose()
-{
     uninitialize();
-    AudioHandler::dispose();
 }
 
 void MediaStreamAudioSourceHandler::setFormat(size_t numberOfChannels, float sourceSampleRate)
@@ -84,14 +78,14 @@ void MediaStreamAudioSourceHandler::setFormat(size_t numberOfChannels, float sou
             AudioContext::AutoLocker contextLocker(context());
 
             // Do any necesssary re-configuration to the output's number of channels.
-            output(0)->setNumberOfChannels(numberOfChannels);
+            output(0).setNumberOfChannels(numberOfChannels);
         }
     }
 }
 
 void MediaStreamAudioSourceHandler::process(size_t numberOfFrames)
 {
-    AudioBus* outputBus = output(0)->bus();
+    AudioBus* outputBus = output(0).bus();
 
     if (!audioSourceProvider()) {
         outputBus->zero();
@@ -113,13 +107,6 @@ void MediaStreamAudioSourceHandler::process(size_t numberOfFrames)
         // We failed to acquire the lock.
         outputBus->zero();
     }
-}
-
-DEFINE_TRACE(MediaStreamAudioSourceHandler)
-{
-    visitor->trace(m_mediaStream);
-    visitor->trace(m_audioTrack);
-    AudioHandler::trace(visitor);
 }
 
 // ----------------------------------------------------------------

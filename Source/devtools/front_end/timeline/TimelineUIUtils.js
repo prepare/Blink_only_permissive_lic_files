@@ -257,6 +257,10 @@ WebInspector.TimelineUIUtils.buildDetailsTextForTraceEvent = function(event, tar
         detailsText = linkifyTopCallFrameAsText() || eventData["id"];
         break;
     case recordType.ParseHTML:
+        var endLine = event.args["endData"] && event.args["endData"]["endLine"];
+        var url = event.args["beginData"]["url"];
+        detailsText = endLine ? WebInspector.UIString("%s [%d:%d]", url, event.args["beginData"]["startLine"] + 1, endLine + 1) : url;
+        break;
     case recordType.RecalculateStyles:
         detailsText = linkifyTopCallFrameAsText();
         break;
@@ -373,6 +377,7 @@ WebInspector.TimelineUIUtils.buildDetailsNodeForTraceEvent = function(event, tar
     case recordType.ResourceReceiveResponse:
     case recordType.ResourceFinish:
     case recordType.EmbedderCallback:
+    case recordType.ParseHTML:
         detailsText = WebInspector.TimelineUIUtils.buildDetailsTextForTraceEvent(event, target);
         break;
     case recordType.FunctionCall:
@@ -397,7 +402,6 @@ WebInspector.TimelineUIUtils.buildDetailsNodeForTraceEvent = function(event, tar
         details = linkifyTopCallFrame();
         detailsText = eventData["id"];
         break;
-    case recordType.ParseHTML:
     case recordType.RecalculateStyles:
         details = linkifyTopCallFrame();
         break;
@@ -476,8 +480,11 @@ WebInspector.TimelineUIUtils.buildTraceEventDetails = function(event, model, lin
         nodeIdsToResolve.add(event.backendNodeId);
     if (event.invalidationTrackingEvents)
         WebInspector.TimelineUIUtils._collectInvalidationNodeIds(nodeIdsToResolve, event.invalidationTrackingEvents);
-    if (nodeIdsToResolve.size)
-        target.domModel.pushNodesByBackendIdsToFrontend(nodeIdsToResolve, barrier.createCallback(setRelatedNodeMap));
+    if (nodeIdsToResolve.size) {
+        var domModel = WebInspector.DOMModel.fromTarget(target);
+        if (domModel)
+            domModel.pushNodesByBackendIdsToFrontend(nodeIdsToResolve, barrier.createCallback(setRelatedNodeMap));
+    }
     barrier.callWhenDone(callbackWrapper);
 
     /**
@@ -629,6 +636,16 @@ WebInspector.TimelineUIUtils._buildTraceEventDetailsSynchronously = function(eve
     case recordTypes.Animation:
         if (event.phase === WebInspector.TracingModel.Phase.NestableAsyncInstant)
             contentHelper.appendTextRow(WebInspector.UIString("State"), eventData["state"]);
+        break;
+    case recordTypes.ParseHTML:
+        var beginData = event.args["beginData"];
+        var url = beginData["url"];
+        if (url)
+            contentHelper.appendTextRow(WebInspector.UIString("URL"), url);
+        var startLine = beginData["startLine"] + 1;
+        var endLine = event.args["endData"] ? event.args["endData"]["endLine"] + 1 : 0;
+        if (endLine)
+            contentHelper.appendTextRow(WebInspector.UIString("Range"), WebInspector.UIString("%d \u2014 %d", startLine, endLine));
         break;
     default:
         var detailsNode = WebInspector.TimelineUIUtils.buildDetailsNodeForTraceEvent(event, model.target(), linkifier);
@@ -1280,15 +1297,22 @@ WebInspector.TimelineUIUtils.generatePieChart = function(aggregatedStats, selfCa
 /**
  * @param {!WebInspector.TimelineFrameModelBase} frameModel
  * @param {!WebInspector.TimelineFrame} frame
+ * @param {?WebInspector.FilmStripModel.Frame} filmStripFrame
  * @return {!Element}
  */
-WebInspector.TimelineUIUtils.generateDetailsContentForFrame = function(frameModel, frame)
+WebInspector.TimelineUIUtils.generateDetailsContentForFrame = function(frameModel, frame, filmStripFrame)
 {
     var durationInMillis = frame.endTime - frame.startTime;
     var durationText = WebInspector.UIString("%s (at %s)", Number.millisToString(frame.endTime - frame.startTime, true),
         Number.millisToString(frame.startTimeOffset, true));
     var pieChart = WebInspector.TimelineUIUtils.generatePieChart(frame.timeByCategory);
     var contentHelper = new WebInspector.TimelineDetailsContentHelper(null, null, null, true);
+    if (filmStripFrame) {
+        var filmStripPreview = createElementWithClass("img", "timeline-filmstrip-preview");
+        filmStripPreview.src = "data:image/jpg;base64," + filmStripFrame.imageData;
+        contentHelper.appendElementRow(WebInspector.UIString("Screenshot"), filmStripPreview);
+        filmStripPreview.addEventListener("click", filmStripClicked.bind(null, filmStripFrame), false);
+    }
     contentHelper.appendTextRow(WebInspector.UIString("Duration"), durationText);
     contentHelper.appendTextRow(WebInspector.UIString("FPS"), Math.floor(1000 / durationInMillis));
     contentHelper.appendTextRow(WebInspector.UIString("CPU time"), Number.millisToString(frame.cpuTime, true));
@@ -1297,6 +1321,15 @@ WebInspector.TimelineUIUtils.generateDetailsContentForFrame = function(frameMode
         contentHelper.appendElementRow(WebInspector.UIString("Layer tree"),
                                        WebInspector.Linkifier.linkifyUsingRevealer(frame.layerTree, WebInspector.UIString("show")));
     }
+
+    /**
+     * @param {!WebInspector.FilmStripModel.Frame} filmStripFrame
+     */
+    function filmStripClicked(filmStripFrame)
+    {
+        WebInspector.Dialog.show(null, new WebInspector.FilmStripView.DialogDelegate(filmStripFrame, 0));
+    }
+
     return contentHelper.element;
 }
 

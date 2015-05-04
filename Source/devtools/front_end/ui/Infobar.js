@@ -11,7 +11,7 @@ WebInspector.Infobar = function(type, disableSetting)
 {
     this.element = createElementWithClass("div");
     this._shadowRoot = this.element.createShadowRoot();
-    this._shadowRoot.appendChild(WebInspector.View.createStyleElement("ui/infobar.css"));
+    this._shadowRoot.appendChild(WebInspector.Widget.createStyleElement("ui/infobar.css"));
     this._contentElement = this._shadowRoot.createChild("div", "infobar infobar-" + type);
     WebInspector.installComponentRootStyles(this.element);
 
@@ -30,7 +30,7 @@ WebInspector.Infobar = function(type, disableSetting)
     }
 
     this._closeButton = this._contentElement.createChild("div", "close-button", "dt-close-button");
-    this._closeButton.addEventListener("click", this._onClose.bind(this), false);
+    this._closeButton.addEventListener("click", this.close.bind(this), false);
     /** @type {?function()} */
     this._closeCallback = null;
 
@@ -60,7 +60,7 @@ WebInspector.Infobar.prototype = {
         this.setVisible(this._visible);
     },
 
-    _onClose: function()
+    close: function()
     {
         this.setVisible(false);
         if (this._closeCallback)

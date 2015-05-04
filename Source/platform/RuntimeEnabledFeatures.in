@@ -16,12 +16,12 @@
 // condition=ENABLE_NAME is used for wrapping features in compile-time
 // #if ENABLE(FEATURE) guards.  These are deprecated and should all be removed.
 
-AnyPointerMediaQueries status=stable
 AppBanner status=experimental
 ApplicationCache status=stable
 AudioVideoTracks depends_on=Media, status=experimental
 AuthorShadowDOMForAnyElement
 BackgroundSync status=experimental
+BackgroundSyncV2 status=experimental
 // Enable bleeding-edge code to make Blink draw content faster.
 // The changes enabled behind this flag are very likely to break lots of content.
 // ** DO NOT use this flag unless you know what you are doing. **
@@ -37,7 +37,6 @@ ContextMenu status=experimental
 CredentialManager status=test
 CSS3Text status=experimental
 CSS3TextDecorations status=experimental
-CSSAnimationUnprefixed status=stable
 CSSAttributeCaseSensitivity status=experimental
 CSSCompositing status=stable
 CSSFontSizeAdjust status=experimental
@@ -53,6 +52,7 @@ Database status=stable
 DecodeToYUV status=experimental
 DeviceLight status=experimental
 DisplayList2dCanvas status=stable
+DocumentScrollingElement status=experimental
 ForceDisplayList2dCanvas
 EncryptedMedia status=stable
 ExecCommandInJavaScript status=test
@@ -75,11 +75,11 @@ IMEAPI status=experimental
 IndexedDBExperimental status=experimental
 InputModeAttribute status=experimental
 KeyboardEventCode status=experimental
+KeyboardEventKey status=experimental
 LangAttributeAwareFormControlUI
 LinkPreconnect status=experimental
 LinkPreload status=experimental
 LinkHeader status=experimental
-LocalStorage status=stable
 FractionalScrollOffsets status=experimental
 GlobalFetch status=stable
 Media status=stable
@@ -95,7 +95,7 @@ NavigatorConnect status=experimental
 NavigatorContentUtils
 NetworkInformation status=stable
 // CSS parser based on the css-syntax spec. crbug.com/330389
-NewCSSParser status=experimental
+NewCSSParser status=stable
 NotificationConstructor status=stable
 NotificationExperimental status=test
 Notifications status=stable
@@ -107,8 +107,8 @@ OverlayFullscreenVideo
 OverlayScrollbars
 PagePopup status=stable
 PathOpsSVGClipping
-PeerConnection status=stable
 Permissions status=stable
+PointerEvent
 Picture status=stable
 PreciseMemoryInfo
 // This feature is deprecated and replaced by EncryptedMedia.
@@ -122,8 +122,7 @@ PseudoClassesInMatchingCriteriaInAuthorShadowTrees status=test
 PushMessaging status=stable
 // Push messaging payloads are blocked on the Push API supporting encryption.
 PushMessagingData status=test
-// PushManager.hasPermission() is currently disabled, expecting Permissions API
-// to fulfill the same role.
+// PushManager.permissionState() is currently disabled.
 PushMessagingHasPermission status=test
 QuotaPromise status=experimental
 ReducedReferrerGranularity
@@ -142,7 +141,7 @@ ServiceWorkerOnFetch status=stable
 SessionStorage status=stable
 SharedWorker status=stable
 SlimmingPaint
-SlimmingPaintCompositorLayerization
+SlimmingPaintCompositorLayerization depends_on=SlimmingPaint
 SlimmingPaintUnderInvalidationChecking depends_on=SlimmingPaint
 StaleWhileRevalidateCacheControl
 // Do not turn this flag into stable, because many interfaces that should not
@@ -161,12 +160,13 @@ Touch status=stable
 TouchIconLoading
 UnsafeES3APIs
 UserSelectAll status=experimental
-VRDevice depends_on=GeometryInterfaces
 WebAnimationsAPI status=experimental
+WebAnimationsSVG status=experimental
 WebAudio condition=WEB_AUDIO, status=stable
 WebGLDraftExtensions status=experimental
 WebGLImageChromium
 WebMIDI status=stable
+WebVR depends_on=GeometryInterfaces
 WebVTTRegions depends_on=Media, status=experimental
 V8IdleTasks
 XSLT status=stable

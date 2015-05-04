@@ -9,7 +9,9 @@
 #include "bindings/core/v8/ScriptWrappable.h"
 #include "bindings/modules/v8/UnionTypesModules.h"
 #include "core/dom/DOMException.h"
+#include "modules/ModulesExport.h"
 #include "modules/cachestorage/CacheQueryOptions.h"
+#include "modules/fetch/GlobalFetch.h"
 #include "public/platform/WebServiceWorkerCache.h"
 #include "public/platform/WebServiceWorkerCacheError.h"
 #include "wtf/Forward.h"
@@ -27,11 +29,11 @@ class ScriptState;
 
 typedef RequestOrUSVString RequestInfo;
 
-class Cache final : public GarbageCollectedFinalized<Cache>, public ScriptWrappable {
+class MODULES_EXPORT Cache final : public GarbageCollectedFinalized<Cache>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
     WTF_MAKE_NONCOPYABLE(Cache);
 public:
-    static Cache* create(WebServiceWorkerCache*);
+    static Cache* create(WeakPtr<GlobalFetch::ScopedFetcher>, WebServiceWorkerCache*);
 
     // From Cache.idl:
     ScriptPromise match(ScriptState*, const RequestInfo&, const CacheQueryOptions&, ExceptionState&);
@@ -43,20 +45,21 @@ public:
     ScriptPromise keys(ScriptState*, ExceptionState&);
     ScriptPromise keys(ScriptState*, const RequestInfo&, const CacheQueryOptions&, ExceptionState&);
 
-    static PassRefPtrWillBeRawPtr<DOMException> domExceptionForCacheError(WebServiceWorkerCacheError);
+    static DOMException* domExceptionForCacheError(WebServiceWorkerCacheError);
 
     static WebServiceWorkerCache::QueryParams toWebQueryParams(const CacheQueryOptions&);
 
     DEFINE_INLINE_TRACE() { }
 
 private:
+    class FetchResolvedForAdd;
     class AsyncPutBatch;
-    explicit Cache(WebServiceWorkerCache*);
+    friend class FetchResolvedForAdd;
+    Cache(WeakPtr<GlobalFetch::ScopedFetcher>, WebServiceWorkerCache*);
 
     ScriptPromise matchImpl(ScriptState*, const Request*, const CacheQueryOptions&);
     ScriptPromise matchAllImpl(ScriptState*, const Request*, const CacheQueryOptions&);
-    ScriptPromise addImpl(ScriptState*, const Request*);
-    ScriptPromise addAllImpl(ScriptState*, const Vector<const Request*>);
+    ScriptPromise addAllImpl(ScriptState*, const Vector<Request*>&, ExceptionState&);
     ScriptPromise deleteImpl(ScriptState*, const Request*, const CacheQueryOptions&);
     ScriptPromise putImpl(ScriptState*, Request*, Response*);
     ScriptPromise keysImpl(ScriptState*);
@@ -64,6 +67,7 @@ private:
 
     WebServiceWorkerCache* webCache() const;
 
+    WeakPtr<GlobalFetch::ScopedFetcher> m_scopedFetcher;
     OwnPtr<WebServiceWorkerCache> m_webCache;
 };
 

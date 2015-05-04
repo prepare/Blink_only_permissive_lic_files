@@ -8,10 +8,10 @@
 #include "core/frame/FrameView.h"
 #include "core/layout/LayoutBox.h"
 #include "core/layout/LayoutView.h"
-#include "core/layout/PaintInfo.h"
 #include "core/paint/BlockPainter.h"
 #include "core/paint/GraphicsContextAnnotator.h"
 #include "core/paint/LayoutObjectDrawingRecorder.h"
+#include "core/paint/PaintInfo.h"
 
 namespace blink {
 
@@ -49,8 +49,8 @@ static inline bool rendererObscuresBackground(LayoutBox* rootBox)
     if (rootBox->compositingState() == PaintsIntoOwnBacking)
         return false;
 
-    const LayoutObject* rootRenderer = rootBox->rendererForRootBackground();
-    if (rootRenderer->style()->backgroundClip() == TextFillBox)
+    const LayoutObject* rootLayoutObject = rootBox->layoutObjectForRootBackground();
+    if (rootLayoutObject->style()->backgroundClip() == TextFillBox)
         return false;
 
     return true;

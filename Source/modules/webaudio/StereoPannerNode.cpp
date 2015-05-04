@@ -35,32 +35,26 @@ StereoPannerHandler::StereoPannerHandler(AudioNode& node, float sampleRate, Audi
     initialize();
 }
 
-StereoPannerHandler* StereoPannerHandler::create(AudioNode& node, float sampleRate, AudioParamHandler& pan)
+PassRefPtr<StereoPannerHandler> StereoPannerHandler::create(AudioNode& node, float sampleRate, AudioParamHandler& pan)
 {
-    return new StereoPannerHandler(node, sampleRate, pan);
+    return adoptRef(new StereoPannerHandler(node, sampleRate, pan));
 }
 
 StereoPannerHandler::~StereoPannerHandler()
 {
-    ASSERT(!isInitialized());
-}
-
-void StereoPannerHandler::dispose()
-{
     uninitialize();
-    AudioHandler::dispose();
 }
 
 void StereoPannerHandler::process(size_t framesToProcess)
 {
-    AudioBus* outputBus = output(0)->bus();
+    AudioBus* outputBus = output(0).bus();
 
-    if (!isInitialized() || !input(0)->isConnected() || !m_stereoPanner.get()) {
+    if (!isInitialized() || !input(0).isConnected() || !m_stereoPanner.get()) {
         outputBus->zero();
         return;
     }
 
-    AudioBus* inputBus = input(0)->bus();
+    AudioBus* inputBus = input(0).bus();
     if (!inputBus) {
         outputBus->zero();
         return;
@@ -87,16 +81,6 @@ void StereoPannerHandler::initialize()
     m_stereoPanner = Spatializer::create(Spatializer::PanningModelEqualPower, sampleRate());
 
     AudioHandler::initialize();
-}
-
-void StereoPannerHandler::uninitialize()
-{
-    if (!isInitialized())
-        return;
-
-    m_stereoPanner.clear();
-
-    AudioHandler::uninitialize();
 }
 
 void StereoPannerHandler::setChannelCount(unsigned long channelCount, ExceptionState& exceptionState)
@@ -151,7 +135,7 @@ void StereoPannerHandler::setChannelCountMode(const String& mode, ExceptionState
     }
 
     if (m_newChannelCountMode != oldMode)
-        context()->handler().addChangedChannelCountMode(this);
+        context()->deferredTaskHandler().addChangedChannelCountMode(this);
 }
 
 // ----------------------------------------------------------------

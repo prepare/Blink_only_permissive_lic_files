@@ -24,7 +24,7 @@ public:
 
     ScriptPromise subscribe(ScriptState*);
     ScriptPromise getSubscription(ScriptState*);
-    ScriptPromise hasPermission(ScriptState*);
+    ScriptPromise permissionState(ScriptState*);
 
     DECLARE_TRACE();
 

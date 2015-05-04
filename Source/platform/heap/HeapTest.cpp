@@ -378,7 +378,7 @@ static void clearOutOldGarbage()
 {
     while (true) {
         size_t used = Heap::objectPayloadSizeForTesting();
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         if (Heap::objectPayloadSizeForTesting() >= used)
             break;
     }
@@ -490,12 +490,12 @@ protected:
                 }
 
                 if (gcCount < gcPerThread) {
-                    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+                    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
                     gcCount++;
                     atomicIncrement(&m_gcCount);
                 }
 
-                Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+                Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
                 EXPECT_EQ(wrapper->value(), 0x0bbac0de);
                 EXPECT_EQ((*globalPersistent)->value(), 0x0ed0cabb);
             }
@@ -534,12 +534,12 @@ private:
                 }
 
                 if (gcCount < gcPerThread) {
-                    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+                    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
                     gcCount++;
                     atomicIncrement(&m_gcCount);
                 }
 
-                Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+                Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
                 EXPECT_TRUE(weakMap->isEmpty());
                 EXPECT_TRUE(weakMap2.isEmpty());
             }
@@ -671,7 +671,7 @@ public:
         return new TraceCounter();
     }
 
-    void trace(Visitor*) { m_traceCount++; }
+    DEFINE_INLINE_TRACE() { m_traceCount++; }
 
     int traceCount() { return m_traceCount; }
 
@@ -1309,7 +1309,7 @@ public:
     void doStuff(PassRefPtrWillBeRawPtr<SuperClass> targetPass, PointsBack* pointsBack, int superClassCount)
     {
         RefPtrWillBeRawPtr<SuperClass> target = targetPass;
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(pointsBack, target->pointsBack());
         EXPECT_EQ(superClassCount, SuperClass::s_aliveCount);
     }
@@ -1562,10 +1562,10 @@ TEST(HeapTest, Transition)
     {
         RefPtrWillBePersistent<TransitionRefCounted> refCounted = TransitionRefCounted::create();
         EXPECT_EQ(1, TransitionRefCounted::s_aliveCount);
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(1, TransitionRefCounted::s_aliveCount);
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0, TransitionRefCounted::s_aliveCount);
 
     RefPtrWillBePersistent<PointsBack> pointsBack1 = PointsBack::create();
@@ -1577,7 +1577,7 @@ TEST(HeapTest, Transition)
     EXPECT_EQ(1, SubClass::s_aliveCount);
     EXPECT_EQ(1, SubData::s_aliveCount);
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0, TransitionRefCounted::s_aliveCount);
     EXPECT_EQ(2, PointsBack::s_aliveCount);
     EXPECT_EQ(2, SuperClass::s_aliveCount);
@@ -1585,7 +1585,7 @@ TEST(HeapTest, Transition)
     EXPECT_EQ(1, SubData::s_aliveCount);
 
     superClass->doStuff(superClass.release(), pointsBack1.get(), 2);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(2, PointsBack::s_aliveCount);
     EXPECT_EQ(1, SuperClass::s_aliveCount);
     EXPECT_EQ(1, SubClass::s_aliveCount);
@@ -1593,14 +1593,14 @@ TEST(HeapTest, Transition)
     EXPECT_EQ(0, pointsBack1->backPointer());
 
     pointsBack1.release();
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1, PointsBack::s_aliveCount);
     EXPECT_EQ(1, SuperClass::s_aliveCount);
     EXPECT_EQ(1, SubClass::s_aliveCount);
     EXPECT_EQ(1, SubData::s_aliveCount);
 
     subClass->doStuff(subClass.release(), pointsBack2.get(), 1);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1, PointsBack::s_aliveCount);
     EXPECT_EQ(0, SuperClass::s_aliveCount);
     EXPECT_EQ(0, SubClass::s_aliveCount);
@@ -1608,7 +1608,7 @@ TEST(HeapTest, Transition)
     EXPECT_EQ(0, pointsBack2->backPointer());
 
     pointsBack2.release();
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0, PointsBack::s_aliveCount);
     EXPECT_EQ(0, SuperClass::s_aliveCount);
     EXPECT_EQ(0, SubClass::s_aliveCount);
@@ -1665,7 +1665,7 @@ TEST(HeapTest, BasicFunctionality)
         EXPECT_EQ(alloc64->get(0), 27);
         EXPECT_EQ(alloc64->get(63), 27);
 
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
         EXPECT_EQ(alloc32->get(0), 40);
         EXPECT_EQ(alloc32->get(31), 40);
@@ -1776,13 +1776,13 @@ TEST(HeapTest, SimplePersistent)
     Persistent<TraceCounter> traceCounter = TraceCounter::create();
     EXPECT_EQ(0, traceCounter->traceCount());
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1, traceCounter->traceCount());
 
     Persistent<ClassWithMember> classWithMember = ClassWithMember::create();
     EXPECT_EQ(0, classWithMember->traceCount());
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1, classWithMember->traceCount());
     EXPECT_EQ(2, traceCounter->traceCount());
 }
@@ -1792,11 +1792,11 @@ TEST(HeapTest, SimpleFinalization)
     {
         Persistent<SimpleFinalizedObject> finalized = SimpleFinalizedObject::create();
         EXPECT_EQ(0, SimpleFinalizedObject::s_destructorCalls);
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(0, SimpleFinalizedObject::s_destructorCalls);
     }
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1, SimpleFinalizedObject::s_destructorCalls);
 }
 
@@ -1810,12 +1810,12 @@ TEST(HeapTest, LazySweepingPages)
     EXPECT_EQ(0, SimpleFinalizedObject::s_destructorCalls);
     for (int i = 0; i < 1000; i++)
         SimpleFinalizedObject::create();
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithoutSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithoutSweep, Heap::ForcedGC);
     EXPECT_EQ(0, SimpleFinalizedObject::s_destructorCalls);
     for (int i = 0; i < 10000; i++)
         SimpleFinalizedObject::create();
     EXPECT_EQ(1000, SimpleFinalizedObject::s_destructorCalls);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(11000, SimpleFinalizedObject::s_destructorCalls);
 }
 
@@ -1827,7 +1827,7 @@ TEST(HeapTest, LazySweepingLargeObjectPages)
     EXPECT_EQ(0, LargeHeapObject::s_destructorCalls);
     for (int i = 0; i < 10; i++)
         LargeHeapObject::create();
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithoutSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithoutSweep, Heap::ForcedGC);
     for (int i = 0; i < 10; i++) {
         LargeHeapObject::create();
         EXPECT_EQ(i + 1, LargeHeapObject::s_destructorCalls);
@@ -1835,9 +1835,9 @@ TEST(HeapTest, LazySweepingLargeObjectPages)
     LargeHeapObject::create();
     LargeHeapObject::create();
     EXPECT_EQ(10, LargeHeapObject::s_destructorCalls);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithoutSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithoutSweep, Heap::ForcedGC);
     EXPECT_EQ(10, LargeHeapObject::s_destructorCalls);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(22, LargeHeapObject::s_destructorCalls);
 }
 #endif
@@ -1855,11 +1855,11 @@ TEST(HeapTest, Finalization)
     }
     // Nothing is marked so the GC should free everything and call
     // the finalizer on all three objects.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(2, HeapTestSubClass::s_destructorCalls);
     EXPECT_EQ(3, HeapTestSuperClass::s_destructorCalls);
     // Destructors not called again when GCing again.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(2, HeapTestSubClass::s_destructorCalls);
     EXPECT_EQ(3, HeapTestSuperClass::s_destructorCalls);
 }
@@ -1893,19 +1893,19 @@ TEST(HeapTest, Members)
         Persistent<Baz> h2;
         {
             h1 = Baz::create(Bar::create());
-            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_EQ(1u, Bar::s_live);
             h2 = Baz::create(Bar::create());
-            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_EQ(2u, Bar::s_live);
         }
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(2u, Bar::s_live);
         h1->clear();
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(1u, Bar::s_live);
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, Bar::s_live);
 }
 
@@ -1921,14 +1921,14 @@ TEST(HeapTest, MarkTest)
             ASSERT(ThreadState::current()->findPageFromAddress(foo));
             EXPECT_EQ(2u, Bar::s_live);
             EXPECT_TRUE(reinterpret_cast<Address>(foo) != reinterpret_cast<Address>(bar.get()));
-            Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_TRUE(foo != bar); // To make sure foo is kept alive.
             EXPECT_EQ(2u, Bar::s_live);
         }
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(1u, Bar::s_live);
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, Bar::s_live);
 }
 
@@ -1948,11 +1948,11 @@ TEST(HeapTest, DeepTest)
             ASSERT(ThreadState::current()->findPageFromAddress(foo));
         }
         EXPECT_EQ(depth + 2, Bar::s_live);
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_TRUE(foo != bar); // To make sure foo and bar are kept alive.
         EXPECT_EQ(depth + 2, Bar::s_live);
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, Bar::s_live);
 }
 
@@ -1963,14 +1963,14 @@ TEST(HeapTest, WideTest)
         Bars* bars = Bars::create();
         unsigned width = Bars::width;
         EXPECT_EQ(width + 1, Bar::s_live);
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(width + 1, Bar::s_live);
         // Use bars here to make sure that it will be on the stack
         // for the conservative stack scan to find.
         EXPECT_EQ(width, bars->getWidth());
     }
     EXPECT_EQ(Bars::width + 1, Bar::s_live);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, Bar::s_live);
 }
 
@@ -1994,7 +1994,7 @@ TEST(HeapTest, HashMapOfMembers)
         size_t afterSetWasCreated = Heap::objectPayloadSizeForTesting();
         EXPECT_TRUE(afterSetWasCreated > initialObjectPayloadSize);
 
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         size_t afterGC = Heap::objectPayloadSizeForTesting();
         EXPECT_EQ(afterGC, afterSetWasCreated);
 
@@ -2021,13 +2021,13 @@ TEST(HeapTest, HashMapOfMembers)
         // backing store. We make sure to not use conservative
         // stack scanning as that could find a pointer to the
         // old backing.
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         size_t afterAddAndGC = Heap::objectPayloadSizeForTesting();
         EXPECT_TRUE(afterAddAndGC >= afterOneAdd);
 
         EXPECT_EQ(map->size(), 2u); // Two different wrappings of '1' are distinct.
 
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_TRUE(map->contains(one));
         EXPECT_TRUE(map->contains(anotherOne));
 
@@ -2054,12 +2054,12 @@ TEST(HeapTest, HashMapOfMembers)
         EXPECT_EQ(gross->value(), 144);
 
         // This should clear out any junk backings created by all the adds.
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         size_t afterGC3 = Heap::objectPayloadSizeForTesting();
         EXPECT_TRUE(afterGC3 <= afterAdding1000);
     }
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     // The objects 'one', anotherOne, and the 999 other pairs.
     EXPECT_EQ(IntWrapper::s_destructorCalls, 2000);
     size_t afterGC4 = Heap::objectPayloadSizeForTesting();
@@ -2131,7 +2131,7 @@ TEST(HeapTest, LargeHeapObjects)
     EXPECT_TRUE(initialAllocatedSpace == Heap::allocatedSpace());
     EXPECT_EQ(11, IntWrapper::s_destructorCalls);
     EXPECT_EQ(11, LargeHeapObject::s_destructorCalls);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 }
 
 typedef std::pair<Member<IntWrapper>, int> PairWrappedUnwrapped;
@@ -2175,47 +2175,6 @@ struct ShouldBeTraced {
     Member<IntWrapper> m_wrapper;
 };
 
-class OffHeapContainer : public GarbageCollectedFinalized<OffHeapContainer> {
-public:
-    static OffHeapContainer* create() { return new OffHeapContainer(); }
-
-    static const int iterations = 300;
-    static const int deadWrappers = 600;
-
-    OffHeapContainer()
-    {
-        for (int i = 0; i < iterations; i++) {
-            m_deque1.append(ShouldBeTraced(IntWrapper::create(i)));
-            m_vector1.append(ShouldBeTraced(IntWrapper::create(i)));
-        }
-
-        Deque<ShouldBeTraced>::iterator d1Iterator(m_deque1.begin());
-        Vector<ShouldBeTraced>::iterator v1Iterator(m_vector1.begin());
-
-        for (int i = 0; i < iterations; i++) {
-            EXPECT_EQ(i, m_vector1[i].m_wrapper->value());
-            EXPECT_EQ(i, d1Iterator->m_wrapper->value());
-            EXPECT_EQ(i, v1Iterator->m_wrapper->value());
-            ++d1Iterator;
-            ++v1Iterator;
-        }
-        EXPECT_EQ(d1Iterator, m_deque1.end());
-        EXPECT_EQ(v1Iterator, m_vector1.end());
-    }
-
-    DEFINE_INLINE_TRACE()
-    {
-        visitor->trace(m_deque1);
-        visitor->trace(m_vector1);
-    }
-
-    Deque<ShouldBeTraced> m_deque1;
-    Vector<ShouldBeTraced> m_vector1;
-};
-
-const int OffHeapContainer::iterations;
-const int OffHeapContainer::deadWrappers;
-
 // These class definitions test compile-time asserts with transition
 // types. They are therefore unused in test code and just need to
 // compile. This is intentional; do not delete the A and B classes below.
@@ -2249,20 +2208,20 @@ TEST(HeapTest, HeapVectorWithInlineCapacity)
         HeapVector<Member<IntWrapper>, 2> vector;
         vector.append(one);
         vector.append(two);
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_TRUE(vector.contains(one));
         EXPECT_TRUE(vector.contains(two));
 
         vector.append(three);
         vector.append(four);
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_TRUE(vector.contains(one));
         EXPECT_TRUE(vector.contains(two));
         EXPECT_TRUE(vector.contains(three));
         EXPECT_TRUE(vector.contains(four));
 
         vector.shrink(1);
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_TRUE(vector.contains(one));
         EXPECT_FALSE(vector.contains(two));
         EXPECT_FALSE(vector.contains(three));
@@ -2275,7 +2234,7 @@ TEST(HeapTest, HeapVectorWithInlineCapacity)
         vector1.append(one);
         vector2.append(two);
         vector1.swap(vector2);
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_TRUE(vector1.contains(two));
         EXPECT_TRUE(vector2.contains(one));
     }
@@ -2290,7 +2249,7 @@ TEST(HeapTest, HeapVectorWithInlineCapacity)
         vector2.append(five);
         vector2.append(six);
         vector1.swap(vector2);
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_TRUE(vector1.contains(three));
         EXPECT_TRUE(vector1.contains(four));
         EXPECT_TRUE(vector1.contains(five));
@@ -2339,6 +2298,11 @@ TEST(HeapTest, HeapVectorShrinkInlineCapacity)
     vector1.shrinkToFit();
     EXPECT_GT(128u, vector1.capacity());
 
+    // TODO(sof): if the ASan support for 'contiguous containers' is enabled,
+    // Vector inline buffers are disabled; that constraint should be attempted
+    // removed, but until that time, disable testing handling of capacities
+    // of inline buffers.
+#if !defined(ANNOTATE_CONTIGUOUS_CONTAINER)
     // Shrinking switches the buffer from the external one to the inline one.
     vector1.shrink(inlineCapacity - 1);
     vector1.shrinkToFit();
@@ -2348,6 +2312,7 @@ TEST(HeapTest, HeapVectorShrinkInlineCapacity)
     vector1.shrink(1);
     vector1.shrinkToFit();
     EXPECT_EQ(inlineCapacity, vector1.capacity());
+#endif
 }
 
 template<typename T, size_t inlineCapacity, typename U>
@@ -2477,7 +2442,7 @@ TEST(HeapTest, HeapCollectionTypes)
 
             // Collect garbage. This should change nothing since we are keeping
             // alive the IntWrapper objects with on-stack pointers.
-            Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
             EXPECT_TRUE(dequeContains(*deque, oneB));
 
@@ -2599,7 +2564,7 @@ TEST(HeapTest, HeapCollectionTypes)
             EXPECT_FALSE(dequeContains(*dequeUW2, PairUnwrappedWrapped(103, &*threeF)));
         }
 
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
         EXPECT_EQ(4u, memberMember->size());
         EXPECT_EQ(0u, memberMember2->size());
@@ -2633,8 +2598,8 @@ TEST(HeapTest, HeapCollectionTypes)
         EXPECT_EQ(3, deque->begin()->get()->value());
     }
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     EXPECT_EQ(4u, memberMember->size());
     EXPECT_EQ(4u, primitiveMember->size());
@@ -2653,6 +2618,37 @@ TEST(HeapTest, HeapCollectionTypes)
     EXPECT_EQ(1u, dequeWU2->size());
     EXPECT_EQ(3u, dequeUW->size());
     EXPECT_EQ(1u, dequeUW2->size());
+}
+
+class NonTrivialObject final {
+    ALLOW_ONLY_INLINE_ALLOCATION();
+public:
+    NonTrivialObject()
+    {
+    }
+    explicit NonTrivialObject(int num)
+    {
+        m_deque.append(IntWrapper::create(num));
+        m_vector.append(IntWrapper::create(num));
+    }
+    DEFINE_INLINE_TRACE()
+    {
+        visitor->trace(m_deque);
+        visitor->trace(m_vector);
+    }
+
+private:
+    HeapDeque<Member<IntWrapper>> m_deque;
+    HeapVector<Member<IntWrapper>> m_vector;
+};
+
+TEST(HeapTest, HeapHashMapWithInlinedObject)
+{
+    HeapHashMap<int, NonTrivialObject> map;
+    for (int num = 1; num < 1000; num++) {
+        NonTrivialObject object(num);
+        map.add(num, object);
+    }
 }
 
 template<typename T>
@@ -2734,7 +2730,7 @@ TEST(HeapTest, HeapWeakCollectionSimple)
 
     keepNumbersAlive[0] = nullptr;
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     EXPECT_EQ(0u, weakStrong->size());
     EXPECT_EQ(0u, strongWeak->size());
@@ -2834,7 +2830,7 @@ void orderedSetHelper(bool strong)
 
     keepNumbersAlive[0] = nullptr;
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     EXPECT_EQ(2u + (strong ? 1u : 0u), set1->size());
 
@@ -2923,8 +2919,8 @@ static void heapMapDestructorHelper(bool clearMaps)
         Map stackMap;
         RefMap stackRefMap;
 
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
         stackMap.add(IntWrapper::create(42), ThingWithDestructor(1729));
         stackMap.add(luck, ThingWithDestructor(8128));
@@ -2941,8 +2937,8 @@ static void heapMapDestructorHelper(bool clearMaps)
 
     // The RefCountedAndGarbageCollected things need an extra GC to discover
     // that they are no longer ref counted.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(baseLine - 2, ThingWithDestructor::s_liveThingsWithDestructor);
     EXPECT_EQ(refBaseLine + 2, RefCountedAndGarbageCollected::s_destructorCalls);
 
@@ -2964,15 +2960,15 @@ static void heapMapDestructorHelper(bool clearMaps)
     } else {
         map.clear(); // Clear Persistent handle, not map.
         refMap.clear(); // Clear Persistent handle, not map.
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     }
 
     EXPECT_EQ(baseLine - 2, ThingWithDestructor::s_liveThingsWithDestructor);
 
     // Need a GC to make sure that the RefCountedAndGarbageCollected thing
     // noticies it's been decremented to zero.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(refBaseLine + 2, RefCountedAndGarbageCollected::s_destructorCalls);
 }
 
@@ -3091,7 +3087,7 @@ void weakPairsHelper()
 
     checkPairSets<WSSet, SWSet, WUSet, UWSet>(weakStrong, strongWeak, weakUnwrapped, unwrappedWeak, true, two);
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     checkPairSets<WSSet, SWSet, WUSet, UWSet>(weakStrong, strongWeak, weakUnwrapped, unwrappedWeak, false, two);
 }
 
@@ -3183,7 +3179,7 @@ TEST(HeapTest, HeapWeakCollectionTypes)
 
             // Collect garbage. This should change nothing since we are keeping
             // alive the IntWrapper objects.
-            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
             EXPECT_EQ(64u, weakStrong->size());
             EXPECT_EQ(64u, strongWeak->size());
@@ -3223,7 +3219,7 @@ TEST(HeapTest, HeapWeakCollectionTypes)
                 WeakOrderedSet::iterator it5 = weakOrderedSet->begin();
                 // Collect garbage. This should change nothing since the
                 // iterators make the collections strong.
-                Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+                Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
                 if (collectionNumber == weakStrongIndex) {
                     EXPECT_EQ(64u, weakStrong->size());
                     MapIteratorCheck(it1, weakStrong->end(), 64);
@@ -3243,7 +3239,7 @@ TEST(HeapTest, HeapWeakCollectionTypes)
             } else {
                 // Collect garbage. This causes weak processing to remove
                 // things from the collections.
-                Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+                Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
                 unsigned count = 0;
                 for (int i = 0; i < 128; i += 2) {
                     bool firstAlive = keepNumbersAlive[i];
@@ -3311,7 +3307,7 @@ TEST(HeapTest, HeapWeakCollectionTypes)
             }
             for (unsigned i = 0; i < 128 + added; i++)
                 keepNumbersAlive[i] = nullptr;
-            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_EQ(0u, weakStrong->size());
             EXPECT_EQ(0u, strongWeak->size());
             EXPECT_EQ(0u, weakWeak->size());
@@ -3331,24 +3327,24 @@ TEST(HeapTest, RefCountedGarbageCollected)
             {
                 Persistent<RefCountedAndGarbageCollected> refPtr1 = RefCountedAndGarbageCollected::create();
                 Persistent<RefCountedAndGarbageCollected> refPtr2 = RefCountedAndGarbageCollected::create();
-                Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+                Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
                 EXPECT_EQ(0, RefCountedAndGarbageCollected::s_destructorCalls);
                 persistent = refPtr1.get();
             }
             // Reference count is zero for both objects but one of
             // them is kept alive by a persistent handle.
-            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_EQ(1, RefCountedAndGarbageCollected::s_destructorCalls);
             refPtr3 = persistent.get();
         }
         // The persistent handle is gone but the ref count has been
         // increased to 1.
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(1, RefCountedAndGarbageCollected::s_destructorCalls);
     }
     // Both persistent handle is gone and ref count is zero so the
     // object can be collected.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(2, RefCountedAndGarbageCollected::s_destructorCalls);
 }
 
@@ -3369,11 +3365,11 @@ TEST(HeapTest, RefCountedGarbageCollectedWithStackPointers)
             ThreadState::current()->visitPersistents(&visitor);
             EXPECT_TRUE(visitor.validate());
 
-            Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_EQ(0, RefCountedAndGarbageCollected::s_destructorCalls);
             EXPECT_EQ(0, RefCountedAndGarbageCollected2::s_destructorCalls);
         }
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(0, RefCountedAndGarbageCollected::s_destructorCalls);
         EXPECT_EQ(0, RefCountedAndGarbageCollected2::s_destructorCalls);
 
@@ -3392,17 +3388,17 @@ TEST(HeapTest, RefCountedGarbageCollectedWithStackPointers)
             ThreadState::current()->visitPersistents(&visitor);
             EXPECT_TRUE(visitor.validate());
 
-            Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_EQ(0, RefCountedAndGarbageCollected::s_destructorCalls);
             EXPECT_EQ(0, RefCountedAndGarbageCollected2::s_destructorCalls);
         }
 
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(0, RefCountedAndGarbageCollected::s_destructorCalls);
         EXPECT_EQ(0, RefCountedAndGarbageCollected2::s_destructorCalls);
     }
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1, RefCountedAndGarbageCollected::s_destructorCalls);
     EXPECT_EQ(1, RefCountedAndGarbageCollected2::s_destructorCalls);
 }
@@ -3414,14 +3410,14 @@ TEST(HeapTest, WeakMembers)
         Persistent<Bar> h1 = Bar::create();
         Persistent<Weak> h4;
         Persistent<WithWeakMember> h5;
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         ASSERT_EQ(1u, Bar::s_live); // h1 is live.
         {
             Bar* h2 = Bar::create();
             Bar* h3 = Bar::create();
             h4 = Weak::create(h2, h3);
             h5 = WithWeakMember::create(h2, h3);
-            Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_EQ(5u, Bar::s_live); // The on-stack pointer keeps h3 alive.
             EXPECT_TRUE(h4->strongIsThere());
             EXPECT_TRUE(h4->weakIsThere());
@@ -3429,20 +3425,20 @@ TEST(HeapTest, WeakMembers)
             EXPECT_TRUE(h5->weakIsThere());
         }
         // h3 is collected, weak pointers from h4 and h5 don't keep it alive.
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(4u, Bar::s_live);
         EXPECT_TRUE(h4->strongIsThere());
         EXPECT_FALSE(h4->weakIsThere()); // h3 is gone from weak pointer.
         EXPECT_TRUE(h5->strongIsThere());
         EXPECT_FALSE(h5->weakIsThere()); // h3 is gone from weak pointer.
         h1.release(); // Zero out h1.
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(3u, Bar::s_live); // Only h4, h5 and h2 are left.
         EXPECT_TRUE(h4->strongIsThere()); // h2 is still pointed to from h4.
         EXPECT_TRUE(h5->strongIsThere()); // h2 is still pointed to from h5.
     }
     // h4 and h5 have gone out of scope now and they were keeping h2 alive.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, Bar::s_live); // All gone.
 }
 
@@ -3456,7 +3452,7 @@ TEST(HeapTest, FinalizationObserver)
     }
     // FinalizationObserver doesn't have a strong reference to |foo|. So |foo|
     // and its member will be collected.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, Bar::s_live);
     EXPECT_TRUE(o->didCallWillFinalize());
 
@@ -3467,7 +3463,7 @@ TEST(HeapTest, FinalizationObserver)
     foo = 0;
     // FinalizationObserverWithHashMap doesn't have a strong reference to
     // |foo|. So |foo| and its member will be collected.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, Bar::s_live);
     EXPECT_EQ(0u, map.size());
     EXPECT_TRUE(FinalizationObserverWithHashMap::s_didCallWillFinalize);
@@ -3482,7 +3478,7 @@ TEST(HeapTest, PreFinalizer)
         Observable* foo = Observable::create(Bar::create());
         ThreadState::current()->registerPreFinalizer(*foo);
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_TRUE(Observable::s_willFinalizeWasCalled);
 }
 
@@ -3494,7 +3490,7 @@ TEST(HeapTest, PreFinalizerIsNotCalledIfUnregistered)
         ThreadState::current()->registerPreFinalizer(*foo);
         ThreadState::current()->unregisterPreFinalizer(*foo);
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_FALSE(Observable::s_willFinalizeWasCalled);
 }
 
@@ -3502,7 +3498,7 @@ TEST(HeapTest, PreFinalizerUnregistersItself)
 {
     ObservableWithPreFinalizer::s_disposeWasCalled = false;
     ObservableWithPreFinalizer::create();
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_TRUE(ObservableWithPreFinalizer::s_disposeWasCalled);
     // Don't crash, and assertions don't fail.
 }
@@ -3586,18 +3582,6 @@ TEST(HeapTest, CheckAndMarkPointer)
     clearOutOldGarbage();
 }
 
-TEST(HeapTest, VisitOffHeapCollections)
-{
-    clearOutOldGarbage();
-    IntWrapper::s_destructorCalls = 0;
-    Persistent<OffHeapContainer> container = OffHeapContainer::create();
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
-    EXPECT_EQ(0, IntWrapper::s_destructorCalls);
-    container = nullptr;
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
-    EXPECT_EQ(OffHeapContainer::deadWrappers, IntWrapper::s_destructorCalls);
-}
-
 TEST(HeapTest, PersistentHeapCollectionTypes)
 {
     IntWrapper::s_destructorCalls = 0;
@@ -3653,7 +3637,7 @@ TEST(HeapTest, PersistentHeapCollectionTypes)
 
         // Collect |vec| and |one|.
         vec = 0;
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(1, IntWrapper::s_destructorCalls);
 
         EXPECT_EQ(2u, pVec.size());
@@ -3682,12 +3666,12 @@ TEST(HeapTest, PersistentHeapCollectionTypes)
         EXPECT_EQ(1u, wpMap.size());
         EXPECT_EQ(eleven, wpMap.get(ten));
         ten.clear();
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(0u, wpMap.size());
     }
 
     // Collect previous roots.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(11, IntWrapper::s_destructorCalls);
 }
 
@@ -3726,14 +3710,14 @@ TEST(HeapTest, CollectionNesting)
         map2->add(key + 1 + i, IntDeque());
     }
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     EXPECT_EQ(1u, map->get(key).size());
     EXPECT_EQ(1u, map2->get(key).size());
     EXPECT_EQ(0, IntWrapper::s_destructorCalls);
 
     keepAlive = nullptr;
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1, IntWrapper::s_destructorCalls);
 }
 
@@ -3743,17 +3727,17 @@ TEST(HeapTest, GarbageCollectedMixin)
 
     Persistent<UseMixin> usemixin = UseMixin::create();
     EXPECT_EQ(0, UseMixin::s_traceCount);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1, UseMixin::s_traceCount);
 
     Persistent<Mixin> mixin = usemixin;
     usemixin = nullptr;
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(2, UseMixin::s_traceCount);
 
     PersistentHeapHashSet<WeakMember<Mixin>> weakMap;
     weakMap.add(UseMixin::create());
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, weakMap.size());
 }
 
@@ -3774,7 +3758,7 @@ TEST(HeapTest, CollectionNesting2)
     EXPECT_EQ(1u, map->get(key).size());
 
     Persistent<HeapHashMap<void*, IntSet>> keepAlive(map);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1u, map->get(key).size());
     EXPECT_EQ(0, IntWrapper::s_destructorCalls);
 }
@@ -3803,7 +3787,7 @@ TEST(HeapTest, CollectionNesting3)
 
     Persistent<HeapVector<IntVector>> keepAlive(vector);
     Persistent<HeapDeque<IntDeque>> keepAlive2(deque);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1u, it->size());
     EXPECT_EQ(1u, it2->size());
     EXPECT_EQ(0, IntWrapper::s_destructorCalls);
@@ -3829,7 +3813,7 @@ TEST(HeapTest, EmbeddedInVector)
         vectorInheritedTrace.append(it1);
         vectorInheritedTrace.append(it2);
 
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(0, SimpleFinalizedObject::s_destructorCalls);
 
         // Since VectorObjectNoTrace has no trace method it will
@@ -3841,10 +3825,10 @@ TEST(HeapTest, EmbeddedInVector)
         VectorObjectNoTrace n1, n2;
         vectorNoTrace.append(n1);
         vectorNoTrace.append(n2);
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(2, SimpleFinalizedObject::s_destructorCalls);
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(8, SimpleFinalizedObject::s_destructorCalls);
 }
 
@@ -3868,7 +3852,7 @@ TEST(HeapTest, EmbeddedInDeque)
         dequeInheritedTrace.append(it1);
         dequeInheritedTrace.append(it2);
 
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(0, SimpleFinalizedObject::s_destructorCalls);
 
         // Since VectorObjectNoTrace has no trace method it will
@@ -3880,11 +3864,198 @@ TEST(HeapTest, EmbeddedInDeque)
         VectorObjectNoTrace n1, n2;
         dequeNoTrace.append(n1);
         dequeNoTrace.append(n2);
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(2, SimpleFinalizedObject::s_destructorCalls);
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(8, SimpleFinalizedObject::s_destructorCalls);
+}
+
+class InlinedVectorObject {
+    ALLOW_ONLY_INLINE_ALLOCATION();
+public:
+    InlinedVectorObject()
+    {
+    }
+    ~InlinedVectorObject()
+    {
+        s_destructorCalls++;
+    }
+    DEFINE_INLINE_TRACE()
+    {
+    }
+
+    static int s_destructorCalls;
+};
+
+int InlinedVectorObject::s_destructorCalls = 0;
+
+class InlinedVectorObjectWithVtable {
+    ALLOW_ONLY_INLINE_ALLOCATION();
+public:
+    InlinedVectorObjectWithVtable()
+    {
+    }
+    ~InlinedVectorObjectWithVtable()
+    {
+        s_destructorCalls++;
+    }
+    virtual void virtualMethod() { }
+    DEFINE_INLINE_TRACE()
+    {
+    }
+
+    static int s_destructorCalls;
+};
+
+int InlinedVectorObjectWithVtable::s_destructorCalls = 0;
+
+} // namespace blink
+
+WTF_ALLOW_MOVE_AND_INIT_WITH_MEM_FUNCTIONS(blink::InlinedVectorObject);
+
+namespace blink {
+
+class InlinedVectorObjectWrapper final : public GarbageCollectedFinalized<InlinedVectorObjectWrapper> {
+public:
+    InlinedVectorObjectWrapper()
+    {
+        InlinedVectorObject i1, i2;
+        m_vector1.append(i1);
+        m_vector1.append(i2);
+        m_vector2.append(i1);
+        m_vector2.append(i2); // This allocates an out-of-line buffer.
+        m_vector3.append(i1);
+        m_vector3.append(i2);
+    }
+
+    DEFINE_INLINE_TRACE()
+    {
+        visitor->trace(m_vector1);
+        visitor->trace(m_vector2);
+        visitor->trace(m_vector3);
+    }
+
+private:
+    HeapVector<InlinedVectorObject> m_vector1;
+    HeapVector<InlinedVectorObject, 1> m_vector2;
+    HeapVector<InlinedVectorObject, 2> m_vector3;
+};
+
+class InlinedVectorObjectWithVtableWrapper final : public GarbageCollectedFinalized<InlinedVectorObjectWithVtableWrapper> {
+public:
+    InlinedVectorObjectWithVtableWrapper()
+    {
+        InlinedVectorObjectWithVtable i1, i2;
+        m_vector1.append(i1);
+        m_vector1.append(i2);
+        m_vector2.append(i1);
+        m_vector2.append(i2); // This allocates an out-of-line buffer.
+        m_vector3.append(i1);
+        m_vector3.append(i2);
+    }
+
+    DEFINE_INLINE_TRACE()
+    {
+        visitor->trace(m_vector1);
+        visitor->trace(m_vector2);
+        visitor->trace(m_vector3);
+    }
+
+private:
+    HeapVector<InlinedVectorObjectWithVtable> m_vector1;
+    HeapVector<InlinedVectorObjectWithVtable, 1> m_vector2;
+    HeapVector<InlinedVectorObjectWithVtable, 2> m_vector3;
+};
+
+TEST(HeapTest, VectorDestructors)
+{
+    clearOutOldGarbage();
+    InlinedVectorObject::s_destructorCalls = 0;
+    {
+        HeapVector<InlinedVectorObject> vector;
+        InlinedVectorObject i1, i2;
+        vector.append(i1);
+        vector.append(i2);
+    }
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+    // This is not EXPECT_EQ but EXPECT_LE because a HeapVectorBacking calls
+    // destructors for all elements in (not the size but) the capacity of
+    // the vector. Thus the number of destructors called becomes larger
+    // than the actual number of objects in the vector.
+    EXPECT_LE(4, InlinedVectorObject::s_destructorCalls);
+
+    InlinedVectorObject::s_destructorCalls = 0;
+    {
+        HeapVector<InlinedVectorObject, 1> vector;
+        InlinedVectorObject i1, i2;
+        vector.append(i1);
+        vector.append(i2); // This allocates an out-of-line buffer.
+    }
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+    EXPECT_LE(4, InlinedVectorObject::s_destructorCalls);
+
+    InlinedVectorObject::s_destructorCalls = 0;
+    {
+        HeapVector<InlinedVectorObject, 2> vector;
+        InlinedVectorObject i1, i2;
+        vector.append(i1);
+        vector.append(i2);
+    }
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+    EXPECT_LE(4, InlinedVectorObject::s_destructorCalls);
+
+    InlinedVectorObject::s_destructorCalls = 0;
+    {
+        new InlinedVectorObjectWrapper();
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+        EXPECT_EQ(2, InlinedVectorObject::s_destructorCalls);
+    }
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+    EXPECT_LE(8, InlinedVectorObject::s_destructorCalls);
+}
+
+TEST(HeapTest, VectorDestructorsWithVtable)
+{
+    clearOutOldGarbage();
+    InlinedVectorObjectWithVtable::s_destructorCalls = 0;
+    {
+        HeapVector<InlinedVectorObjectWithVtable> vector;
+        InlinedVectorObjectWithVtable i1, i2;
+        vector.append(i1);
+        vector.append(i2);
+    }
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+    EXPECT_EQ(4, InlinedVectorObjectWithVtable::s_destructorCalls);
+
+    InlinedVectorObjectWithVtable::s_destructorCalls = 0;
+    {
+        HeapVector<InlinedVectorObjectWithVtable, 1> vector;
+        InlinedVectorObjectWithVtable i1, i2;
+        vector.append(i1);
+        vector.append(i2); // This allocates an out-of-line buffer.
+    }
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+    EXPECT_EQ(5, InlinedVectorObjectWithVtable::s_destructorCalls);
+
+    InlinedVectorObjectWithVtable::s_destructorCalls = 0;
+    {
+        HeapVector<InlinedVectorObjectWithVtable, 2> vector;
+        InlinedVectorObjectWithVtable i1, i2;
+        vector.append(i1);
+        vector.append(i2);
+    }
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+    EXPECT_EQ(4, InlinedVectorObjectWithVtable::s_destructorCalls);
+
+    InlinedVectorObjectWithVtable::s_destructorCalls = 0;
+    {
+        new InlinedVectorObjectWithVtableWrapper();
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+        EXPECT_EQ(3, InlinedVectorObjectWithVtable::s_destructorCalls);
+    }
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+    EXPECT_EQ(9, InlinedVectorObjectWithVtable::s_destructorCalls);
 }
 
 template<typename Set>
@@ -3925,7 +4096,7 @@ TEST(HeapTest, HeapTerminatedArray)
         arr = builder.release();
     }
 
-    Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0, IntWrapper::s_destructorCalls);
     EXPECT_EQ(prefixSize, arr->size());
     for (size_t i = 0; i < prefixSize; i++)
@@ -3939,7 +4110,7 @@ TEST(HeapTest, HeapTerminatedArray)
         arr = builder.release();
     }
 
-    Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0, IntWrapper::s_destructorCalls);
     EXPECT_EQ(prefixSize + suffixSize, arr->size());
     for (size_t i = 0; i < prefixSize + suffixSize; i++)
@@ -3948,7 +4119,7 @@ TEST(HeapTest, HeapTerminatedArray)
     {
         Persistent<HeapTerminatedArray<TerminatedArrayItem>> persistentArr = arr;
         arr = 0;
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         arr = persistentArr.get();
         EXPECT_EQ(0, IntWrapper::s_destructorCalls);
         EXPECT_EQ(prefixSize + suffixSize, arr->size());
@@ -3957,7 +4128,7 @@ TEST(HeapTest, HeapTerminatedArray)
     }
 
     arr = 0;
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(8, IntWrapper::s_destructorCalls);
 }
 
@@ -3973,7 +4144,7 @@ TEST(HeapTest, HeapLinkedStack)
     for (size_t i = 0; i < stackSize; i++)
         stack->push(TerminatedArrayItem(IntWrapper::create(i)));
 
-    Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0, IntWrapper::s_destructorCalls);
     EXPECT_EQ(stackSize, stack->size());
     while (!stack->isEmpty()) {
@@ -3983,7 +4154,7 @@ TEST(HeapTest, HeapLinkedStack)
 
     Persistent<HeapLinkedStack<TerminatedArrayItem>> pStack = stack;
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(stackSize, static_cast<size_t>(IntWrapper::s_destructorCalls));
     EXPECT_EQ(0u, pStack->size());
 }
@@ -3998,7 +4169,7 @@ TEST(HeapTest, AllocationDuringFinalization)
     Persistent<IntWrapper> wrapper;
     new FinalizationAllocator(&wrapper);
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0, IntWrapper::s_destructorCalls);
     EXPECT_EQ(0, OneKiloByteObject::s_destructorCalls);
     EXPECT_EQ(0, LargeHeapObject::s_destructorCalls);
@@ -4007,7 +4178,7 @@ TEST(HeapTest, AllocationDuringFinalization)
     EXPECT_EQ(42, wrapper->value());
 
     wrapper.clear();
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(42, IntWrapper::s_destructorCalls);
     EXPECT_EQ(512, OneKiloByteObject::s_destructorCalls);
     EXPECT_EQ(32, LargeHeapObject::s_destructorCalls);
@@ -4054,14 +4225,14 @@ void destructorsCalledOnGC(bool addLots)
         }
 
         EXPECT_FALSE(RefCountedWithDestructor::s_wasDestructed);
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_FALSE(RefCountedWithDestructor::s_wasDestructed);
     }
     // The destructors of the sets don't call the destructors of the elements
     // in the heap sets. You have to actually remove the elments, call clear()
     // or have a GC to get the destructors called.
     EXPECT_FALSE(RefCountedWithDestructor::s_wasDestructed);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_TRUE(RefCountedWithDestructor::s_wasDestructed);
 }
 
@@ -4155,15 +4326,15 @@ TEST(HeapTest, MultipleMixins)
     MultipleMixins* obj = new MultipleMixins();
     {
         Persistent<MixinA> a = obj;
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(0, IntWrapper::s_destructorCalls);
     }
     {
         Persistent<MixinB> b = obj;
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         EXPECT_EQ(0, IntWrapper::s_destructorCalls);
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(3, IntWrapper::s_destructorCalls);
 }
 
@@ -4256,7 +4427,7 @@ void setWithCustomWeaknessHandling()
         set2.add(PairWithWeakHandling(IntWrapper::create(0), IntWrapper::create(1)));
         set3->add(PairWithWeakHandling(IntWrapper::create(2), IntWrapper::create(3)));
         set1->add(PairWithWeakHandling(IntWrapper::create(4), IntWrapper::create(5)));
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         // The first set is pointed to from a persistent, so it's referenced, but
         // the weak processing may have taken place.
         if (set1->size()) {
@@ -4277,7 +4448,7 @@ void setWithCustomWeaknessHandling()
             EXPECT_EQ(3, i3->second->value());
         }
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, set1->size());
     set1->add(PairWithWeakHandling(IntWrapper::create(103), livingInt));
     set1->add(PairWithWeakHandling(livingInt, IntWrapper::create(103))); // This one gets zapped at GC time because nothing holds the 103 alive.
@@ -4285,7 +4456,7 @@ void setWithCustomWeaknessHandling()
     set1->add(PairWithWeakHandling(livingInt, livingInt));
     set1->add(PairWithWeakHandling(livingInt, livingInt)); // This one is identical to the previous and doesn't add anything.
     EXPECT_EQ(4u, set1->size());
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(2u, set1->size());
     Iterator i1 = set1->begin();
     EXPECT_TRUE(i1->first->value() == 103 || i1->first == livingInt);
@@ -4318,7 +4489,7 @@ TEST(HeapTest, MapWithCustomWeaknessHandling)
         map1->add(PairWithWeakHandling(IntWrapper::create(4), IntWrapper::create(5)), OffHeapInt::create(1003));
         EXPECT_EQ(0, OffHeapInt::s_destructorCalls);
 
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         // The first map2 is pointed to from a persistent, so it's referenced, but
         // the weak processing may have taken place.
         if (map1->size()) {
@@ -4342,7 +4513,7 @@ TEST(HeapTest, MapWithCustomWeaknessHandling)
             EXPECT_EQ(1002, i3->value->value());
         }
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     EXPECT_EQ(0u, map1->size());
     EXPECT_EQ(3, OffHeapInt::s_destructorCalls);
@@ -4359,7 +4530,7 @@ TEST(HeapTest, MapWithCustomWeaknessHandling)
 
     EXPECT_EQ(0, OffHeapInt::s_destructorCalls);
     EXPECT_EQ(4u, map1->size());
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(2, OffHeapInt::s_destructorCalls);
     EXPECT_EQ(2u, map1->size());
     Iterator i1 = map1->begin();
@@ -4388,7 +4559,7 @@ TEST(HeapTest, MapWithCustomWeaknessHandling2)
         map1->add(OffHeapInt::create(1003), PairWithWeakHandling(IntWrapper::create(4), IntWrapper::create(5)));
         EXPECT_EQ(0, OffHeapInt::s_destructorCalls);
 
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         // The first map2 is pointed to from a persistent, so it's referenced, but
         // the weak processing may have taken place.
         if (map1->size()) {
@@ -4412,7 +4583,7 @@ TEST(HeapTest, MapWithCustomWeaknessHandling2)
             EXPECT_EQ(1002, i3->key->value());
         }
     }
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     EXPECT_EQ(0u, map1->size());
     EXPECT_EQ(3, OffHeapInt::s_destructorCalls);
@@ -4429,7 +4600,7 @@ TEST(HeapTest, MapWithCustomWeaknessHandling2)
 
     EXPECT_EQ(0, OffHeapInt::s_destructorCalls);
     EXPECT_EQ(4u, map1->size());
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(2, OffHeapInt::s_destructorCalls);
     EXPECT_EQ(2u, map1->size());
     Iterator i1 = map1->begin();
@@ -4454,19 +4625,19 @@ TEST(HeapTest, RegressNullIsStrongified)
     Persistent<HeapHashMap<int, WeakMember<IntWrapper>>> map = new HeapHashMap<int, WeakMember<IntWrapper>>();
     addElementsToWeakMap(map);
     HeapHashMap<int, WeakMember<IntWrapper>>::AddResult result = map->add(800, nullptr);
-    Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     result.storedValue->value = IntWrapper::create(42);
 }
 
 TEST(HeapTest, Bind)
 {
     OwnPtr<Closure> closure = bind(static_cast<void (Bar::*)(Visitor*)>(&Bar::trace), Bar::create(), static_cast<Visitor*>(0));
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     // The closure should have a persistent handle to the Bar.
     EXPECT_EQ(1u, Bar::s_live);
 
     OwnPtr<Closure> closure2 = bind(static_cast<void (Bar::*)(Visitor*)>(&Bar::trace), RawPtr<Bar>(Bar::create()), static_cast<Visitor*>(0));
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     // The closure should have a persistent handle to the Bar.
     EXPECT_EQ(2u, Bar::s_live);
     // RawPtr<OffHeapInt> should not make Persistent.
@@ -4475,7 +4646,7 @@ TEST(HeapTest, Bind)
     UseMixin::s_traceCount = 0;
     Mixin* mixin = UseMixin::create();
     OwnPtr<Closure> mixinClosure = bind(static_cast<void (Mixin::*)(Visitor*)>(&Mixin::trace), mixin, static_cast<Visitor*>(0));
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     // The closure should have a persistent handle to the mixin.
     EXPECT_EQ(1, UseMixin::s_traceCount);
 }
@@ -4540,7 +4711,7 @@ TEST(HeapTest, RemoveEmptySets)
     map->add(OffHeapInt::create(2), WeakSet());
     EXPECT_EQ(2u, map->size());
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1u, map->size()); // The one with key 2 was removed.
     EXPECT_EQ(1, OffHeapInt::s_destructorCalls);
     {
@@ -4549,7 +4720,7 @@ TEST(HeapTest, RemoveEmptySets)
     }
 
     livingInt.clear(); // The weak set can no longer keep the '42' alive now.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, map->size());
 }
 
@@ -4570,7 +4741,7 @@ TEST(HeapTest, EphemeronsInEphemerons)
                 one.clear();
             if (!keepInnerAlive)
                 two.clear();
-            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             if (keepOuterAlive) {
                 const InnerMap& inner = outer->get(one);
                 if (keepInnerAlive) {
@@ -4596,7 +4767,7 @@ TEST(HeapTest, EphemeronsInEphemerons)
                 newEntry.storedValue->value.add(composite, home);
             }
             composite.clear();
-            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_EQ(10000u, outer->size());
             for (int i = 0; i < 10000; i++) {
                 IntWrapper* value = keepAlive->at(i);
@@ -4604,7 +4775,7 @@ TEST(HeapTest, EphemeronsInEphemerons)
                 if (i & 1)
                     keepAlive->at(i) = nullptr;
             }
-            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_EQ(5000u, outer->size());
         }
     }
@@ -4640,7 +4811,7 @@ TEST(HeapTest, EphemeronsPointToEphemerons)
         chain->map().add(IntWrapper::create(103), new EphemeronWrapper());
     }
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     EphemeronWrapper* wrapper = chain;
     for (int i = 0; i< 100; i++) {
@@ -4653,7 +4824,7 @@ TEST(HeapTest, EphemeronsPointToEphemerons)
     EXPECT_EQ(nullptr, wrapper);
 
     key2.clear();
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     wrapper = chain;
     for (int i = 0; i < 50; i++) {
@@ -4663,7 +4834,7 @@ TEST(HeapTest, EphemeronsPointToEphemerons)
     EXPECT_EQ(nullptr, wrapper);
 
     key.clear();
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, chain->map().size());
 }
 
@@ -4712,7 +4883,7 @@ TEST(HeapTest, Ephemeron)
     set->add(pw1);
     set->add(pw2);
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     EXPECT_EQ(2u, weakPairMap->size());
     EXPECT_EQ(2u, weakPairMap2->size());
@@ -4728,7 +4899,7 @@ TEST(HeapTest, Ephemeron)
     pw2.clear(); // Kills all entries in the pairWeakMaps except the first.
 
     for (int i = 0; i < 2; i++) {
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
         EXPECT_EQ(1u, weakPairMap->size());
         EXPECT_EQ(0u, weakPairMap2->size());
@@ -4744,7 +4915,7 @@ TEST(HeapTest, Ephemeron)
     wp1.clear();
     pw1.clear();
 
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     EXPECT_EQ(0u, weakPairMap->size());
     EXPECT_EQ(0u, pairWeakMap->size());
@@ -4775,16 +4946,16 @@ TEST(HeapTest, IndirectStrongToWeak)
     map->add(deadObject, new Link1(deadObject));
     map->add(lifeObject, new Link1(lifeObject));
     EXPECT_EQ(2u, map->size());
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(2u, map->size());
     EXPECT_EQ(deadObject, map->get(deadObject)->link());
     EXPECT_EQ(lifeObject, map->get(lifeObject)->link());
     deadObject.clear(); // Now it can live up to its name.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(1u, map->size());
     EXPECT_EQ(lifeObject, map->get(lifeObject)->link());
     lifeObject.clear(); // Despite its name.
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(0u, map->size());
 }
 
@@ -4854,7 +5025,7 @@ public:
         // GC will not find it.
         // Also at this point the worker is waiting for the main thread
         // to be parked and will not do any sweep of its heap.
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
         // Since the worker thread is not sweeping the worker object should
         // not have been finalized.
@@ -4867,7 +5038,7 @@ public:
         uintptr_t stackPtrValue = s_workerObjectPointer;
         s_workerObjectPointer = 0;
         ASSERT_UNUSED(stackPtrValue, stackPtrValue);
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
         // Since the worker thread is not sweeping the worker object should
         // not have been finalized.
@@ -4957,8 +5128,8 @@ public:
         // and mark unmarked objects dead. The collection on the worker
         // heap is found through the persistent and the backing should
         // be marked.
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
-        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
+        Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
         // Wake up the worker thread so it can continue. It will sweep
         // and perform another GC where the backing store of its
@@ -5021,7 +5192,7 @@ private:
             {
                 // Prevent weak processing with an iterator and GC.
                 HeapHashSet<WeakMember<IntWrapper>>::iterator it = collection->begin();
-                Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+                Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
                 // The backing should be strongified because of the iterator.
                 EXPECT_EQ(6u, collection->size());
@@ -5030,7 +5201,7 @@ private:
 
             // Disregarding the iterator but keeping the collection alive
             // with a persistent should lead to weak processing.
-            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
             EXPECT_EQ(0u, collection->size());
         }
 
@@ -5048,13 +5219,19 @@ TEST(HeapTest, ThreadedStrongification)
 
 static bool allocateAndReturnBool()
 {
-    Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     return true;
 }
 
-class MixinWithGarbageCollectionInConstructor : public GarbageCollectedMixin {
+static bool checkGCForbidden()
+{
+    ASSERT(ThreadState::current()->isGCForbidden());
+    return true;
+}
+
+class MixinClass : public GarbageCollectedMixin {
 public:
-    MixinWithGarbageCollectionInConstructor() : m_dummy(allocateAndReturnBool())
+    MixinClass() : m_dummy(checkGCForbidden())
     {
     }
 private:
@@ -5063,7 +5240,7 @@ private:
 
 class ClassWithGarbageCollectingMixinConstructor
     : public GarbageCollected<ClassWithGarbageCollectingMixinConstructor>
-    , public MixinWithGarbageCollectionInConstructor {
+    , public MixinClass {
     USING_GARBAGE_COLLECTED_MIXIN(ClassWithGarbageCollectingMixinConstructor);
 public:
     static int s_traceCalled;
@@ -5152,7 +5329,7 @@ public:
             // until the main thread has done its GC.
             wakeWorkerThread();
 
-            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+            Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
             // The worker thread should not have swept yet since it is waiting
             // to get the global mutex.
@@ -5289,7 +5466,7 @@ public:
 
     AllocatesOnAssignment(const AllocatesOnAssignment& other)
     {
-        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+        Heap::collectGarbage(ThreadState::HeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
         m_value = new IntWrapper(other.m_value->value());
     }
 
@@ -5429,7 +5606,7 @@ Persistent<IntNode>* NonNodeAllocatingNodeInDestructor::s_node = 0;
 TEST(HeapTest, NonNodeAllocatingNodeInDestructor)
 {
     new NonNodeAllocatingNodeInDestructor();
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
     EXPECT_EQ(10, (*NonNodeAllocatingNodeInDestructor::s_node)->value());
     delete NonNodeAllocatingNodeInDestructor::s_node;
     NonNodeAllocatingNodeInDestructor::s_node = 0;
@@ -5497,7 +5674,7 @@ TEST(HeapTest, TraceDeepEagerly)
         obj = new DeepEagerly(obj);
 
     Persistent<DeepEagerly> persistent(obj);
-    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGCForTesting);
+    Heap::collectGarbage(ThreadState::NoHeapPointersOnStack, ThreadState::GCWithSweep, Heap::ForcedGC);
 
     // Verify that the DeepEagerly chain isn't completely unravelled
     // by performing eager trace() calls, but the explicit mark
@@ -5553,6 +5730,140 @@ TEST(HeapTest, DequeExpand)
         EXPECT_EQ(i + 50, intWrapper->value());
         i++;
     }
+}
+
+class SimpleRefValue : public RefCounted<SimpleRefValue> {
+public:
+    static PassRefPtr<SimpleRefValue> create(int i)
+    {
+        return adoptRef(new SimpleRefValue(i));
+    }
+
+    int value() const { return m_value; }
+private:
+    explicit SimpleRefValue(int value)
+        : m_value(value)
+    {
+    }
+
+    int m_value;
+};
+
+class PartObjectWithRef {
+    ALLOW_ONLY_INLINE_ALLOCATION();
+public:
+    PartObjectWithRef(int i)
+        : m_value(SimpleRefValue::create(i))
+    {
+    }
+
+    int value() const { return m_value->value(); }
+
+private:
+    RefPtr<SimpleRefValue> m_value;
+};
+
+} // namespace blink
+
+WTF_ALLOW_INIT_WITH_MEM_FUNCTIONS(blink::PartObjectWithRef);
+
+namespace blink {
+
+TEST(HeapTest, DequePartObjectsExpand)
+{
+    // Test expansion of HeapDeque<PartObject>
+
+    using PartDeque = HeapDeque<PartObjectWithRef>;
+
+    Persistent<PartDeque> deque = new PartDeque();
+    // Auxillary Deque used to prevent 'inline' buffer expansion.
+    Persistent<PartDeque> dequeUnused = new PartDeque();
+
+    // Append a sequence, bringing about repeated expansions of the
+    // deque's buffer.
+    int i = 0;
+    for (; i < 60; ++i) {
+        deque->append(PartObjectWithRef(i));
+        dequeUnused->append(PartObjectWithRef(i));
+    }
+
+    EXPECT_EQ(60u, deque->size());
+    i = 0;
+    for (const PartObjectWithRef& part : *deque) {
+        EXPECT_EQ(i, part.value());
+        i++;
+    }
+
+    // Remove most of the queued objects and have the buffer's start index
+    // 'point' somewhere into the buffer, just behind the end index.
+    for (i = 0; i < 50; ++i)
+        deque->takeFirst();
+
+    EXPECT_EQ(10u, deque->size());
+    i = 0;
+    for (const PartObjectWithRef& part : *deque) {
+        EXPECT_EQ(50 + i, part.value());
+        i++;
+    }
+
+    // Append even more, eventually causing an expansion of the underlying
+    // buffer once the end index wraps around and reaches the start index.
+    for (i = 0; i < 70; ++i)
+        deque->append(PartObjectWithRef(60 + i));
+
+    // Verify that the final buffer expansion copied the start and end segments
+    // of the old buffer to both ends of the expanded buffer, along with
+    // re-adjusting both start&end indices in terms of that expanded buffer.
+    EXPECT_EQ(80u, deque->size());
+    i = 0;
+    for (const PartObjectWithRef& part : *deque) {
+        EXPECT_EQ(i + 50, part.value());
+        i++;
+    }
+
+    for (i = 0; i < 70; ++i)
+        deque->append(PartObjectWithRef(130 + i));
+
+    EXPECT_EQ(150u, deque->size());
+    i = 0;
+    for (const PartObjectWithRef& part : *deque) {
+        EXPECT_EQ(i + 50, part.value());
+        i++;
+    }
+}
+
+TEST(HeapTest, HeapVectorPartObjects)
+{
+    HeapVector<PartObjectWithRef> vector1;
+    HeapVector<PartObjectWithRef> vector2;
+
+    for (int i = 0; i < 10; ++i) {
+        vector1.append(PartObjectWithRef(i));
+        vector2.append(PartObjectWithRef(i));
+    }
+
+    vector1.reserveCapacity(150);
+    EXPECT_LE(150u, vector1.capacity());
+    EXPECT_EQ(10u, vector1.size());
+
+    vector2.reserveCapacity(100);
+    EXPECT_LE(100u, vector2.capacity());
+    EXPECT_EQ(10u, vector2.size());
+
+    for (int i = 0; i < 4; ++i) {
+        vector1.append(PartObjectWithRef(10 + i));
+        vector2.append(PartObjectWithRef(10 + i));
+        vector2.append(PartObjectWithRef(10 + i));
+    }
+
+    // Shrinking heap vector backing stores always succeeds,
+    // so these two will not currently exercise the code path
+    // where shrinking causes copying into a new, small buffer.
+    vector2.shrinkToReasonableCapacity();
+    EXPECT_EQ(18u, vector2.size());
+
+    vector1.shrinkToReasonableCapacity();
+    EXPECT_EQ(14u, vector1.size());
 }
 
 namespace {

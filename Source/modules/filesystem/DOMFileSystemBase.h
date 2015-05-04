@@ -31,6 +31,7 @@
 #ifndef DOMFileSystemBase_h
 #define DOMFileSystemBase_h
 
+#include "modules/ModulesExport.h"
 #include "modules/filesystem/FileSystemFlags.h"
 #include "platform/FileSystemType.h"
 #include "platform/heap/Handle.h"
@@ -57,7 +58,7 @@ class SecurityOrigin;
 class VoidCallback;
 
 // A common base class for DOMFileSystem and DOMFileSystemSync.
-class DOMFileSystemBase : public GarbageCollectedFinalized<DOMFileSystemBase> {
+class MODULES_EXPORT DOMFileSystemBase : public GarbageCollectedFinalized<DOMFileSystemBase> {
 public:
     enum SynchronousType {
         Synchronous,
@@ -85,7 +86,7 @@ public:
     const String& name() const { return m_name; }
     FileSystemType type() const { return m_type; }
     KURL rootURL() const { return m_filesystemRootURL; }
-    blink::WebFileSystem* fileSystem() const;
+    WebFileSystem* fileSystem() const;
     SecurityOrigin* securityOrigin() const;
 
     // The clonable flag is used in the structured clone algorithm to test

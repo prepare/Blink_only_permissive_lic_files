@@ -60,9 +60,9 @@ bool AXMenuListPopup::isEnabled() const
     return m_parent->isEnabled();
 }
 
-bool AXMenuListPopup::computeAccessibilityIsIgnored() const
+bool AXMenuListPopup::computeAccessibilityIsIgnored(IgnoredReasons* ignoredReasons) const
 {
-    return accessibilityIsIgnoredByDefault();
+    return accessibilityIsIgnoredByDefault(ignoredReasons);
 }
 
 AXMenuListOption* AXMenuListPopup::menuListOptionAXObject(HTMLElement* element) const
@@ -84,11 +84,11 @@ int AXMenuListPopup::getSelectedIndex() const
     if (!m_parent)
         return -1;
 
-    Node* selectNode = m_parent->node();
-    if (!selectNode)
+    Node* parentNode = m_parent->node();
+    if (!isHTMLSelectElement(parentNode))
         return -1;
 
-    HTMLSelectElement* htmlSelectElement = toHTMLSelectElement(selectNode);
+    HTMLSelectElement* htmlSelectElement = toHTMLSelectElement(parentNode);
     return htmlSelectElement->selectedIndex();
 }
 
@@ -106,11 +106,11 @@ void AXMenuListPopup::addChildren()
     if (!m_parent)
         return;
 
-    Node* selectNode = m_parent->node();
-    if (!selectNode)
+    Node* parentNode = m_parent->node();
+    if (!isHTMLSelectElement(parentNode))
         return;
 
-    HTMLSelectElement* htmlSelectElement = toHTMLSelectElement(selectNode);
+    HTMLSelectElement* htmlSelectElement = toHTMLSelectElement(parentNode);
     m_haveChildren = true;
 
     if (m_activeIndex == -1)

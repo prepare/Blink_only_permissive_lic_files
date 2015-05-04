@@ -61,8 +61,11 @@ void ContentLayerDelegate::paintContents(
     if (UNLIKELY(!annotationsEnabled))
         annotationsEnabled = EventTracer::getTraceCategoryEnabledFlag(TRACE_DISABLED_BY_DEFAULT("blink.graphics_context_annotations"));
 
-    OwnPtr<GraphicsContext> context = GraphicsContext::deprecatedCreateWithCanvas(canvas,
-        paintingControl == WebContentLayerClient::DisplayListConstructionDisabled ? GraphicsContext::FullyDisabled : GraphicsContext::NothingDisabled);
+    GraphicsContext::DisabledMode disabledMode = GraphicsContext::NothingDisabled;
+    if (paintingControl == WebContentLayerClient::DisplayListPaintingDisabled
+        || paintingControl == WebContentLayerClient::DisplayListConstructionDisabled)
+        disabledMode = GraphicsContext::FullyDisabled;
+    OwnPtr<GraphicsContext> context = GraphicsContext::deprecatedCreateWithCanvas(canvas, disabledMode);
     if (*annotationsEnabled)
         context->setAnnotationMode(AnnotateAll);
 
@@ -81,12 +84,19 @@ void ContentLayerDelegate::paintContents(
 
     DisplayItemList* displayItemList = m_painter->displayItemList();
     ASSERT(displayItemList);
+    displayItemList->setDisplayItemConstructionIsDisabled(
+        paintingControl == WebContentLayerClient::DisplayListConstructionDisabled);
 
-    if (paintingControl == WebContentLayerClient::DisplayListCachingDisabled)
+    // We also disable caching when Painting or Construction are disabled. In both cases we would like
+    // to compare assuming the full cost of recording, not the cost of re-using cached content.
+    if (paintingControl != WebContentLayerClient::PaintDefaultBehavior)
         displayItemList->invalidateAll();
 
-    GraphicsContext context(displayItemList,
-        paintingControl == WebContentLayerClient::DisplayListConstructionDisabled ? GraphicsContext::FullyDisabled : GraphicsContext::NothingDisabled);
+    GraphicsContext::DisabledMode disabledMode = GraphicsContext::NothingDisabled;
+    if (paintingControl == WebContentLayerClient::DisplayListPaintingDisabled
+        || paintingControl == WebContentLayerClient::DisplayListConstructionDisabled)
+        disabledMode = GraphicsContext::FullyDisabled;
+    GraphicsContext context(displayItemList, disabledMode);
     if (*annotationsEnabled)
         context.setAnnotationMode(AnnotateAll);
 
@@ -94,7 +104,7 @@ void ContentLayerDelegate::paintContents(
 
     displayItemList->commitNewDisplayItems();
 
-    const DisplayItems& paintList = m_painter->displayItemList()->displayItems();
+    const DisplayItems& paintList = displayItemList->displayItems();
     for (DisplayItems::const_iterator it = paintList.begin(); it != paintList.end(); ++it)
         (*it)->appendToWebDisplayItemList(webDisplayItemList);
 }

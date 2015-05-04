@@ -5,13 +5,11 @@
 #include "config.h"
 #include "core/paint/SVGFilterPainter.h"
 
-#include "core/layout/PaintInfo.h"
 #include "core/layout/svg/LayoutSVGResourceFilter.h"
-
 #include "core/paint/CompositingRecorder.h"
+#include "core/paint/LayoutObjectDrawingRecorder.h"
 #include "core/paint/TransformRecorder.h"
 #include "platform/graphics/filters/SkiaImageFilterBuilder.h"
-#include "platform/graphics/filters/SourceAlpha.h"
 #include "platform/graphics/filters/SourceGraphic.h"
 #include "platform/graphics/paint/CompositingDisplayItem.h"
 #include "platform/graphics/paint/DisplayItemList.h"
@@ -29,9 +27,10 @@ static GraphicsContext* beginRecordingContent(GraphicsContext* context, FilterDa
         filterData->m_displayItemList = DisplayItemList::create();
         filterData->m_context = adoptPtr(new GraphicsContext(filterData->m_displayItemList.get()));
         context = filterData->m_context.get();
+    } else {
+        context->beginRecording(filterData->filter->filterRegion());
     }
 
-    context->beginRecording(filterData->boundaries);
     filterData->m_state = FilterData::RecordingContent;
     return context;
 }
@@ -49,8 +48,9 @@ static void endRecordingContent(GraphicsContext* context, FilterData* filterData
     if (RuntimeEnabledFeatures::slimmingPaintEnabled()) {
         ASSERT(filterData->m_displayItemList);
         ASSERT(filterData->m_context);
-        filterData->m_displayItemList->commitNewDisplayItemsAndReplay(*filterData->m_context);
         context = filterData->m_context.get();
+        context->beginRecording(filterData->filter->filterRegion());
+        filterData->m_displayItemList->commitNewDisplayItemsAndReplay(*context);
     }
 
     sourceGraphic->setPicture(context->endRecording());
@@ -67,14 +67,13 @@ static void endRecordingContent(GraphicsContext* context, FilterData* filterData
 static void paintFilteredContent(GraphicsContext* context, FilterData* filterData, SVGFilterElement* filterElement)
 {
     ASSERT(filterData->m_state == FilterData::ReadyToPaint);
+    ASSERT(filterData->builder->getEffectById(SourceGraphic::effectName()));
+
     filterData->m_state = FilterData::PaintingFilter;
 
-    SkiaImageFilterBuilder builder(context);
-    SourceGraphic* sourceGraphic = static_cast<SourceGraphic*>(filterData->builder->getEffectById(SourceGraphic::effectName()));
-    ASSERT(sourceGraphic);
-    builder.setSourceGraphic(sourceGraphic);
+    SkiaImageFilterBuilder builder;
     RefPtr<SkImageFilter> imageFilter = builder.build(filterData->builder->lastEffect(), ColorSpaceDeviceRGB);
-    FloatRect boundaries = filterData->boundaries;
+    FloatRect boundaries = filterData->filter->filterRegion();
     context->save();
 
     // Clip drawing of filtered image to the minimum required paint rect.
@@ -133,6 +132,9 @@ GraphicsContext* SVGFilterPainter::prepareEffect(LayoutObject& object, GraphicsC
         if (filterData->m_state == FilterData::PaintingFilter)
             filterData->m_state = FilterData::PaintingFilterCycleDetected;
 
+        if (filterData->m_state == FilterData::RecordingContent)
+            filterData->m_state = FilterData::RecordingContentCycleDetected;
+
         return nullptr;
     }
 
@@ -140,15 +142,15 @@ GraphicsContext* SVGFilterPainter::prepareEffect(LayoutObject& object, GraphicsC
     FloatRect targetBoundingBox = object.objectBoundingBox();
 
     SVGFilterElement* filterElement = toSVGFilterElement(m_filter.element());
-    filterData->boundaries = SVGLengthContext::resolveRectangle<SVGFilterElement>(filterElement, filterElement->filterUnits()->currentValue()->enumValue(), targetBoundingBox);
-    if (filterData->boundaries.isEmpty())
+    FloatRect filterRegion = SVGLengthContext::resolveRectangle<SVGFilterElement>(filterElement, filterElement->filterUnits()->currentValue()->enumValue(), targetBoundingBox);
+    if (filterRegion.isEmpty())
         return nullptr;
 
     // Create the SVGFilter object.
     FloatRect drawingRegion = object.strokeBoundingBox();
-    drawingRegion.intersect(filterData->boundaries);
+    drawingRegion.intersect(filterRegion);
     bool primitiveBoundingBoxMode = filterElement->primitiveUnits()->currentValue()->enumValue() == SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX;
-    filterData->filter = SVGFilter::create(enclosingIntRect(drawingRegion), targetBoundingBox, filterData->boundaries, primitiveBoundingBoxMode);
+    filterData->filter = SVGFilter::create(enclosingIntRect(drawingRegion), targetBoundingBox, filterRegion, primitiveBoundingBoxMode);
 
     // Create all relevant filter primitives.
     filterData->builder = m_filter.buildPrimitives(filterData->filter.get());
@@ -171,23 +173,27 @@ void SVGFilterPainter::finishEffect(LayoutObject& object, GraphicsContext* conte
     ASSERT(context);
 
     FilterData* filterData = m_filter.getFilterDataForLayoutObject(&object);
-    if (!filterData)
-        return;
+    if (filterData) {
+        // A painting cycle can occur when an FeImage references a source that
+        // makes use of the FeImage itself. This is the first place we would hit
+        // the cycle so we reset the state and continue.
+        if (filterData->m_state == FilterData::PaintingFilterCycleDetected)
+            filterData->m_state = FilterData::PaintingFilter;
 
-    // A painting cycle can occur when an FeImage references a source that makes
-    // use of the FeImage itself. This is the first place we would hit the
-    // cycle so we reset the state and continue.
-    if (filterData->m_state == FilterData::PaintingFilterCycleDetected) {
-        filterData->m_state = FilterData::PaintingFilter;
-        return;
+        // Check for RecordingContent here because we may can be re-painting
+        // without re-recording the contents to be filtered.
+        if (filterData->m_state == FilterData::RecordingContent)
+            endRecordingContent(context, filterData);
+
+        if (filterData->m_state == FilterData::RecordingContentCycleDetected)
+            filterData->m_state = FilterData::RecordingContent;
     }
 
-    // Check for RecordingContent here because we may can be re-painting without
-    // re-recording the contents to be filtered.
-    if (filterData->m_state == FilterData::RecordingContent)
-        endRecordingContent(context, filterData);
+    LayoutObjectDrawingRecorder recorder(*context, object, DisplayItem::SVGFilter, LayoutRect::infiniteIntRect());
+    if (recorder.canUseCachedDrawing())
+        return;
 
-    if (filterData->m_state == FilterData::ReadyToPaint)
+    if (filterData && filterData->m_state == FilterData::ReadyToPaint)
         paintFilteredContent(context, filterData, toSVGFilterElement(m_filter.element()));
 }
 

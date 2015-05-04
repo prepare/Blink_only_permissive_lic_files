@@ -64,20 +64,14 @@ ScriptProcessorHandler::ScriptProcessorHandler(AudioNode& node, float sampleRate
     initialize();
 }
 
-ScriptProcessorHandler* ScriptProcessorHandler::create(AudioNode& node, float sampleRate, size_t bufferSize, unsigned numberOfInputChannels, unsigned numberOfOutputChannels)
+PassRefPtr<ScriptProcessorHandler> ScriptProcessorHandler::create(AudioNode& node, float sampleRate, size_t bufferSize, unsigned numberOfInputChannels, unsigned numberOfOutputChannels)
 {
-    return new ScriptProcessorHandler(node, sampleRate, bufferSize, numberOfInputChannels, numberOfOutputChannels);
+    return adoptRef(new ScriptProcessorHandler(node, sampleRate, bufferSize, numberOfInputChannels, numberOfOutputChannels));
 }
 
 ScriptProcessorHandler::~ScriptProcessorHandler()
 {
-    ASSERT(!isInitialized());
-}
-
-void ScriptProcessorHandler::dispose()
-{
     uninitialize();
-    AudioHandler::dispose();
 }
 
 void ScriptProcessorHandler::initialize()
@@ -100,17 +94,6 @@ void ScriptProcessorHandler::initialize()
     AudioHandler::initialize();
 }
 
-void ScriptProcessorHandler::uninitialize()
-{
-    if (!isInitialized())
-        return;
-
-    m_inputBuffers.clear();
-    m_outputBuffers.clear();
-
-    AudioHandler::uninitialize();
-}
-
 void ScriptProcessorHandler::process(size_t framesToProcess)
 {
     // Discussion about inputs and outputs:
@@ -120,8 +103,8 @@ void ScriptProcessorHandler::process(size_t framesToProcess)
     // The JavaScript code is the consumer of inputBuffer and the producer for outputBuffer.
 
     // Get input and output busses.
-    AudioBus* inputBus = this->input(0)->bus();
-    AudioBus* outputBus = this->output(0)->bus();
+    AudioBus* inputBus = input(0).bus();
+    AudioBus* outputBus = output(0).bus();
 
     // Get input and output buffers. We double-buffer both the input and output sides.
     unsigned doubleBufferIndex = this->doubleBufferIndex();
@@ -185,7 +168,7 @@ void ScriptProcessorHandler::process(size_t framesToProcess)
         } else if (context()->executionContext()) {
             // Fire the event on the main thread, not this one (which is the realtime audio thread).
             m_doubleBufferIndexForEvent = m_doubleBufferIndex;
-            context()->executionContext()->postTask(FROM_HERE, createCrossThreadTask(&ScriptProcessorHandler::fireProcessEvent, this));
+            context()->executionContext()->postTask(FROM_HERE, createCrossThreadTask(&ScriptProcessorHandler::fireProcessEvent, PassRefPtr<ScriptProcessorHandler>(this)));
         }
 
         swapBuffers();
@@ -208,7 +191,7 @@ void ScriptProcessorHandler::fireProcessEvent()
         return;
 
     // Avoid firing the event if the document has already gone away.
-    if (context()->executionContext()) {
+    if (node() && context() && context()->executionContext()) {
         // This synchronizes with process().
         MutexLocker processLocker(m_processEventLock);
 
@@ -253,13 +236,6 @@ void ScriptProcessorHandler::setChannelCountMode(const String& mode, ExceptionSt
             NotSupportedError,
             "channelCountMode cannot be changed from 'explicit' to '" + mode + "'");
     }
-}
-
-DEFINE_TRACE(ScriptProcessorHandler)
-{
-    visitor->trace(m_inputBuffers);
-    visitor->trace(m_outputBuffers);
-    AudioHandler::trace(visitor);
 }
 
 // ----------------------------------------------------------------

@@ -38,6 +38,7 @@
 #include "platform/graphics/GraphicsContextAnnotation.h"
 #include "platform/graphics/GraphicsContextState.h"
 #include "platform/graphics/skia/SkiaUtils.h"
+#include "third_party/skia/include/core/SkPictureRecorder.h"
 #include "third_party/skia/include/core/SkRegion.h"
 #include "wtf/FastAllocBase.h"
 #include "wtf/Forward.h"
@@ -56,7 +57,6 @@ struct SkRect;
 
 namespace blink {
 
-class ClipRecorderStack;
 class DisplayItemList;
 class ImageBuffer;
 class KURL;
@@ -74,12 +74,12 @@ public:
         FullyDisabled = 1 // Do absolutely minimal work to remove the cost of the context from performance tests.
     };
 
-    // A 0 canvas is allowed, but in such cases the context must only have canvas
-    // related commands called when within a beginRecording/endRecording block.
-    // Furthermore, save/restore calls must be balanced any time the canvas is 0.
     explicit GraphicsContext(DisplayItemList*, DisabledMode = NothingDisabled);
 
     // TODO(chrishtr): Once Slimming Paint launches this should be removed (crbug.com/471333).
+    // A 0 canvas is allowed, but in such cases the context must only have canvas
+    // related commands called when within a beginRecording/endRecording block.
+    // Furthermore, save/restore calls must be balanced any time the canvas is 0.
     static PassOwnPtr<GraphicsContext> deprecatedCreateWithCanvas(SkCanvas*, DisabledMode = NothingDisabled);
 
     ~GraphicsContext();
@@ -88,9 +88,6 @@ public:
     const SkCanvas* canvas() const { return m_canvas; }
 
     DisplayItemList* displayItemList() { return m_displayItemList; }
-
-    ClipRecorderStack* clipRecorderStack() const { return m_clipRecorderStack; }
-    void setClipRecorderStack(ClipRecorderStack* clipRecorderStack) { m_clipRecorderStack = clipRecorderStack; }
 
     void resetCanvas(SkCanvas*);
 
@@ -207,7 +204,6 @@ public:
 
     void fillRect(const FloatRect&);
     void fillRect(const FloatRect&, const Color&, SkXfermode::Mode = SkXfermode::kSrcOver_Mode);
-    void fillRoundedRect(const FloatRect&, const FloatSize& topLeft, const FloatSize& topRight, const FloatSize& bottomLeft, const FloatSize& bottomRight, const Color&);
     void fillRoundedRect(const FloatRoundedRect&, const Color&);
     void fillDRRect(const FloatRoundedRect&, const FloatRoundedRect&, const Color&);
 
@@ -366,7 +362,6 @@ private:
     void drawTextPasses(const DrawTextFunc&);
 
     static void setPathFromPoints(SkPath*, size_t, const FloatPoint*);
-    static void setRadii(SkVector*, FloatSize, FloatSize, FloatSize, FloatSize);
 
 #if OS(MACOSX)
     static inline int focusRingOutset(int offset) { return offset + 2; }
@@ -424,10 +419,12 @@ private:
     // null indicates painting is contextDisabled. Never delete this object.
     SkCanvas* m_canvas;
 
+    // This stores the canvas object used to construct the GraphicsContext, if any. It is only
+    // used when Slimming Paint is active.
+    SkCanvas* m_originalCanvas;
+
     // This being null indicates not to paint into a DisplayItemList, and instead directly into the canvas.
     DisplayItemList* m_displayItemList;
-
-    ClipRecorderStack* m_clipRecorderStack;
 
     // Paint states stack. Enables local drawing state change with save()/restore() calls.
     // This state controls the appearance of drawn content.
@@ -440,7 +437,9 @@ private:
 
     AnnotationModeFlags m_annotationMode;
 
+    // Only used when Slimming Paint is off. When it is on, m_pictureRecorder is used instead.
     Vector<OwnPtr<RecordingState>> m_recordingStateStack;
+    SkPictureRecorder m_pictureRecorder;
 
 #if ENABLE(ASSERT)
     unsigned m_layerCount;

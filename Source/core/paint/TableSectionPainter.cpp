@@ -9,11 +9,11 @@
 #include "core/layout/LayoutTableCell.h"
 #include "core/layout/LayoutTableCol.h"
 #include "core/layout/LayoutTableRow.h"
-#include "core/layout/PaintInfo.h"
 #include "core/paint/BoxClipper.h"
 #include "core/paint/GraphicsContextAnnotator.h"
 #include "core/paint/LayoutObjectDrawingRecorder.h"
 #include "core/paint/ObjectPainter.h"
+#include "core/paint/PaintInfo.h"
 #include "core/paint/TableCellPainter.h"
 #include "core/paint/TableRowPainter.h"
 
@@ -93,7 +93,7 @@ void TableSectionPainter::paintObject(const PaintInfo& paintInfo, const LayoutPo
             } else {
                 // Draw the dirty cells in the order that they appear.
                 for (unsigned r = dirtiedRows.start(); r < dirtiedRows.end(); r++) {
-                    LayoutTableRow* row = m_layoutTableSection.rowRendererAt(r);
+                    LayoutTableRow* row = m_layoutTableSection.rowLayoutObjectAt(r);
                     if (row && !row->hasSelfPaintingLayer())
                         TableRowPainter(*row).paintOutlineForRowIfNeeded(paintInfo, paintOffset);
                     for (unsigned c = dirtiedColumns.start(); c < dirtiedColumns.end(); c++) {
@@ -120,7 +120,7 @@ void TableSectionPainter::paintObject(const PaintInfo& paintInfo, const LayoutPo
             HashSet<LayoutTableCell*> spanningCells;
 
             for (unsigned r = dirtiedRows.start(); r < dirtiedRows.end(); r++) {
-                LayoutTableRow* row = m_layoutTableSection.rowRendererAt(r);
+                LayoutTableRow* row = m_layoutTableSection.rowLayoutObjectAt(r);
                 if (row && !row->hasSelfPaintingLayer())
                     TableRowPainter(*row).paintOutlineForRowIfNeeded(paintInfo, paintOffset);
                 for (unsigned c = dirtiedColumns.start(); c < dirtiedColumns.end(); c++) {

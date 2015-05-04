@@ -49,19 +49,19 @@ WebInspector.SearchableView = function(searchable, settingName)
     this._footerElementContainer = this.contentElement.createChild("div", "search-bar hidden");
     this._footerElementContainer.style.order = 100;
 
-    var toolbar = new WebInspector.StatusBar(this._footerElementContainer);
+    var toolbar = new WebInspector.Toolbar(this._footerElementContainer);
     toolbar.makeNarrow();
 
     if (this._searchProvider.supportsCaseSensitiveSearch()) {
-        this._caseSensitiveButton = new WebInspector.StatusBarTextButton(WebInspector.UIString("Case sensitive"), "case-sensitive-search-status-bar-item", "Aa", 2);
+        this._caseSensitiveButton = new WebInspector.ToolbarTextButton(WebInspector.UIString("Case sensitive"), "case-sensitive-search-toolbar-item", "Aa", 2);
         this._caseSensitiveButton.addEventListener("click", this._toggleCaseSensitiveSearch, this);
-        toolbar.appendStatusBarItem(this._caseSensitiveButton);
+        toolbar.appendToolbarItem(this._caseSensitiveButton);
     }
 
     if (this._searchProvider.supportsRegexSearch()) {
-        this._regexButton = new WebInspector.StatusBarTextButton(WebInspector.UIString("Regex"), "regex-search-status-bar-item", ".*", 2);
+        this._regexButton = new WebInspector.ToolbarTextButton(WebInspector.UIString("Regex"), "regex-search-toolbar-item", ".*", 2);
         this._regexButton.addEventListener("click", this._toggleRegexSearch, this);
-        toolbar.appendStatusBarItem(this._regexButton);
+        toolbar.appendToolbarItem(this._regexButton);
     }
 
     this._footerElement = this._footerElementContainer.createChild("table", "toolbar-search");
@@ -245,7 +245,7 @@ WebInspector.SearchableView.prototype = {
             if (element)
                 return element;
         }
-        return WebInspector.View.prototype.defaultFocusedElement.call(this);
+        return WebInspector.Widget.prototype.defaultFocusedElement.call(this);
     },
 
     /**
@@ -286,6 +286,14 @@ WebInspector.SearchableView.prototype = {
     setMinimalSearchQuerySize: function(minimalSearchQuerySize)
     {
         this._minimalSearchQuerySize = minimalSearchQuerySize;
+    },
+
+    /**
+     * @param {string} placeholder
+     */
+    setPlaceholder: function(placeholder)
+    {
+        this._searchInputElement.placeholder = placeholder;
     },
 
     /**
@@ -614,11 +622,15 @@ WebInspector.SearchableView.prototype = {
         /** @type {!WebInspector.Replaceable} */ (this._searchProvider).replaceAllWith(searchConfig, this._replaceInputElement.value);
     },
 
+    /**
+     * @param {!Event} event
+     */
     _onInput: function(event)
     {
         if (this._valueChangedTimeoutId)
             clearTimeout(this._valueChangedTimeoutId);
-        this._valueChangedTimeoutId = setTimeout(this._onValueChanged.bind(this), 200);
+        var timeout = this._searchInputElement.value.length < 3 ? 200 : 0;
+        this._valueChangedTimeoutId = setTimeout(this._onValueChanged.bind(this), timeout);
     },
 
     _onValueChanged: function()

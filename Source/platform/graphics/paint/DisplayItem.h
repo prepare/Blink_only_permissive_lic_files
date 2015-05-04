@@ -60,6 +60,7 @@ public:
         ColumnRules,
         DebugRedFill,
         DragImage,
+        SVGImage,
         LinkHighlight,
         PageOverlay,
         PageWidgetDelegateBackgroundFallback,
@@ -85,6 +86,7 @@ public:
         ScrollbarVertical, // For ScrollbarThemeMacNonOverlayAPI only.
         SelectionGap,
         SelectionTint,
+        TableCellBackgroundFromSelfPaintingRow, // FIXME: To be deprecated.
         VideoBitmap,
         WebPlugin,
         DrawingLast = WebPlugin,
@@ -146,6 +148,10 @@ public:
         EndTransform,
         BeginClipPath,
         EndClipPath,
+        BeginFixedPosition,
+        EndFixedPosition,
+        BeginFixedPositionContainer,
+        EndFixedPositionContainer,
 
         SubtreeCachedFirst,
         SubtreeCachedPaintPhaseFirst = SubtreeCachedFirst,

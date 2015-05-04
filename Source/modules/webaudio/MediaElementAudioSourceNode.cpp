@@ -26,7 +26,10 @@
 #if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/MediaElementAudioSourceNode.h"
 
+#include "core/dom/CrossThreadTask.h"
+#include "core/frame/ConsoleTypes.h"
 #include "core/html/HTMLMediaElement.h"
+#include "core/inspector/ConsoleMessage.h"
 #include "modules/webaudio/AudioContext.h"
 #include "modules/webaudio/AudioNodeOutput.h"
 #include "platform/Logging.h"
@@ -44,6 +47,8 @@ MediaElementAudioSourceHandler::MediaElementAudioSourceHandler(AudioNode& node, 
     , m_sourceNumberOfChannels(0)
     , m_sourceSampleRate(0)
     , m_passesCurrentSrcCORSAccessCheck(passesCurrentSrcCORSAccessCheck(mediaElement.currentSrc()))
+    , m_maybePrintCORSMessage(!m_passesCurrentSrcCORSAccessCheck)
+    , m_currentSrcString(mediaElement.currentSrc().string())
 {
     ASSERT(isMainThread());
     // Default to stereo. This could change depending on what the media element
@@ -53,21 +58,19 @@ MediaElementAudioSourceHandler::MediaElementAudioSourceHandler(AudioNode& node, 
     initialize();
 }
 
-MediaElementAudioSourceHandler* MediaElementAudioSourceHandler::create(AudioNode& node, HTMLMediaElement& mediaElement)
+PassRefPtr<MediaElementAudioSourceHandler> MediaElementAudioSourceHandler::create(AudioNode& node, HTMLMediaElement& mediaElement)
 {
-    return new MediaElementAudioSourceHandler(node, mediaElement);
+    return adoptRef(new MediaElementAudioSourceHandler(node, mediaElement));
 }
 
 MediaElementAudioSourceHandler::~MediaElementAudioSourceHandler()
 {
-    ASSERT(!isInitialized());
-    ASSERT(isMainThread());
+    uninitialize();
 }
 
 void MediaElementAudioSourceHandler::dispose()
 {
     m_mediaElement->setAudioSourceNode(nullptr);
-    uninitialize();
     AudioHandler::dispose();
 }
 
@@ -101,7 +104,7 @@ void MediaElementAudioSourceHandler::setFormat(size_t numberOfChannels, float so
             AudioContext::AutoLocker contextLocker(context());
 
             // Do any necesssary re-configuration to the output's number of channels.
-            output(0)->setNumberOfChannels(numberOfChannels);
+            output(0).setNumberOfChannels(numberOfChannels);
         }
     }
 }
@@ -122,6 +125,12 @@ void MediaElementAudioSourceHandler::onCurrentSrcChanged(const KURL& currentSrc)
     Locker<MediaElementAudioSourceHandler> locker(*this);
 
     m_passesCurrentSrcCORSAccessCheck = passesCurrentSrcCORSAccessCheck(currentSrc);
+
+    // Make a note if we need to print a console message and save the |curentSrc| for use in the
+    // message.  Need to wait until later to print the message in case HTMLMediaElement allows
+    // access.
+    m_maybePrintCORSMessage = !m_passesCurrentSrcCORSAccessCheck;
+    m_currentSrcString = currentSrc.string();
 }
 
 bool MediaElementAudioSourceHandler::passesCurrentSrcCORSAccessCheck(const KURL& currentSrc)
@@ -130,9 +139,16 @@ bool MediaElementAudioSourceHandler::passesCurrentSrcCORSAccessCheck(const KURL&
     return context()->securityOrigin() && context()->securityOrigin()->canRequest(currentSrc);
 }
 
+void MediaElementAudioSourceHandler::printCORSMessage(const String& message)
+{
+    context()->executionContext()->addConsoleMessage(
+        ConsoleMessage::create(SecurityMessageSource, InfoMessageLevel,
+            "MediaElementAudioSource outputs zeroes due to CORS access restrictions for " + message));
+}
+
 void MediaElementAudioSourceHandler::process(size_t numberOfFrames)
 {
-    AudioBus* outputBus = output(0)->bus();
+    AudioBus* outputBus = output(0).bus();
 
     if (!mediaElement() || !m_sourceNumberOfChannels || !m_sourceSampleRate) {
         outputBus->zero();
@@ -157,6 +173,15 @@ void MediaElementAudioSourceHandler::process(size_t numberOfFrames)
             }
             // Output silence if we don't have access to the element.
             if (!passesCORSAccessCheck()) {
+                if (m_maybePrintCORSMessage) {
+                    // Print a CORS message, but just once for each change in the current media
+                    // element source.
+                    m_maybePrintCORSMessage = false;
+                    context()->executionContext()->postTask(FROM_HERE,
+                        createCrossThreadTask(&MediaElementAudioSourceHandler::printCORSMessage,
+                            this,
+                            m_currentSrcString));
+                }
                 outputBus->zero();
             }
         } else {
@@ -178,12 +203,6 @@ void MediaElementAudioSourceHandler::lock()
 void MediaElementAudioSourceHandler::unlock()
 {
     m_processLock.unlock();
-}
-
-DEFINE_TRACE(MediaElementAudioSourceHandler)
-{
-    visitor->trace(m_mediaElement);
-    AudioHandler::trace(visitor);
 }
 
 // ----------------------------------------------------------------

@@ -58,20 +58,14 @@ OscillatorHandler::OscillatorHandler(AudioNode& node, float sampleRate, AudioPar
     initialize();
 }
 
-OscillatorHandler* OscillatorHandler::create(AudioNode& node, float sampleRate, AudioParamHandler& frequency, AudioParamHandler& detune)
+PassRefPtr<OscillatorHandler> OscillatorHandler::create(AudioNode& node, float sampleRate, AudioParamHandler& frequency, AudioParamHandler& detune)
 {
-    return new OscillatorHandler(node, sampleRate, frequency, detune);
+    return adoptRef(new OscillatorHandler(node, sampleRate, frequency, detune));
 }
 
 OscillatorHandler::~OscillatorHandler()
 {
-    ASSERT(!isInitialized());
-}
-
-void OscillatorHandler::dispose()
-{
     uninitialize();
-    AudioScheduledSourceHandler::dispose();
 }
 
 String OscillatorHandler::type() const
@@ -211,7 +205,7 @@ bool OscillatorHandler::calculateSampleAccuratePhaseIncrements(size_t framesToPr
 
 void OscillatorHandler::process(size_t framesToProcess)
 {
-    AudioBus* outputBus = output(0)->bus();
+    AudioBus* outputBus = output(0).bus();
 
     if (!isInitialized() || !outputBus->numberOfChannels()) {
         outputBus->zero();
@@ -335,12 +329,6 @@ void OscillatorHandler::setPeriodicWave(PeriodicWave* periodicWave)
 bool OscillatorHandler::propagatesSilence() const
 {
     return !isPlayingOrScheduled() || hasFinished() || !m_periodicWave.get();
-}
-
-DEFINE_TRACE(OscillatorHandler)
-{
-    visitor->trace(m_periodicWave);
-    AudioScheduledSourceHandler::trace(visitor);
 }
 
 // ----------------------------------------------------------------

@@ -43,7 +43,6 @@
         "RequestView.js",
         "NetworkDataGridNode.js",
         "NetworkItemView.js",
-        "NetworkFilmStripView.js",
         "NetworkTimeCalculator.js",
         "NetworkLogView.js",
         "NetworkOverview.js",
@@ -58,9 +57,8 @@
         "NetworkPanel.js",
         "XMLView.js"
     ],
-    "stylesheets": [
+    "resources": [
         "eventSourceMessagesView.css",
-        "networkFilmStripView.css",
         "networkLogView.css",
         "networkPanel.css",
         "requestCookiesView.css",

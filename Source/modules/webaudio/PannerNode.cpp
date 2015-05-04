@@ -47,6 +47,7 @@ static void fixNANs(double& x)
 
 PannerHandler::PannerHandler(AudioNode& node, float sampleRate)
     : AudioHandler(NodeTypePanner, node, sampleRate)
+    , m_listener(node.context()->listener())
     , m_panningModel(Panner::PanningModelEqualPower)
     , m_distanceModel(DistanceEffect::ModelInverse)
     , m_position(0, 0, 0)
@@ -76,32 +77,26 @@ PannerHandler::PannerHandler(AudioNode& node, float sampleRate)
     initialize();
 }
 
-PannerHandler* PannerHandler::create(AudioNode& node, float sampleRate)
+PassRefPtr<PannerHandler> PannerHandler::create(AudioNode& node, float sampleRate)
 {
-    return new PannerHandler(node, sampleRate);
+    return adoptRef(new PannerHandler(node, sampleRate));
 }
 
 PannerHandler::~PannerHandler()
 {
-    ASSERT(!isInitialized());
-}
-
-void PannerHandler::dispose()
-{
     uninitialize();
-    AudioHandler::dispose();
 }
 
 void PannerHandler::process(size_t framesToProcess)
 {
-    AudioBus* destination = output(0)->bus();
+    AudioBus* destination = output(0).bus();
 
-    if (!isInitialized() || !input(0)->isConnected() || !m_panner.get()) {
+    if (!isInitialized() || !input(0).isConnected() || !m_panner.get()) {
         destination->zero();
         return;
     }
 
-    AudioBus* source = input(0)->bus();
+    AudioBus* source = input(0).bus();
     if (!source) {
         destination->zero();
         return;
@@ -151,7 +146,7 @@ void PannerHandler::initialize()
         return;
 
     m_panner = Panner::create(m_panningModel, sampleRate(), listener()->hrtfDatabaseLoader());
-    listener()->addPanner(this);
+    listener()->addPanner(*this);
 
     AudioHandler::initialize();
 }
@@ -162,14 +157,14 @@ void PannerHandler::uninitialize()
         return;
 
     m_panner.clear();
-    listener()->removePanner(this);
+    listener()->removePanner(*this);
 
     AudioHandler::uninitialize();
 }
 
 AudioListener* PannerHandler::listener()
 {
-    return context()->listener();
+    return m_listener;
 }
 
 String PannerHandler::panningModel() const
@@ -389,9 +384,8 @@ void PannerHandler::calculateAzimuthElevation(double* outAzimuth, double* outEle
     float upProjection = sourceListener.dot(up);
 
     FloatPoint3D projectedSource = sourceListener - upProjection * up;
-    projectedSource.normalize();
 
-    azimuth = 180.0 * acos(projectedSource.dot(listenerRight)) / piDouble;
+    azimuth = rad2deg(projectedSource.angleBetween(listenerRight));
     fixNANs(azimuth); // avoid illegal values
 
     // Source  in front or behind the listener
@@ -406,7 +400,7 @@ void PannerHandler::calculateAzimuthElevation(double* outAzimuth, double* outEle
         azimuth = 450.0 - azimuth;
 
     // Elevation
-    double elevation = 90.0 - 180.0 * acos(sourceListener.dot(up)) / piDouble;
+    double elevation = 90 - rad2deg(sourceListener.angleBetween(up));
     fixNANs(elevation); // avoid illegal values
 
     if (elevation > 90.0)
@@ -583,7 +577,7 @@ void PannerHandler::setChannelCountMode(const String& mode, ExceptionState& exce
     }
 
     if (m_newChannelCountMode != oldMode)
-        context()->handler().addChangedChannelCountMode(this);
+        context()->deferredTaskHandler().addChangedChannelCountMode(this);
 }
 
 // ----------------------------------------------------------------

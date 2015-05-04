@@ -58,26 +58,25 @@ ChannelMergerHandler::ChannelMergerHandler(AudioNode& node, float sampleRate, un
     initialize();
 }
 
-ChannelMergerHandler* ChannelMergerHandler::create(AudioNode& node, float sampleRate, unsigned numberOfInputs)
+PassRefPtr<ChannelMergerHandler> ChannelMergerHandler::create(AudioNode& node, float sampleRate, unsigned numberOfInputs)
 {
-    return new ChannelMergerHandler(node, sampleRate, numberOfInputs);
+    return adoptRef(new ChannelMergerHandler(node, sampleRate, numberOfInputs));
 }
 
 void ChannelMergerHandler::process(size_t framesToProcess)
 {
-    AudioNodeOutput* output = this->output(0);
-    ASSERT(output);
-    ASSERT_UNUSED(framesToProcess, framesToProcess == output->bus()->length());
+    AudioNodeOutput& output = this->output(0);
+    ASSERT_UNUSED(framesToProcess, framesToProcess == output.bus()->length());
 
-    unsigned numberOfOutputChannels = output->numberOfChannels();
+    unsigned numberOfOutputChannels = output.numberOfChannels();
     ASSERT(numberOfInputs() == numberOfOutputChannels);
 
     // Merge multiple inputs into one output.
     for (unsigned i = 0; i < numberOfOutputChannels; ++i) {
-        AudioNodeInput* input = this->input(i);
-        ASSERT(input->numberOfChannels() == 1);
-        AudioChannel* outputChannel = output->bus()->channel(i);
-        if (input->isConnected()) {
+        AudioNodeInput& input = this->input(i);
+        ASSERT(input.numberOfChannels() == 1);
+        AudioChannel* outputChannel = output.bus()->channel(i);
+        if (input.isConnected()) {
 
             // The mixing rules will be applied so multiple channels are down-
             // mixed to mono (when the mixing rule is defined). Note that only
@@ -85,7 +84,7 @@ void ChannelMergerHandler::process(size_t framesToProcess)
             // layout.
             //
             // See: http://webaudio.github.io/web-audio-api/#channel-up-mixing-and-down-mixing
-            AudioChannel* inputChannel = input->bus()->channel(0);
+            AudioChannel* inputChannel = input.bus()->channel(0);
             outputChannel->copyFrom(inputChannel);
 
         } else {
